@@ -11,12 +11,12 @@ import { randomUUID } from 'node:crypto';
 import { eq, and, asc, inArray, sql } from 'drizzle-orm';
 import { REDIS_KEYS } from '@tracearr/shared';
 import { loadRuntime } from './bootstrap.ts';
-import { serverUsers } from '../../src/db/schema.ts';
 
 export const {
   db,
   users,
   servers,
+  serverUsers,
   automationRuns,
   authAccounts,
   authSessions,
