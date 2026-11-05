@@ -504,7 +504,7 @@ export async function purgeChannelsDvrCommand(): Promise<PurgeChannelsDvrResult>
       .from(servers)
       .where(eq(servers.type, 'channels_dvr'));
 
-    const serverIds = channelsDvrServers.map((server) => server.id);
+    const serverIds = channelsDvrServers.map((server: { id: string }) => server.id);
     if (serverIds.length > 0) {
       // automation_runs.server_id intentionally has no FK, so delete these
       // rows before server cascades remove scoped automations and their versions.
