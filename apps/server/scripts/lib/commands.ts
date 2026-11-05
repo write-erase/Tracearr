@@ -513,7 +513,7 @@ export async function purgeChannelsDvrCommand(): Promise<PurgeChannelsDvrResult>
       .selectDistinct({ id: serverUsers.userId })
       .from(serverUsers)
       .where(inArray(serverUsers.serverId, serverIds));
-    const affectedUserIds = affectedIdentities.map((identity) => identity.id);
+    const affectedUserIds = affectedIdentities.map((identity: { id: string }) => identity.id);
 
     // automation_runs.server_id intentionally has no FK, so delete these
     // rows before server cascades remove scoped automations and their versions.
