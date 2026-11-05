@@ -96,6 +96,7 @@ export async function loadRuntime() {
     migrationFolders: migrationPathsModule.migrationFolders,
     users: schema.users,
     servers: schema.servers,
+    serverUsers: schema.serverUsers,
     automationRuns: schema.automationRuns,
     authAccounts: schema.authAccounts,
     authSessions: schema.authSessions,
