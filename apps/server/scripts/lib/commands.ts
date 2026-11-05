@@ -12,7 +12,6 @@ import { eq, and, asc, inArray, sql } from 'drizzle-orm';
 import { REDIS_KEYS } from '@tracearr/shared';
 import { loadRuntime } from './bootstrap.ts';
 import { serverUsers } from '../../src/db/schema.ts';
-import { recomputeIdentityAggregates } from '../../src/services/userService.ts';
 
 export const {
   db,
@@ -509,19 +508,12 @@ export async function purgeChannelsDvrCommand(): Promise<PurgeChannelsDvrResult>
     const serverIds = channelsDvrServers.map((server: { id: string }) => server.id);
     if (serverIds.length === 0) return [];
 
-    // Capture affected identities before the server-user cascade removes their accounts.
-    // Their aggregate trust and violation totals must then be recalculated from
-    // the accounts that remain on other media servers.
+    // Capture identities before the server-user cascade removes their accounts.
     const affectedIdentities = await tx
-      .select({
-        id: users.id,
-        firstJoinedAt: users.firstJoinedAt,
-        lastActivityAt: users.lastActivityAt,
-      })
-      .from(users)
-      .innerJoin(serverUsers, eq(serverUsers.userId, users.id))
-      .where(inArray(serverUsers.serverId, serverIds))
-      .groupBy(users.id);
+      .selectDistinct({ id: serverUsers.userId })
+      .from(serverUsers)
+      .where(inArray(serverUsers.serverId, serverIds));
+    const affectedUserIds = affectedIdentities.map((identity) => identity.id);
 
     // automation_runs.server_id intentionally has no FK, so delete these
     // rows before server cascades remove scoped automations and their versions.
@@ -532,19 +524,39 @@ export async function purgeChannelsDvrCommand(): Promise<PurgeChannelsDvrResult>
       .where(eq(servers.type, 'channels_dvr'))
       .returning({ id: servers.id, name: servers.name, url: servers.url });
 
-    const affectedUserIds = affectedIdentities.map((identity) => identity.id);
-    await recomputeIdentityAggregates(affectedUserIds, tx);
-
-    // Account removal must not erase identity-level historical dates. The
-    // aggregate helper also recalculates dates, so restore the pre-purge values.
-    for (const identity of affectedIdentities) {
-      await tx
-        .update(users)
-        .set({
-          firstJoinedAt: identity.firstJoinedAt,
-          lastActivityAt: identity.lastActivityAt,
-        })
-        .where(eq(users.id, identity.id));
+    // Recalculate only the two cached security aggregates. Keep identity-level
+    // historical dates unchanged when a media-server account is removed.
+    if (affectedUserIds.length > 0) {
+      await tx.execute(sql`
+        UPDATE ${users} AS u SET
+          aggregate_trust_score = coalesce(a.trust, 100),
+          total_violations = coalesce(v.count, 0),
+          updated_at = now()
+        FROM (
+          SELECT ${users.id} AS user_id,
+            coalesce(
+              min(${serverUsers.trustScore}) filter (where ${serverUsers.removedAt} is null),
+              min(${serverUsers.trustScore})
+            ) AS trust
+          FROM ${users}
+          LEFT JOIN ${serverUsers} ON ${serverUsers.userId} = ${users.id}
+          WHERE ${inArray(users.id, affectedUserIds)}
+          GROUP BY ${users.id}
+        ) AS a
+        LEFT JOIN (
+          SELECT ${serverUsers.userId} AS user_id, count(*)::int AS count
+          FROM ${automationRuns}
+          INNER JOIN ${serverUsers} ON ${automationRuns.serverUserId} = ${serverUsers.id}
+          WHERE ${and(
+            inArray(serverUsers.userId, affectedUserIds),
+            sql`${automationRuns.dismissedAt} IS NULL`,
+            eq(automationRuns.kind, 'policy'),
+            eq(automationRuns.outcome, 'completed')
+          )}
+          GROUP BY ${serverUsers.userId}
+        ) AS v ON v.user_id = a.user_id
+        WHERE u.id = a.user_id
+      `);
     }
 
     return deleted;
