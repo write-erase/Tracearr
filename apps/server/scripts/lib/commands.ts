@@ -11,6 +11,8 @@ import { randomUUID } from 'node:crypto';
 import { eq, and, asc, inArray, sql } from 'drizzle-orm';
 import { REDIS_KEYS } from '@tracearr/shared';
 import { loadRuntime } from './bootstrap.ts';
+import { serverUsers } from '../../src/db/schema.ts';
+import { recomputeIdentityAggregates } from '../../src/services/userService.ts';
 
 export const {
   db,
@@ -505,16 +507,47 @@ export async function purgeChannelsDvrCommand(): Promise<PurgeChannelsDvrResult>
       .where(eq(servers.type, 'channels_dvr'));
 
     const serverIds = channelsDvrServers.map((server: { id: string }) => server.id);
-    if (serverIds.length > 0) {
-      // automation_runs.server_id intentionally has no FK, so delete these
-      // rows before server cascades remove scoped automations and their versions.
-      await tx.delete(automationRuns).where(inArray(automationRuns.serverId, serverIds));
-    }
+    if (serverIds.length === 0) return [];
 
-    return tx
+    // Capture affected identities before the server-user cascade removes their accounts.
+    // Their aggregate trust and violation totals must then be recalculated from
+    // the accounts that remain on other media servers.
+    const affectedIdentities = await tx
+      .select({
+        id: users.id,
+        firstJoinedAt: users.firstJoinedAt,
+        lastActivityAt: users.lastActivityAt,
+      })
+      .from(users)
+      .innerJoin(serverUsers, eq(serverUsers.userId, users.id))
+      .where(inArray(serverUsers.serverId, serverIds))
+      .groupBy(users.id);
+
+    // automation_runs.server_id intentionally has no FK, so delete these
+    // rows before server cascades remove scoped automations and their versions.
+    await tx.delete(automationRuns).where(inArray(automationRuns.serverId, serverIds));
+
+    const deleted = await tx
       .delete(servers)
       .where(eq(servers.type, 'channels_dvr'))
       .returning({ id: servers.id, name: servers.name, url: servers.url });
+
+    const affectedUserIds = affectedIdentities.map((identity) => identity.id);
+    await recomputeIdentityAggregates(affectedUserIds, tx);
+
+    // Account removal must not erase identity-level historical dates. The
+    // aggregate helper also recalculates dates, so restore the pre-purge values.
+    for (const identity of affectedIdentities) {
+      await tx
+        .update(users)
+        .set({
+          firstJoinedAt: identity.firstJoinedAt,
+          lastActivityAt: identity.lastActivityAt,
+        })
+        .where(eq(users.id, identity.id));
+    }
+
+    return deleted;
   });
 
   let redisWarning: string | null = null;
