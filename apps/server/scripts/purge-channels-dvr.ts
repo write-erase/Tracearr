@@ -63,7 +63,7 @@ async function main(): Promise<void> {
     console.log('This will permanently delete all Channels DVR servers and their server-scoped data.');
     console.log(
       'Deleted data includes Channels DVR sessions, server users, locations, library rows, ' +
-        'server-scoped automation runs, termination logs, downloads, and related Redis cache entries.'
+        'server-scoped automations and runs, termination logs, downloads, and related Redis cache entries.'
     );
     console.log(
       'Shared Tracearr identities, other media servers, and unrelated server data will be preserved.'
