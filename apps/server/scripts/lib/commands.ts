@@ -8,7 +8,7 @@
  */
 
 import { randomUUID } from 'node:crypto';
-import { eq, and, asc, sql } from 'drizzle-orm';
+import { eq, and, asc, inArray, sql } from 'drizzle-orm';
 import { REDIS_KEYS } from '@tracearr/shared';
 import { loadRuntime } from './bootstrap.ts';
 
@@ -16,6 +16,7 @@ export const {
   db,
   users,
   servers,
+  automationRuns,
   authAccounts,
   authSessions,
   plexAccounts,
@@ -398,6 +399,132 @@ async function cleanupDispatcharrRedis(serverIds: string[]): Promise<void> {
   if (keysToDelete.size > 0) {
     await redis.del(...keysToDelete);
   }
+}
+
+
+export interface PurgedChannelsDvrServer {
+  id: string;
+  name: string;
+  url: string;
+}
+
+export interface PurgeChannelsDvrResult {
+  servers: PurgedChannelsDvrServer[];
+  redisWarning: string | null;
+}
+
+export async function listChannelsDvrServers(): Promise<PurgedChannelsDvrServer[]> {
+  return db
+    .select({ id: servers.id, name: servers.name, url: servers.url })
+    .from(servers)
+    .where(eq(servers.type, 'channels_dvr'))
+    .orderBy(asc(servers.createdAt));
+}
+
+async function cleanupChannelsDvrRedis(serverIds: string[]): Promise<void> {
+  if (serverIds.length === 0) return;
+
+  const redis = getRedis();
+  const serverIdSet = new Set(serverIds);
+  const keysToDelete = new Set<string>(
+    serverIds.flatMap((serverId) => [
+      REDIS_KEYS.SERVER_HEALTH(serverId),
+      REDIS_KEYS.SERVER_HEALTH_FAIL_COUNT(serverId),
+      REDIS_KEYS.SERVER_CONNECTION(serverId),
+      REDIS_KEYS.SERVER_STATS_SAMPLES(serverId),
+      REDIS_KEYS.SERVER_STATS_CHANNELS_DVR_FETCH(serverId),
+    ])
+  );
+
+  const activeIds = (await redis.smembers(REDIS_KEYS.ACTIVE_SESSION_IDS)) as string[];
+  if (activeIds.length > 0) {
+    const sessionKeys = activeIds.map((id) => REDIS_KEYS.SESSION_BY_ID(id));
+    const sessionPayloads = await redis.mget(...sessionKeys);
+    const activeIdsToRemove: string[] = [];
+
+    for (let i = 0; i < activeIds.length; i++) {
+      const payload = sessionPayloads[i];
+      if (!payload) continue;
+      try {
+        const session = JSON.parse(payload) as { serverId?: string };
+        if (session.serverId && serverIdSet.has(session.serverId)) {
+          activeIdsToRemove.push(activeIds[i]!);
+          keysToDelete.add(sessionKeys[i]!);
+        }
+      } catch {
+        // Malformed cache entries are ignored; TTL will clear them.
+      }
+    }
+
+    if (activeIdsToRemove.length > 0) {
+      await redis.srem(REDIS_KEYS.ACTIVE_SESSION_IDS, ...activeIdsToRemove);
+    }
+  }
+
+  const legacyActiveSessions = await redis.get(REDIS_KEYS.ACTIVE_SESSIONS);
+  if (legacyActiveSessions) {
+    try {
+      const sessions = JSON.parse(legacyActiveSessions) as Array<{ serverId?: string }>;
+      const retained = sessions.filter((session) => !serverIdSet.has(session.serverId ?? ''));
+      if (retained.length > 0) {
+        await redis.set(REDIS_KEYS.ACTIVE_SESSIONS, JSON.stringify(retained), 'KEEPTTL');
+      } else {
+        keysToDelete.add(REDIS_KEYS.ACTIVE_SESSIONS);
+      }
+    } catch {
+      keysToDelete.add(REDIS_KEYS.ACTIVE_SESSIONS);
+    }
+  }
+
+  const pendingMembers = (await redis.smembers(REDIS_KEYS.PENDING_SESSION_IDS)) as string[];
+  const pendingMembersToRemove = pendingMembers.filter((member) => {
+    const [serverId] = member.split(':');
+    return serverIdSet.has(serverId ?? '');
+  });
+  for (const member of pendingMembersToRemove) {
+    const [serverId, ...sessionKeyParts] = member.split(':');
+    const sessionKey = sessionKeyParts.join(':');
+    if (serverId && sessionKey) {
+      keysToDelete.add(REDIS_KEYS.PENDING_SESSION(serverId, sessionKey));
+    }
+  }
+  if (pendingMembersToRemove.length > 0) {
+    await redis.srem(REDIS_KEYS.PENDING_SESSION_IDS, ...pendingMembersToRemove);
+  }
+
+  if (keysToDelete.size > 0) {
+    await redis.del(...keysToDelete);
+  }
+}
+
+export async function purgeChannelsDvrCommand(): Promise<PurgeChannelsDvrResult> {
+  const deletedServers = await db.transaction(async (tx: typeof db) => {
+    const deleted = await tx
+      .delete(servers)
+      .where(eq(servers.type, 'channels_dvr'))
+      .returning({ id: servers.id, name: servers.name, url: servers.url });
+
+    const serverIds = deleted.map((server) => server.id);
+    if (serverIds.length > 0) {
+      // automation_runs.server_id intentionally has no FK, so server deletion
+      // cannot cascade these server-scoped records.
+      await tx.delete(automationRuns).where(inArray(automationRuns.serverId, serverIds));
+    }
+
+    return deleted;
+  });
+
+  let redisWarning: string | null = null;
+  try {
+    await cleanupChannelsDvrRedis(
+      (deletedServers as PurgedChannelsDvrServer[]).map((server) => server.id)
+    );
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    redisWarning = `Redis cleanup failed after database purge: ${reason}`;
+  }
+
+  return { servers: deletedServers as PurgedChannelsDvrServer[], redisWarning };
 }
 
 export async function purgeDispatcharrCommand(): Promise<PurgeDispatcharrResult> {
