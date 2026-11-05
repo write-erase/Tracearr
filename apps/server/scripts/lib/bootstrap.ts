@@ -96,6 +96,7 @@ export async function loadRuntime() {
     migrationFolders: migrationPathsModule.migrationFolders,
     users: schema.users,
     servers: schema.servers,
+    automationRuns: schema.automationRuns,
     authAccounts: schema.authAccounts,
     authSessions: schema.authSessions,
     plexAccounts: schema.plexAccounts,
