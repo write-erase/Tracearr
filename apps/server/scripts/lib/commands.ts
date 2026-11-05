@@ -473,7 +473,11 @@ async function cleanupChannelsDvrRedis(serverIds: string[]): Promise<void> {
         keysToDelete.add(REDIS_KEYS.ACTIVE_SESSIONS);
       }
     } catch {
-      keysToDelete.add(REDIS_KEYS.ACTIVE_SESSIONS);
+      // This is a shared legacy index. Never delete it when its contents
+      // cannot be parsed, because it may still contain other integrations.
+      console.warn(
+        'Skipping malformed legacy active-session cache; leaving the shared key untouched.'
+      );
     }
   }
 
@@ -498,12 +502,25 @@ async function cleanupChannelsDvrRedis(serverIds: string[]): Promise<void> {
   }
 }
 
-export async function purgeChannelsDvrCommand(): Promise<PurgeChannelsDvrResult> {
+export async function purgeChannelsDvrCommand(
+  confirmedServerIds: string[]
+): Promise<PurgeChannelsDvrResult> {
+  // The caller passes the exact IDs shown to the operator before confirmation.
+  // Re-check their type inside the transaction so stale IDs or IDs belonging
+  // to another integration can never be deleted.
+  const requestedServerIds = [...new Set(confirmedServerIds)];
   const deletedServers = await db.transaction(async (tx: typeof db) => {
+    if (requestedServerIds.length === 0) return [];
+
     const channelsDvrServers = await tx
       .select({ id: servers.id })
       .from(servers)
-      .where(eq(servers.type, 'channels_dvr'));
+      .where(
+        and(
+          inArray(servers.id, requestedServerIds),
+          eq(servers.type, 'channels_dvr')
+        )
+      );
 
     const serverIds = channelsDvrServers.map((server: { id: string }) => server.id);
     if (serverIds.length === 0) return [];
@@ -521,7 +538,12 @@ export async function purgeChannelsDvrCommand(): Promise<PurgeChannelsDvrResult>
 
     const deleted = await tx
       .delete(servers)
-      .where(eq(servers.type, 'channels_dvr'))
+      .where(
+        and(
+          inArray(servers.id, serverIds),
+          eq(servers.type, 'channels_dvr')
+        )
+      )
       .returning({ id: servers.id, name: servers.name, url: servers.url });
 
     // Recalculate only the two cached security aggregates. Keep identity-level
