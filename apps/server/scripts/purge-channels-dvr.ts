@@ -55,7 +55,6 @@ async function main(): Promise<void> {
     const channelsDvrServers = await listChannelsDvrServers();
 
     if (channelsDvrServers.length === 0) {
-      await purgeChannelsDvrCommand();
       console.log('No Channels DVR servers found. No database changes were necessary.\n');
       return;
     }
@@ -87,11 +86,11 @@ async function main(): Promise<void> {
       console.log();
     }
 
-    const result = await purgeChannelsDvrCommand();
+    const result = await purgeChannelsDvrCommand(channelsDvrServers.map((server) => server.id));
     console.log(`Deleted ${result.servers.length} Channels DVR server(s).`);
     if (result.redisWarning) {
       console.warn(`WARNING: ${result.redisWarning}`);
-      console.warn('Database purge succeeded; stale Redis entries should expire automatically.');
+      console.warn('The database purge succeeded, but some Redis cache entries may remain until refreshed or expired.');
     }
     console.log('Stop this forked container before starting the official Tracearr image.\n');
   } catch (error) {
