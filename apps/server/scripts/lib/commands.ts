@@ -499,19 +499,22 @@ async function cleanupChannelsDvrRedis(serverIds: string[]): Promise<void> {
 
 export async function purgeChannelsDvrCommand(): Promise<PurgeChannelsDvrResult> {
   const deletedServers = await db.transaction(async (tx: typeof db) => {
-    const deleted = await tx
-      .delete(servers)
-      .where(eq(servers.type, 'channels_dvr'))
-      .returning({ id: servers.id, name: servers.name, url: servers.url });
+    const channelsDvrServers = await tx
+      .select({ id: servers.id })
+      .from(servers)
+      .where(eq(servers.type, 'channels_dvr'));
 
-    const serverIds = deleted.map((server) => server.id);
+    const serverIds = channelsDvrServers.map((server) => server.id);
     if (serverIds.length > 0) {
-      // automation_runs.server_id intentionally has no FK, so server deletion
-      // cannot cascade these server-scoped records.
+      // automation_runs.server_id intentionally has no FK, so delete these
+      // rows before server cascades remove scoped automations and their versions.
       await tx.delete(automationRuns).where(inArray(automationRuns.serverId, serverIds));
     }
 
-    return deleted;
+    return tx
+      .delete(servers)
+      .where(eq(servers.type, 'channels_dvr'))
+      .returning({ id: servers.id, name: servers.name, url: servers.url });
   });
 
   let redisWarning: string | null = null;
