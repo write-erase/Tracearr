@@ -48,7 +48,7 @@ describe('admin cli commands', () => {
         ADD COLUMN IF NOT EXISTS "progress_estimated" boolean DEFAULT false NOT NULL,
         ADD COLUMN IF NOT EXISTS "dispatcharr_user_agent" text
     `);
-    await getRedis().flushall();
+    await getRedis().flushdb();
   });
 
   afterAll(async () => {
