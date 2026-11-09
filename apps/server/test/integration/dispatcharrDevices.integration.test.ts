@@ -134,6 +134,11 @@ describe('Dispatcharr devices on TimescaleDB', () => {
         serverIds: [],
       } as typeof request.user;
     });
+    app.decorate('requireOwner', async (request, reply) => {
+      if (request.user.role !== 'owner') {
+        return reply.forbidden('Owner access required');
+      }
+    });
     app.decorate('requirePermission', permissionGuard(app));
     await app.register(sessionRoutes, { prefix: '/sessions' });
     await app.register(locationsRoutes, { prefix: '/stats' });

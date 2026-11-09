@@ -940,6 +940,9 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
       todayPlays: stats.todayPlays,
       todaySessions: stats.todaySessions,
       watchTimeHours: stats.watchTimeHours,
+      tvSessions: stats.tvSessions,
+      tvChannels: stats.tvChannels,
+      tvWatchTimeHours: stats.tvWatchTimeHours,
       alertsLast24h: stats.alertsLast24h,
       activeUsersToday: stats.activeUsersToday,
     };
