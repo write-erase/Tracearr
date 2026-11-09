@@ -2,7 +2,7 @@
  * Server management routes - CRUD for Plex/Jellyfin/Emby servers
  */
 
-import type { FastifyPluginAsync } from 'fastify';
+import type { FastifyPluginAsync, FastifyReply } from 'fastify';
 import { eq, inArray, and, isNull } from 'drizzle-orm';
 import {
   createServerSchema,
@@ -14,6 +14,7 @@ import {
   PUBLIC_URL_PLEX_MESSAGE,
   type ServerConnectionStatus,
   type ServerDownReason,
+  type ServerType,
 } from '@tracearr/shared';
 import { db } from '../db/client.js';
 import { servers, plexAccounts, serverUsers, users } from '../db/schema.js';
@@ -60,88 +61,44 @@ function normalizeDispatcharrAuth(input: {
     : token;
 }
 
-function getFirstRow<T>(rows: T[]): T | null {
-  return rows[0] ?? null;
-}
+async function verifyServerAdmin(type: ServerType, token: string, url: string) {
+  if (type === 'plex') return PlexClient.verifyServerAdmin(token, url);
+  if (type === 'jellyfin') return JellyfinClient.verifyServerAdmin(token, url);
+  if (type === 'emby') return EmbyClient.verifyServerAdmin(token, url);
 
-async function verifyServerAccess(params: {
-  type: 'plex' | 'jellyfin' | 'emby' | 'dispatcharr' | 'channels_dvr';
-  token: string;
-  url: string;
-}): Promise<
-  | { ok: true }
-  | {
-      ok: false;
-      statusCode: number;
-      message: string;
-    }
-> {
-  const { type, token, url } = params;
-
-  if (type === 'plex') {
-    const adminCheck = await PlexClient.verifyServerAdmin(token, url);
-    if (!adminCheck.success) {
-      return {
-        ok: false,
-        statusCode: adminCheck.code === PlexClient.AdminVerifyError.CONNECTION_FAILED ? 503 : 403,
-        message: adminCheck.message,
-      };
-    }
-    return { ok: true };
-  }
-
-  if (type === 'jellyfin') {
-    const adminCheck = await JellyfinClient.verifyServerAdmin(token, url);
-    if (!adminCheck.success) {
-      return {
-        ok: false,
-        statusCode:
-          adminCheck.code === JellyfinClient.AdminVerifyError.CONNECTION_FAILED
-            ? 503
-            : adminCheck.code === JellyfinClient.AdminVerifyError.INVALID_KEY
-              ? 400
-              : 403,
-        message: adminCheck.message,
-      };
-    }
-    return { ok: true };
-  }
-
-  if (type === 'emby') {
-    const adminCheck = await EmbyClient.verifyServerAdmin(token, url);
-    return adminCheck.success
-      ? { ok: true }
-      : {
-          ok: false,
-          statusCode:
-            adminCheck.code === EmbyClient.AdminVerifyError.CONNECTION_FAILED
-              ? 503
-              : adminCheck.code === EmbyClient.AdminVerifyError.INVALID_KEY
-                ? 400
-                : 403,
-          message: adminCheck.message,
-        };
-  }
-
+  // Dispatcharr and Channels DVR report no error codes, so a failure is treated as
+  // "could not connect", which replyAdminCheckFailure maps to 503 like d4rk's code did.
   if (type === 'channels_dvr') {
     const reachable = await new ChannelsDvrClient({ url, token }).testConnection();
     return reachable
-      ? { ok: true }
+      ? { success: true as const }
       : {
-          ok: false,
-          statusCode: 503,
-          message: 'Could not read the Channels DVR /dvr status. Check the URL and port (default 8089).',
+          success: false as const,
+          code: JellyfinClient.AdminVerifyError.CONNECTION_FAILED,
+          message:
+            'Could not read the Channels DVR /dvr status. Check the URL and port (default 8089).',
         };
   }
 
-  const adminCheck = await DispatcharrClient.verifyServerAdmin(token, url);
-  return adminCheck.success
-    ? { ok: true }
+  const check = await DispatcharrClient.verifyServerAdmin(token, url);
+  return check.success
+    ? { success: true as const }
     : {
-        ok: false,
-        statusCode: 503,
-        message: adminCheck.message,
+        success: false as const,
+        code: JellyfinClient.AdminVerifyError.CONNECTION_FAILED,
+        message: check.message,
       };
+}
+
+// Plex never reports INVALID_KEY, so one mapping serves all server types.
+function replyAdminCheckFailure(reply: FastifyReply, check: { code: string; message: string }) {
+  if (check.code === JellyfinClient.AdminVerifyError.CONNECTION_FAILED) {
+    return reply.serviceUnavailable(check.message);
+  }
+  if (check.code === JellyfinClient.AdminVerifyError.INVALID_KEY) {
+    return reply.badRequest(check.message);
+  }
+  return reply.forbidden(check.message);
 }
 
 export const serverRoutes: FastifyPluginAsync = async (app) => {
@@ -249,51 +206,42 @@ export const serverRoutes: FastifyPluginAsync = async (app) => {
 
     // Normalize auth payload (Dispatcharr can use API key/JWT token OR username+password)
     const normalizedToken = normalizeDispatcharrAuth({ type, token, username, password });
-
     if (!normalizedToken) {
       return reply.badRequest('Missing authentication credentials');
     }
 
-    // For Plex servers, find the owning plex account to set plexAccountId
-    let plexAccountId: string | undefined;
-
-    // Verify the server connection
+    let adminCheck: Awaited<ReturnType<typeof verifyServerAdmin>>;
     try {
-      const accessCheck = await verifyServerAccess({ type, token: normalizedToken, url });
-      if (!accessCheck.ok) {
-        if (accessCheck.statusCode === 503)
-          return await reply.serviceUnavailable(accessCheck.message);
-        if (accessCheck.statusCode === 400) return await reply.badRequest(accessCheck.message);
-        return await reply.forbidden(accessCheck.message);
-      }
-
-      if (type === 'plex') {
-        // Get the Plex account ID from the token and link to user's plex_accounts
-        try {
-          const accountInfo = await PlexClient.getAccountInfo(normalizedToken);
-          const matchingAccount = await db
-            .select({ id: plexAccounts.id })
-            .from(plexAccounts)
-            .where(
-              and(
-                eq(plexAccounts.userId, authUser.userId),
-                eq(plexAccounts.plexAccountId, accountInfo.id)
-              )
-            )
-            .limit(1);
-
-          const matchingAccountRow = getFirstRow(matchingAccount);
-          if (matchingAccountRow) {
-            plexAccountId = matchingAccountRow.id;
-          }
-        } catch {
-          // Non-fatal: server will be orphaned but auto-repair can fix it later
-          app.log.debug('Could not link Plex server to account at creation time');
-        }
-      }
+      adminCheck = await verifyServerAdmin(type, normalizedToken, url);
     } catch (error) {
       app.log.error({ err: error }, 'Failed to verify server connection');
       return reply.badRequest('Failed to connect to server. Please verify URL and token.');
+    }
+    if (!adminCheck.success) return replyAdminCheckFailure(reply, adminCheck);
+
+    // For Plex servers, find the owning plex account to set plexAccountId
+    let plexAccountId: string | undefined;
+    if (type === 'plex') {
+      try {
+        const accountInfo = await PlexClient.getAccountInfo(normalizedToken);
+        const matchingAccount = await db
+          .select({ id: plexAccounts.id })
+          .from(plexAccounts)
+          .where(
+            and(
+              eq(plexAccounts.userId, authUser.userId),
+              eq(plexAccounts.plexAccountId, accountInfo.id)
+            )
+          )
+          .limit(1);
+
+        if (matchingAccount.length > 0) {
+          plexAccountId = matchingAccount[0]!.id;
+        }
+      } catch {
+        // Non-fatal: server will be orphaned but auto-repair can fix it later
+        app.log.debug('Could not link Plex server to account at creation time');
+      }
     }
 
     // Auto-assign a color based on server type and already-used colors
@@ -511,27 +459,18 @@ export const serverRoutes: FastifyPluginAsync = async (app) => {
             'Please select a connection for the correct server.'
         );
       }
+
+      const token = verifiedToken as string;
+      let adminCheck: Awaited<ReturnType<typeof verifyServerAdmin>>;
       try {
-        const accessCheck = await verifyServerAccess({
-          type: server.type,
-          token: verifiedToken as string,
-          url: effectiveUrl,
-        });
-        if (!accessCheck.ok) {
-          if (accessCheck.statusCode === 503)
-            return await reply.serviceUnavailable(accessCheck.message);
-          if (accessCheck.statusCode === 400) return await reply.badRequest(accessCheck.message);
-          return await reply.forbidden(accessCheck.message);
-        }
+        adminCheck = await verifyServerAdmin(server.type, token, effectiveUrl);
       } catch (error) {
-        app.log.error(
-          { err: error, serverId: id, newUrl: effectiveUrl },
-          'Failed to verify updated server configuration'
-        );
+        app.log.error({ err: error, serverId: id, url: effectiveUrl }, 'Failed to verify server');
         return reply.badRequest(
-          'Failed to connect to server with updated configuration. Please verify the settings.'
+          'Failed to connect to the server. Please verify the URL and API key are correct.'
         );
       }
+      if (!adminCheck.success) return replyAdminCheckFailure(reply, adminCheck);
 
       // Dispatcharr does not expose a stable server identity; retain its verified auth flow.
       if (server.type !== 'dispatcharr') {
@@ -541,7 +480,7 @@ export const serverRoutes: FastifyPluginAsync = async (app) => {
           id,
           type: server.type,
           url: effectiveUrl,
-          token: verifiedToken as string,
+          token,
         }).catch((error: unknown) => {
           app.log.error(
             { err: error, serverId: id, url: effectiveUrl },
@@ -563,7 +502,7 @@ export const serverRoutes: FastifyPluginAsync = async (app) => {
             id,
             type: server.type,
             url: effectiveUrl,
-            token: verifiedToken as string,
+            token,
           }).catch((error: unknown) => {
             app.log.error(
               { err: error, serverId: id, url: effectiveUrl },

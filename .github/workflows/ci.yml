@@ -33,7 +33,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
-          node-version: 24
+          node-version: 26
           cache: 'pnpm'
 
       - name: Cache Turborepo
@@ -82,7 +82,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
-          node-version: 24
+          node-version: 26
           cache: 'pnpm'
 
       - name: Cache Turborepo
@@ -128,7 +128,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
-          node-version: 24
+          node-version: 26
           cache: 'pnpm'
 
       - name: Cache Turborepo
@@ -148,6 +148,98 @@ jobs:
 
       - name: Run web tests
         run: pnpm --filter @tracearr/web test --shard=${{ matrix.shard }}/2
+
+  # Integration tests require real database - run separately from unit tests
+  test-integration:
+    name: Test (integration, ${{ matrix.db.label }}, ${{ matrix.part.name }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        db:
+          # Floor matches the supervised bundle (PG15 + last 2.28.x); tip
+          # matches the current example compose. Both must pass so users who
+          # never bump their database image stay supported.
+          - label: floor-pg15-ts2.28
+            image: timescale/timescaledb:2.28.3-pg15@sha256:6343bdc87ca132c6b53acb26113a6bad1821d188fa39975a745f32ddd9757634
+          - label: tip-pg18-ts2.29
+            image: timescale/timescaledb:2.29.1-pg18@sha256:373eb0fee9c0f8e0b4b0d4e74c7d0dd463dce05de6b49982701c4b540e94cba0
+        # The catalog EXPLAIN gate seeds 500k sessions. Sharing a runner and
+        # database with the other workers it took over three minutes and set
+        # the length of the whole job; run alone it took 47 s locally. The rest
+        # is split in two because on pg15 it still took over three minutes.
+        part:
+          - name: suite 1/2
+            args: --exclude '**/catalogExplain.integration.test.ts' --shard=1/2
+          - name: suite 2/2
+            args: --exclude '**/catalogExplain.integration.test.ts' --shard=2/2
+          - name: explain gate
+            args: catalogExplain
+    env:
+      TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
+      TURBO_TEAM: ${{ vars.TURBO_TEAM }}
+      TEST_DATABASE_URL: postgresql://test:test@localhost:5433/tracearr_test
+      TEST_REDIS_URL: redis://localhost:6380
+
+    services:
+      timescale:
+        image: ${{ matrix.db.image }}
+        ports:
+          - 5433:5432
+        env:
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: tracearr_test
+          TIMESCALEDB_TELEMETRY: off
+        options: >-
+          --health-cmd "pg_isready -U test -d tracearr_test"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+
+      redis:
+        image: redis:8-alpine@sha256:21090af93f8324db2f0f0f4f38a7c60369d47d917e000c3423d89d2ae2883537
+        ports:
+          - 6380:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 5
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 2
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: 26
+          cache: 'pnpm'
+
+      - name: Cache Turborepo
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: .turbo
+          key: ${{ runner.os }}-turbo-${{ hashFiles('**/pnpm-lock.yaml') }}-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-turbo-${{ hashFiles('**/pnpm-lock.yaml') }}-
+            ${{ runner.os }}-turbo-
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build dependencies (shared, emails, test-utils)
+        run: pnpm turbo run build --filter=@tracearr/shared --filter=@tracearr/emails --filter=@tracearr/test-utils
+
+      - name: Run integration tests
+        run: pnpm --filter @tracearr/server test:integration ${{ matrix.part.args }}
 
   # Separate job for coverage reporting (runs all tests together for accurate coverage)
   # Runs in parallel with test matrix - if tests pass there, coverage will too
@@ -171,7 +263,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
-          node-version: 24
+          node-version: 26
           cache: 'pnpm'
 
       - name: Cache Turborepo
@@ -244,7 +336,7 @@ jobs:
           --health-retries 10
 
       redis:
-        image: redis:8-alpine@sha256:0bf6577d7774e592b29d093e3ac9390eb91e13d72c21e506afce736de5e0eeb0
+        image: redis:8-alpine@sha256:21090af93f8324db2f0f0f4f38a7c60369d47d917e000c3423d89d2ae2883537
         ports:
           - 6380:6379
         options: >-
@@ -265,7 +357,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
-          node-version: 24
+          node-version: 26
           cache: 'pnpm'
 
       - name: Cache Turborepo
@@ -349,7 +441,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
-          node-version: 24
+          node-version: 26
           cache: 'pnpm'
 
       - name: Cache Turborepo

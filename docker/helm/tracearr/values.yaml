@@ -25,7 +25,9 @@ tracearr:
     HOST: "0.0.0.0"
     PORT: "3000"  # containerPort, the Service targetPort and the probes all follow this
     LOG_LEVEL: info
+    # Origins other than Tracearr's own that may use a session; * only allows requests without one
     CORS_ORIGIN: "*"
+    # TRUST_PROXY: "true"  # one proxy hop; "2" for two chained proxies, or proxy IPs/CIDRs
     TZ: UTC
     # DATABASE_POOL_MAX: "50"
     # POLLER_ENABLED: "true"
@@ -188,7 +190,7 @@ redis:
 
   image:
     repository: redis
-    tag: 8-alpine@sha256:ef216d85ec44f4fdf7c0e6df2d1757a4734ed32fbb278cabd3181b5a27353b79
+    tag: 8-alpine@sha256:21090af93f8324db2f0f0f4f38a7c60369d47d917e000c3423d89d2ae2883537
     pullPolicy: IfNotPresent
 
   service:
