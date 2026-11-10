@@ -54,7 +54,7 @@ The integration monitors active sessions for Live TV and recorded content. Chann
 - `ghcr.io/write-erase/tracearr:latest` - Standalone Tracearr image with Dispatcharr and Channels DVR support, so you also need to deploy `timescale` and `redis`.
 - `ghcr.io/write-erase/tracearr:supervised-latest` - Supervised Tracearr image with Dispatcharr and Channels DVR support.
 
-The write-erase/tracearr images above are builds from the `main` branch and are published for both AMD64 and ARM64.
+The write-erase/tracearr images above are builds from the `baseline` branch and are published for both AMD64 and ARM64.
 
 **Development Docker images:**
 
