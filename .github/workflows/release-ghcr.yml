@@ -1,5 +1,5 @@
 # Personal release workflow for write-erase/Tracearr. Publishes only to ghcr.io/write-erase/tracearr.
-# Does not touch latest/dev tags (owned by fork-ghcr-branch.yml). No Docker Hub.
+# Sets latest/supervised-latest on each release. dev tags are owned by fork-ghcr-branch.yml. No Docker Hub.
 name: Release images (write-erase)
 
 on:
@@ -183,16 +183,16 @@ jobs:
             done
           done
           docker buildx imagetools create \
-            -t "$IMAGE:$FORK_VERSION" \
+            -t "$IMAGE:$FORK_VERSION" -t "$IMAGE:latest" \
             "${digests[standalone-amd64]}" "${digests[standalone-arm64]}"
           docker buildx imagetools create \
-            -t "$IMAGE:supervised-$FORK_VERSION" \
+            -t "$IMAGE:supervised-$FORK_VERSION" -t "$IMAGE:supervised-latest" \
             "${digests[supervised-amd64]}" "${digests[supervised-arm64]}"
 
       - name: Verify published platforms
         shell: bash
         run: |
-          for tag in "$FORK_VERSION" "supervised-$FORK_VERSION"; do
+          for tag in "$FORK_VERSION" "supervised-$FORK_VERSION" latest supervised-latest; do
             docker buildx imagetools inspect "$IMAGE:$tag" --raw | jq -e '
               [.manifests[].platform | select(.os == "linux") | .architecture]
               | sort | unique == ["amd64", "arm64"]'

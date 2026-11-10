@@ -1,10 +1,9 @@
 
-name: Fork branch test images
+name: Fork branch test images (dev tags)
 
 on:
   push:
     branches:
-      - baseline
       - dev
   workflow_dispatch:
 
@@ -86,8 +85,8 @@ jobs:
           platforms: linux/${{ matrix.target.arch }}
           outputs: type=image,name=${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=true
           build-args: |
-            APP_VERSION=${{ github.ref_name == 'baseline' && 'baseline' || format('v{0}', needs.prepare.outputs.build-timestamp) }}
-            APP_TAG=${{ matrix.variant.name == 'supervised' && (github.ref_name == 'baseline' && 'supervised-latest' || 'supervised-dev') || (github.ref_name == 'baseline' && 'latest' || 'dev') }}
+            APP_VERSION=${{ format('v{0}', needs.prepare.outputs.build-timestamp) }}
+            APP_TAG=${{ matrix.variant.name == 'supervised' && 'supervised-dev' || 'dev' }}
             APP_COMMIT=${{ github.sha }}
             APP_BUILD_DATE=${{ steps.metadata.outputs.build-date }}
             APP_FORK_REPO=${{ env.FORK_REPO }}
@@ -96,7 +95,7 @@ jobs:
             org.opencontainers.image.source=https://github.com/${{ env.FORK_REPO }}
             org.opencontainers.image.url=https://github.com/${{ env.FORK_REPO }}
             org.opencontainers.image.vendor=write-erase
-            org.opencontainers.image.version=${{ github.ref_name == 'baseline' && 'baseline' || format('v{0}', needs.prepare.outputs.build-timestamp) }}
+            org.opencontainers.image.version=${{ format('v{0}', needs.prepare.outputs.build-timestamp) }}
 
       - name: Save image digest
         shell: bash
@@ -155,37 +154,19 @@ jobs:
             [[ "$amd64" =~ ^sha256:[0-9a-f]{64}$ ]]
             [[ "$arm64" =~ ^sha256:[0-9a-f]{64}$ ]]
 
-            if [[ "$BRANCH_NAME" == "baseline" ]]; then
-              if [[ "$variant" == "supervised" ]]; then
-                tag="supervised-latest"
-              else
-                tag="latest"
-              fi
+            if [[ "$variant" == "supervised" ]]; then
+              tag="supervised-dev"
+              timestamp_tag="supervised-v$BUILD_TIMESTAMP"
             else
-              if [[ "$variant" == "supervised" ]]; then
-                tag="supervised-dev"
-              else
-                tag="dev"
-              fi
+              tag="dev"
+              timestamp_tag="v$BUILD_TIMESTAMP"
             fi
 
             docker buildx imagetools create \
               --tag "$IMAGE:$tag" \
+              --tag "$IMAGE:$timestamp_tag" \
               "$IMAGE@$amd64" \
               "$IMAGE@$arm64"
-
-            if [[ "$BRANCH_NAME" != "baseline" ]]; then
-              if [[ "$variant" == "supervised" ]]; then
-                timestamp_tag="supervised-v$BUILD_TIMESTAMP"
-              else
-                timestamp_tag="v$BUILD_TIMESTAMP"
-              fi
-
-              docker buildx imagetools create \
-                --tag "$IMAGE:$timestamp_tag" \
-                "$IMAGE@$amd64" \
-                "$IMAGE@$arm64"
-            fi
           done
 
       - name: Verify published architectures
@@ -194,11 +175,7 @@ jobs:
           BRANCH_NAME: ${{ github.ref_name }}
           BUILD_TIMESTAMP: ${{ needs.prepare.outputs.build-timestamp }}
         run: |
-          if [[ "$BRANCH_NAME" == "baseline" ]]; then
-            tags="latest supervised-latest"
-          else
-            tags="dev supervised-dev v$BUILD_TIMESTAMP supervised-v$BUILD_TIMESTAMP"
-          fi
+          tags="dev supervised-dev v$BUILD_TIMESTAMP supervised-v$BUILD_TIMESTAMP"
 
           for tag in $tags; do
             echo "Checking $IMAGE:$tag"
