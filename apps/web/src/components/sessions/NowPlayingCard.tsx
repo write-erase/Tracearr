@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { toast } from 'sonner';
 import { Monitor, Smartphone, Tablet, Tv, Play, Pause, Server, Subtitles, X } from 'lucide-react';
 import { getAvatarUrl } from '@/components/users/utils';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -135,6 +136,15 @@ export function NowPlayingCard({ session, onClick }: NowPlayingCardProps) {
   // (some Plex clients like Plexamp don't provide the required Session.id)
   const canTerminate = (user?.role === 'admin' || user?.role === 'owner') && session.canTerminate;
 
+  // Channels DVR stops playback by calling the Channels app on the device itself, which only
+  // works on the local network. Remote sessions get a message instead of the dialog.
+  const isChannelsDvr = session.server.type === 'channels_dvr';
+  const isRemoteChannels = isChannelsDvr && !session.isLocal;
+  const remoteNotPossible = t('pages:terminateStream.remoteNotPossible', {
+    defaultValue:
+      'Tracearr can only stop Channels DVR streams on devices within your local network.',
+  });
+
   // Use estimated progress for smooth updates between SSE/poll events
   const { estimatedProgressMs, progressPercent } = useEstimatedProgress(session);
   const isDispatcharrCatchup =
@@ -228,7 +238,8 @@ export function NowPlayingCard({ session, onClick }: NowPlayingCardProps) {
                       // A separate alpha mask leaves these pixels too bright during hover scaling.
                       'block h-auto max-h-28 w-auto max-w-20 transition-[filter]',
                       isPaused ? 'brightness-50' : 'group-hover:brightness-50',
-                      (session.mediaType !== 'live' || session.server.type === 'channels_dvr') && 'rounded-lg'
+                      (session.mediaType !== 'live' || session.server.type === 'channels_dvr') &&
+                        'rounded-lg'
                     )}
                     loading="lazy"
                   />
@@ -320,9 +331,13 @@ export function NowPlayingCard({ session, onClick }: NowPlayingCardProps) {
                     className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive h-6 w-6"
                     onClick={(e) => {
                       e.stopPropagation();
+                      if (isRemoteChannels) {
+                        toast.error(remoteNotPossible);
+                        return;
+                      }
                       setShowTerminateDialog(true);
                     }}
-                    title={t('pages:terminateStream.title')}
+                    title={isRemoteChannels ? remoteNotPossible : t('pages:terminateStream.title')}
                   >
                     <X className="h-4 w-4" />
                   </Button>
@@ -423,6 +438,8 @@ export function NowPlayingCard({ session, onClick }: NowPlayingCardProps) {
         sessionId={session.id}
         mediaTitle={title}
         username={session.user.username}
+        showMessageField={!isChannelsDvr}
+        targetIsDevice={isChannelsDvr}
       />
     </>
   );

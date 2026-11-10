@@ -2178,10 +2178,12 @@
   "terminateStream": {
     "title": "Terminate Stream",
     "stopMedia": "Stop \"{{mediaTitle}}\" for @{{username}}?",
+    "stopMediaOnDevice": "Stop \"{{mediaTitle}}\" on {{deviceName}}?",
     "messageLabel": "Message to user (optional)",
     "messagePlaceholder": "e.g., Please don't share your account",
     "messageHint": "This message will be shown to them during playback",
-    "terminating": "Terminating..."
+    "terminating": "Terminating...",
+    "remoteNotPossible": "Tracearr can only stop Channels DVR streams on devices within your local network."
   },
   "settings": {
     "plex": {

@@ -19,6 +19,10 @@ interface TerminateSessionDialogProps {
   sessionId: string;
   mediaTitle: string;
   username: string;
+  /** Hide the "message to user" field for servers that can't display it (e.g. Channels DVR) */
+  showMessageField?: boolean;
+  /** The session has no user account, only a device (e.g. Channels DVR): name the device, no @ */
+  targetIsDevice?: boolean;
 }
 
 /**
@@ -31,6 +35,8 @@ export function TerminateSessionDialog({
   sessionId,
   mediaTitle,
   username,
+  showMessageField = true,
+  targetIsDevice = false,
 }: TerminateSessionDialogProps) {
   const { t } = useTranslation(['pages', 'common']);
   const [reason, setReason] = useState('');
@@ -38,7 +44,7 @@ export function TerminateSessionDialog({
 
   const handleTerminate = () => {
     terminateSession.mutate(
-      { sessionId, reason: reason.trim() || undefined },
+      { sessionId, reason: showMessageField ? reason.trim() || undefined : undefined },
       {
         onSuccess: () => {
           setReason('');
@@ -61,20 +67,28 @@ export function TerminateSessionDialog({
         <DialogHeader>
           <DialogTitle>{t('terminateStream.title')}</DialogTitle>
           <DialogDescription>
-            {t('terminateStream.stopMedia', { mediaTitle, username })}
+            {targetIsDevice
+              ? t('terminateStream.stopMediaOnDevice', {
+                  mediaTitle,
+                  deviceName: username,
+                  defaultValue: 'Stop "{{mediaTitle}}" on {{deviceName}}?',
+                })
+              : t('terminateStream.stopMedia', { mediaTitle, username })}
           </DialogDescription>
         </DialogHeader>
-        <div className="space-y-2">
-          <Label htmlFor="reason">{t('terminateStream.messageLabel')}</Label>
-          <Input
-            id="reason"
-            value={reason}
-            onChange={(e) => setReason(e.target.value)}
-            placeholder={t('terminateStream.messagePlaceholder')}
-            maxLength={500}
-          />
-          <p className="text-muted-foreground text-xs">{t('terminateStream.messageHint')}</p>
-        </div>
+        {showMessageField && (
+          <div className="space-y-2">
+            <Label htmlFor="reason">{t('terminateStream.messageLabel')}</Label>
+            <Input
+              id="reason"
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              placeholder={t('terminateStream.messagePlaceholder')}
+              maxLength={500}
+            />
+            <p className="text-muted-foreground text-xs">{t('terminateStream.messageHint')}</p>
+          </div>
+        )}
         <DialogFooter>
           <Button
             variant="outline"

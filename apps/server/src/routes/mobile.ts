@@ -1248,7 +1248,10 @@ export const mobileRoutes: FastifyPluginAsync = async (app) => {
       }
 
       if (result.outcome === 'not_local') {
-        return reply.badRequest(result.error ?? 'Terminating a remote stream is not possible.');
+        return reply.badRequest(
+          result.error ??
+            'Tracearr can only stop Channels DVR streams on devices within your local network.'
+        );
       }
 
       if (!result.success) {

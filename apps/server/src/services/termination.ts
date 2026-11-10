@@ -52,7 +52,8 @@ export type TerminationOutcome =
   /** Channels DVR: only sessions on the local network can be stopped */
   | 'not_local';
 
-export const REMOTE_STREAM_NOT_TERMINABLE = 'Terminating a remote stream is not possible.';
+export const REMOTE_STREAM_NOT_TERMINABLE =
+  'Tracearr can only stop Channels DVR streams on devices within your local network.';
 
 export interface TerminationResult {
   success: boolean;
