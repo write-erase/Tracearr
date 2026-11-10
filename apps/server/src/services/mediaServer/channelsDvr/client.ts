@@ -51,6 +51,10 @@ export class ChannelsDvrClient implements IMediaServerClient {
   private streamLogCache: { data: string; expiresAt: number } | null = null;
   private guideRefresh: Promise<unknown> | null = null;
   private static readonly GUIDE_WAIT_TIMEOUT_MS = 1500;
+  /** Channels client app remote-control API (runs on each playback device) */
+  private static readonly CLIENT_API_PORT = 57000;
+  private static readonly CLIENT_PROBE_TIMEOUT_MS = 2000;
+  private static readonly CLIENT_STOP_TIMEOUT_MS = 5000;
 
   constructor(config: MediaServerConfig) {
     this.baseUrl = config.url.replace(/\/+$/, '');
@@ -552,8 +556,55 @@ export class ChannelsDvrClient implements IMediaServerClient {
     }
   }
 
-  terminateSession(): Promise<boolean> {
-    return Promise.reject(new Error('Channels DVR does not support terminating sessions'));
+  /**
+   * Stop playback on a Channels client app.
+   *
+   * The Channels DVR server has no "stop session" endpoint, so this goes straight to the
+   * Channels app on the playback device (`POST http://<device>:57000/api/stop`). The request
+   * comes from the Tracearr server, so the device must be reachable from it. The caller
+   * (termination service) only calls this for sessions Tracearr classifies as local.
+   *
+   * @param deviceIp - The playback device's IP address (session.ipAddress)
+   */
+  async terminateSession(deviceIp: string): Promise<boolean> {
+    const ip = normalizeClientIp(deviceIp);
+    if (!ip) {
+      throw new Error('No device IP available for this Channels session');
+    }
+    const host = ip.includes(':') ? `[${ip}]` : ip;
+    const base = `http://${host}:${ChannelsDvrClient.CLIENT_API_PORT}`;
+
+    // Reachability probe: fail fast with a clear message instead of a long stop timeout.
+    try {
+      const probe = await fetch(`${base}/api/status`, {
+        method: 'GET',
+        signal: AbortSignal.timeout(ChannelsDvrClient.CLIENT_PROBE_TIMEOUT_MS),
+      });
+      if (!probe.ok) {
+        throw new Error(`HTTP ${probe.status}`);
+      }
+    } catch {
+      throw new Error(
+        `Channels app at ${ip}:${ChannelsDvrClient.CLIENT_API_PORT} is unreachable from the Tracearr server`
+      );
+    }
+
+    let response: Response;
+    try {
+      response = await fetch(`${base}/api/stop`, {
+        method: 'POST',
+        signal: AbortSignal.timeout(ChannelsDvrClient.CLIENT_STOP_TIMEOUT_MS),
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      throw new Error(`Stop request to Channels app at ${ip} failed: ${msg}`);
+    }
+    if (!response.ok) {
+      throw new Error(
+        `Channels app at ${ip} rejected the stop request: ${response.status} ${response.statusText}`
+      );
+    }
+    return true;
   }
 
   getLibraryItems(): Promise<{ items: MediaLibraryItem[]; totalCount: number }> {

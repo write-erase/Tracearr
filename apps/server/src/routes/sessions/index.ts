@@ -464,6 +464,10 @@ export const sessionRoutes: FastifyPluginAsync = async (app) => {
       return reply.conflict('Resume this server to end its streams');
     }
 
+    if (result.outcome === 'not_local') {
+      return reply.badRequest(result.error ?? 'Terminating a remote stream is not possible.');
+    }
+
     if (!result.success) {
       app.log.error(
         { sessionId: id, error: result.error, terminationLogId: result.terminationLogId },
