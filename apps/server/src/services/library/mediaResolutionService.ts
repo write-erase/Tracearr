@@ -457,6 +457,72 @@ async function findMergedAwayIds(ids: string[]): Promise<Set<string>> {
 }
 
 // Multi-hit and lost-race inputs re-resolve under the advisory lock; keys sorted to avoid deadlock
+/** Titles agree, or one side has none (daily episodes, imports that knew only the number). */
+function episodeTitlesAgree(a: string | null | undefined, b: string | null | undefined): boolean {
+  const x = a ? normalizeTitle(a) : '';
+  const y = b ? normalizeTitle(b) : '';
+  return !x || !y || x === y;
+}
+
+/**
+ * For id-less episode inputs, the canonical episode row another server's library item holds
+ * for the same canonical show, season and episode. Only a single candidate whose title agrees
+ * counts: two servers disagreeing (different numbering orders) keep their own rows.
+ * Returns ratingKey -> media id.
+ */
+async function findEpisodesByShowNumber(inputs: MatchKeyInput[]): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  const showIds = [...new Set(inputs.map((i) => i.showMediaId).filter((v): v is string => !!v))];
+  if (showIds.length === 0) return out;
+
+  const rows = (await db.execute(sql`
+    SELECT COALESCE(sm.merged_into_id, sm.id) AS show_id,
+           e.parent_index AS season,
+           e.item_index AS episode,
+           e.server_id,
+           COALESCE(em.merged_into_id, em.id) AS media_id,
+           em.title
+    FROM library_items e
+    JOIN library_items sh
+      ON sh.server_id = e.server_id AND sh.rating_key = e.grandparent_rating_key
+     AND sh.media_type = 'show'
+    JOIN media sm ON sm.id = sh.media_id
+    JOIN media em ON em.id = e.media_id
+    WHERE e.media_type = 'episode' AND e.removed_at IS NULL AND e.media_id IS NOT NULL
+      AND COALESCE(sm.merged_into_id, sm.id) IN (${sql.join(
+        showIds.map((id) => sql`${id}::uuid`),
+        sql`, `
+      )})
+  `)) as unknown as {
+    rows: Array<{
+      show_id: string;
+      season: number | null;
+      episode: number | null;
+      server_id: string;
+      media_id: string;
+      title: string | null;
+    }>;
+  };
+
+  for (const input of inputs) {
+    const candidates = new Map<string, string | null>();
+    for (const row of rows.rows) {
+      if (
+        row.show_id === input.showMediaId &&
+        row.season === input.seasonNumber &&
+        row.episode === input.episodeNumber &&
+        row.server_id !== input.serverId
+      ) {
+        candidates.set(row.media_id, row.title);
+      }
+    }
+    if (candidates.size !== 1) continue;
+    const [[id, title]] = [...candidates.entries()] as [[string, string | null]];
+    if (episodeTitlesAgree(input.title, title)) out.set(input.ratingKey, id);
+  }
+  return out;
+}
+
 async function resolveMediaMisses(inputs: MatchKeyInput[]): Promise<Map<string, string>> {
   const out = new Map<string, string>();
   if (inputs.length === 0) return out;
@@ -474,6 +540,8 @@ async function resolveMediaMisses(inputs: MatchKeyInput[]): Promise<Map<string, 
   const titleProbeByType = new Map<string, MatchKeyInput[]>();
   const secondChanceByType = new Map<string, MatchKeyInput[]>();
   const numberKeyAdopt: MatchKeyInput[] = [];
+  // Episodes with no provider ids (Channels DVR) that can still match by show + number.
+  const idlessEpisodes: MatchKeyInput[] = [];
   const titleProbeEligible = (input: MatchKeyInput) =>
     (input.mediaType === 'movie' || input.mediaType === 'show') &&
     !!input.title &&
@@ -486,7 +554,8 @@ async function resolveMediaMisses(inputs: MatchKeyInput[]): Promise<Map<string, 
       continue;
     }
     if (!titleProbeEligible(input)) {
-      unresolved.push(input);
+      if (episodeNumberKey(input)) idlessEpisodes.push(input);
+      else unresolved.push(input);
       continue;
     }
     const group = titleProbeByType.get(input.mediaType) ?? [];
@@ -547,6 +616,18 @@ async function resolveMediaMisses(inputs: MatchKeyInput[]): Promise<Map<string, 
         ? await db.transaction((tx) => adoptNumberKeyedEpisode(tx, input))
         : undefined;
       if (adopted) out.set(input.ratingKey, adopted.id);
+      else unresolved.push(input);
+    }
+  }
+
+  // An episode with no provider ids takes the one episode another server already holds for
+  // the same show, season and episode number, so a server without ids (Channels DVR) joins
+  // the Plex/Jellyfin/Emby row instead of forking a number-keyed duplicate.
+  if (idlessEpisodes.length > 0) {
+    const matches = await findEpisodesByShowNumber(idlessEpisodes);
+    for (const input of idlessEpisodes) {
+      const id = matches.get(input.ratingKey);
+      if (id) out.set(input.ratingKey, id);
       else unresolved.push(input);
     }
   }
@@ -830,7 +911,43 @@ export async function reconcileMediaDuplicates(): Promise<number> {
   }
   merges += await reconcileSplitProviderIdRows();
   merges += await reconcileNumberKeyedEpisodes();
+  merges += await reconcileIdlessServerEpisodes();
   return merges;
+}
+
+/**
+ * A server without provider ids (Channels DVR) that synced an episode before this matching
+ * existed - or before the other server's copy - holds a number-keyed, id-less row next to the
+ * id-bearing row Plex/Jellyfin/Emby hold for the same show and number. Merge it into that row
+ * when it is the only id-bearing candidate and the titles agree. Unlike
+ * reconcileNumberKeyedEpisodes this includes rows a library item still holds; mergeMediaRows
+ * repoints them.
+ */
+async function reconcileIdlessServerEpisodes(): Promise<number> {
+  const pairs = (await db.execute(
+    sql.raw(`
+      SELECT n.id AS loser, min(em.id::text)::uuid AS winner
+      FROM media n
+      JOIN media sm ON COALESCE(sm.merged_into_id, sm.id) = n.show_media_id
+      JOIN library_items sh ON sh.media_id = sm.id AND sh.media_type = 'show'
+      JOIN library_items e ON e.server_id = sh.server_id AND e.grandparent_rating_key = sh.rating_key
+        AND e.media_type = 'episode' AND e.media_id IS NOT NULL AND e.removed_at IS NULL
+        AND n.match_key = 'episode:' || n.show_media_id || ':s' || e.parent_index || 'e' || e.item_index
+      JOIN media em ON em.id = COALESCE((SELECT x.merged_into_id FROM media x WHERE x.id = e.media_id), e.media_id)
+        AND em.merged_into_id IS NULL AND em.id <> n.id
+        AND (em.imdb_id IS NOT NULL OR em.tmdb_id IS NOT NULL OR em.tvdb_id IS NOT NULL)
+        AND (COALESCE(n.normalized_title, '') = '' OR COALESCE(em.normalized_title, '') = ''
+             OR n.normalized_title = em.normalized_title)
+      WHERE n.media_type = 'episode' AND n.merged_into_id IS NULL
+        AND n.imdb_id IS NULL AND n.tmdb_id IS NULL AND n.tvdb_id IS NULL
+        AND n.match_key LIKE 'episode:%'
+      GROUP BY n.id
+      HAVING count(DISTINCT em.id) = 1
+      ORDER BY n.id
+    `)
+  )) as unknown as { rows: Array<{ loser: string; winner: string }> };
+  for (const { loser, winner } of pairs.rows) await mergeMediaRows(winner, loser);
+  return pairs.rows.length;
 }
 
 /**

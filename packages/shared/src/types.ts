@@ -3133,6 +3133,10 @@ export interface MediaAvailabilityEntry {
   /** Library display name, null until that server's library sync has recorded it. */
   libraryName: string | null;
   ratingKey: string;
+  /** Type of this copy on its server (movie, show, episode, ...). */
+  itemType?: string;
+  /** Episodes: the show's id on the same server (used for servers that link shows only). */
+  showRatingKey?: string | null;
   addedAt: string;
   removedAt: string | null;
   videoResolution: string | null;

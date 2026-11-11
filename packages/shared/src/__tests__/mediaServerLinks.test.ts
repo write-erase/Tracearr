@@ -73,6 +73,35 @@ describe('buildMediaServerItemUrl', () => {
       })
     ).toBeNull();
   });
+
+  it('links a Channels DVR show to its admin page', () => {
+    expect(
+      buildMediaServerItemUrl({
+        serverType: 'channels_dvr',
+        baseUrl: 'http://192.168.30.241:8089/',
+        ratingKey: '183880',
+        itemType: 'show',
+      })
+    ).toBe('http://192.168.30.241:8089/admin/shows/183880');
+  });
+
+  it('links a Channels DVR episode to its show page', () => {
+    expect(
+      buildMediaServerItemUrl({
+        serverType: 'channels_dvr',
+        baseUrl: 'http://192.168.30.241:8089',
+        ratingKey: '1089',
+        itemType: 'episode',
+        showRatingKey: '183880',
+      })
+    ).toBe('http://192.168.30.241:8089/admin/shows/183880');
+  });
+
+  it('falls back to the Channels DVR root for movies and episodes without a show', () => {
+    const base = { serverType: 'channels_dvr' as const, baseUrl: 'http://cdvr:8089' };
+    expect(buildMediaServerItemUrl({ ...base, ratingKey: '900', itemType: 'movie' })).toBeNull();
+    expect(buildMediaServerItemUrl({ ...base, ratingKey: '1089', itemType: 'episode' })).toBeNull();
+  });
 });
 
 describe('isPubliclyRoutableUrl', () => {

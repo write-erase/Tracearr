@@ -145,6 +145,10 @@ export interface AvailabilityRow {
   /** Null when the owning server hasn't synced its library names yet (see librarySync.ts). */
   library_name: string | null;
   rating_key: string;
+  /** library_items.media_type of this copy (movie, show, episode, ...). */
+  item_type: string;
+  /** Episodes: the show's rating key on the same server. */
+  show_rating_key: string | null;
   added_at: Date;
   removed_at: Date | null;
   video_resolution: string | null;
@@ -259,6 +263,8 @@ export async function getAvailability(
       li.library_id,
       lib.name AS library_name,
       li.rating_key,
+      li.media_type AS item_type,
+      li.grandparent_rating_key AS show_rating_key,
       li.created_at AS added_at,
       li.removed_at,
       li.video_resolution,
