@@ -72,9 +72,11 @@ They also often have no episode title in `/dvr/files/<id>`; they are still treat
 episodes and titled by the show name, and the Now Playing card omits an episode title that
 merely repeats the show ("News 9 @ 4a" / "S2026 E1111").
 
-**Incremental library sync.** `getLibraryItemsSince` / `getLibraryLeavesSince` return items
-whose Channels `created_at`/`updated_at` is after the last sync (the cached full list is
-filtered client-side; Channels has no server-side filter).
+**Incremental library sync (removed again).** Channels DVR cannot filter its library lists by
+date, so incremental sync still downloaded everything and, worse, could not notice deleted
+episodes (only full scans remove items). The Channels client therefore implements no
+`getLibraryItemsSince`/`getLibraryLeavesSince`: every Channels sync (12-hourly, on start, or
+manual) is a full scan, and deleted shows and episodes disappear on the next sync.
 
 Known limitation (upstream behaviour, all server types): new sessions are pending for 30 s
 before they are written to the database, so Terminate returns "Session not found" during that

@@ -882,38 +882,9 @@ export class ChannelsDvrClient implements IMediaServerClient {
     return ChannelsDvrClient.page(items, options);
   }
 
-  /** Items Channels created or changed after `since` (its `updated_at`/`created_at`). */
-  private static changedSince(items: MediaLibraryItem[], since: Date): MediaLibraryItem[] {
-    const cutoff = since.getTime();
-    return items.filter(
-      (item) =>
-        (item.updatedAt ?? item.addedAt).getTime() > cutoff || item.addedAt.getTime() > cutoff
-    );
-  }
-
-  /**
-   * Incremental sync: top-level items added or changed since the last sync. Channels has
-   * no server-side filter, so the (cached) full list is filtered here; the saving is in the
-   * rows Tracearr has to write, not in the request.
-   */
-  async getLibraryItemsSince(
-    libraryId: string,
-    since: Date,
-    options?: { offset?: number; limit?: number; libraryType?: string }
-  ): Promise<{ items: MediaLibraryItem[]; totalCount: number }> {
-    const { items } = await this.getLibraryItems(libraryId, { libraryType: options?.libraryType });
-    return ChannelsDvrClient.page(ChannelsDvrClient.changedSince(items, since), options);
-  }
-
-  /** Incremental sync: episodes added or changed since the last sync. */
-  async getLibraryLeavesSince(
-    libraryId: string,
-    since: Date,
-    options?: { offset?: number; limit?: number }
-  ): Promise<{ items: MediaLibraryItem[]; totalCount: number }> {
-    const { items } = await this.getLibraryLeaves(libraryId);
-    return ChannelsDvrClient.page(ChannelsDvrClient.changedSince(items, since), options);
-  }
+  // No getLibraryItemsSince/getLibraryLeavesSince: Channels DVR cannot filter by date, so
+  // an incremental sync would download the whole list anyway and could not notice deleted
+  // episodes. Without them every Channels sync is a full scan, which also removes deletions.
 
   /** Every episode in the TV library. Movies and videos have no leaves. */
   async getLibraryLeaves(
