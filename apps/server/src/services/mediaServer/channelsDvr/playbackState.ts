@@ -13,9 +13,13 @@
  *
  * Between refreshes a playing session's position is carried forward by the time
  * since it last changed, so the Now Playing counter does not step backwards.
+ *
+ * When the device itself reported its state (see deviceStatus.ts) that wins, and
+ * none of the inference above applies to that session.
  */
 
 import type { MediaSession } from '../types.js';
+import type { DeviceStatus } from './deviceStatus.js';
 import { calculateProgress } from '../shared/parserUtils.js';
 
 export const PAUSE_AFTER_MS = 20_000;
@@ -30,7 +34,11 @@ const seenByServer = new Map<string, Map<string, Seen>>();
 export function applyPauseState(
   serverUrl: string,
   sessions: MediaSession[],
-  { complete, now = Date.now() }: { complete: boolean; now?: number }
+  {
+    complete,
+    now = Date.now(),
+    deviceStatuses,
+  }: { complete: boolean; now?: number; deviceStatuses?: Map<string, DeviceStatus> }
 ): MediaSession[] {
   let seen = seenByServer.get(serverUrl);
   if (!seen) {
@@ -41,6 +49,28 @@ export function applyPauseState(
   const result = sessions.map((session) => {
     // Live TV has no position to watch, so it is always playing.
     if (session.media.type === 'live' || session.playback.positionMs <= 0) return session;
+
+    // The device said exactly what it is doing: use that, and keep the server-side
+    // tracker current so a later fallback starts from the right place.
+    const device = deviceStatuses?.get(session.sessionKey);
+    if (device) {
+      const tracked = seen.get(session.sessionKey);
+      if (!tracked || tracked.positionMs !== session.playback.positionMs) {
+        seen.set(session.sessionKey, { positionMs: session.playback.positionMs, changedAt: now });
+      }
+      const durationMs = session.media.durationMs;
+      const positionMs =
+        durationMs > 0 ? Math.min(device.positionMs, durationMs) : device.positionMs;
+      return {
+        ...session,
+        playback: {
+          ...session.playback,
+          state: device.state,
+          positionMs,
+          ...(durationMs > 0 ? { progressPercent: calculateProgress(positionMs, durationMs) } : {}),
+        },
+      };
+    }
 
     const previous = seen.get(session.sessionKey);
     if (!previous || previous.positionMs !== session.playback.positionMs) {

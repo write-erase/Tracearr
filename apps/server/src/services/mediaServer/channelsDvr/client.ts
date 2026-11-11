@@ -1,6 +1,7 @@
 import { fetchJson, fetchText } from '../../../utils/http.js';
 import { calculateProgress } from '../shared/parserUtils.js';
 import { applyPauseState } from './playbackState.js';
+import { readDeviceStatuses } from './deviceStatus.js';
 import { channelsDvrArtworkPath, isChannelsDvrItemId } from './artwork.js';
 import { parseChannelsDvrStreamDetails } from './streamDetails.js';
 import type {
@@ -350,7 +351,10 @@ export class ChannelsDvrClient implements IMediaServerClient {
 
   async getSessions(sessionKey?: string): Promise<MediaSession[]> {
     const sessions = await this.readSessions(sessionKey);
-    return applyPauseState(this.baseUrl, sessions, { complete: !sessionKey });
+    // Local devices report play/pause and position directly; the rest fall back to
+    // the server-side inference in applyPauseState.
+    const deviceStatuses = await readDeviceStatuses(sessions);
+    return applyPauseState(this.baseUrl, sessions, { complete: !sessionKey, deviceStatuses });
   }
 
   private async readSessions(sessionKey?: string): Promise<MediaSession[]> {
