@@ -331,8 +331,9 @@ export function buildActiveSession(input: BuildActiveSessionInput): ActiveSessio
     user,
     server: { id: server.id, name: server.name, type: server.type },
 
-    // Termination capability - Plex requires Session.id, some clients (like Plexamp) don't provide it
-    canTerminate: server.type === 'channels_dvr' ? false : server.type !== 'plex' || !!processed.plexSessionId,
+    // Termination capability - Plex requires Session.id, some clients (like Plexamp) don't provide it.
+    // Channels DVR shows the button for every session; remote ones are refused with a message on click.
+    canTerminate: server.type !== 'plex' || !!processed.plexSessionId,
   };
 }
 
@@ -465,7 +466,7 @@ export function buildPendingActiveSession(pendingData: PendingSessionData): Acti
     server: { id: server.id, name: server.name, type: server.type },
 
     // Termination capability
-    canTerminate: server.type === 'channels_dvr' ? false : server.type !== 'plex' || !!processed.plexSessionId,
+    canTerminate: server.type !== 'plex' || !!processed.plexSessionId,
 
     // Unconfirmed; excludeUncountableSessions drops this from rule evaluation
     pending: true,

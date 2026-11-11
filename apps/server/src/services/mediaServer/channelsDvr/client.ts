@@ -9,10 +9,22 @@ import type {
   MediaSession,
   MediaUser,
 } from '../types.js';
-import { channelsDvrUserId, parseDvrActivity, parseWatchActivity, toMediaSession } from './parser.js';
+import {
+  channelsDvrUserId,
+  parseDvrActivity,
+  parseWatchActivity,
+  toMediaSession,
+} from './parser.js';
+import {
+  CHANNELS_DVR_LIBRARIES,
+  isChannelsDvrLibraryId,
+  mapEpisode,
+  mapMovie,
+  mapShow,
+} from './library.js';
 
 /**
- * Channels DVR client (sessions only).
+ * Channels DVR client (sessions and library).
  *
  * Reads the undocumented `GET /dvr` status document and turns its "Watching"
  * activity lines into sessions. The Channels DVR server API has no
@@ -35,7 +47,11 @@ interface ChannelsDvrClientInfo {
 }
 
 function normalizeClientIp(value: string | undefined): string {
-  return (value ?? '').trim().toLowerCase().replace(/^::ffff:/, '').replace(/^\[|\]$/g, '');
+  return (value ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/^::ffff:/, '')
+    .replace(/^\[|\]$/g, '');
 }
 
 export class ChannelsDvrClient implements IMediaServerClient {
@@ -45,12 +61,25 @@ export class ChannelsDvrClient implements IMediaServerClient {
   public readonly serverType = 'channels_dvr' as const;
   private readonly baseUrl: string;
   private readonly artworkCache = new Map<string, { path: string | null; expiresAt: number }>();
-  private readonly fileDetailsCache = new Map<string, { data: Record<string, unknown> | null; expiresAt: number }>();
+  private readonly fileDetailsCache = new Map<
+    string,
+    { data: Record<string, unknown> | null; expiresAt: number }
+  >();
   private guideCache: { data: unknown; expiresAt: number } | null = null;
   private clientInfoCache: { data: ChannelsDvrClientInfo[]; expiresAt: number } | null = null;
   private streamLogCache: { data: string; expiresAt: number } | null = null;
   private guideRefresh: Promise<unknown> | null = null;
   private static readonly GUIDE_WAIT_TIMEOUT_MS = 1500;
+  /** A library sync pages through each list; fetch it once per sync, not once per page. */
+  private static readonly LIBRARY_LIST_TTL_MS = 60 * 1000;
+  private readonly libraryListCache = new Map<
+    string,
+    { data: Record<string, unknown>[]; expiresAt: number }
+  >();
+  /** Channels client app remote-control API (runs on each playback device) */
+  private static readonly CLIENT_API_PORT = 57000;
+  private static readonly CLIENT_PROBE_TIMEOUT_MS = 2000;
+  private static readonly CLIENT_STOP_TIMEOUT_MS = 5000;
 
   constructor(config: MediaServerConfig) {
     this.baseUrl = config.url.replace(/\/+$/, '');
@@ -77,8 +106,9 @@ export class ChannelsDvrClient implements IMediaServerClient {
         timeout: 10000,
       });
       const clients = Array.isArray(data)
-        ? data.filter((item): item is ChannelsDvrClientInfo =>
-            Boolean(item) && typeof item === 'object' && !Array.isArray(item)
+        ? data.filter(
+            (item): item is ChannelsDvrClientInfo =>
+              Boolean(item) && typeof item === 'object' && !Array.isArray(item)
           )
         : [];
       // A 60-second cache can preserve an incomplete client list long after a
@@ -175,7 +205,11 @@ export class ChannelsDvrClient implements IMediaServerClient {
   private getLiveAiring(
     guide: unknown,
     channelNumber: string
-  ): { channelTitle: string | null; artworkPath: string | null; programTitle: string | null } | null {
+  ): {
+    channelTitle: string | null;
+    artworkPath: string | null;
+    programTitle: string | null;
+  } | null {
     if (!Array.isArray(guide)) return null;
 
     const now = Date.now() / 1000;
@@ -357,15 +391,18 @@ export class ChannelsDvrClient implements IMediaServerClient {
         const sessionIp = normalizeClientIp(parsed.ipAddress);
         const matchingClientByIp = sessionIp
           ? clients
-              .filter((client) =>
-                normalizeClientIp(client.local_ip) === sessionIp ||
-                normalizeClientIp(client.remote_ip) === sessionIp
+              .filter(
+                (client) =>
+                  normalizeClientIp(client.local_ip) === sessionIp ||
+                  normalizeClientIp(client.remote_ip) === sessionIp
               )
               .sort((a, b) => {
                 const connected = Number(Boolean(b.connected)) - Number(Boolean(a.connected));
                 if (connected !== 0) return connected;
-                return Number(normalizeClientIp(b.local_ip) === sessionIp) -
-                  Number(normalizeClientIp(a.local_ip) === sessionIp);
+                return (
+                  Number(normalizeClientIp(b.local_ip) === sessionIp) -
+                  Number(normalizeClientIp(a.local_ip) === sessionIp)
+                );
               })[0]
           : undefined;
         const normalizedClientName = (parsed.clientName ?? '').trim().toLowerCase();
@@ -375,7 +412,8 @@ export class ChannelsDvrClient implements IMediaServerClient {
             ? clients
                 .filter((client) =>
                   [client.hostname, client.alias].some(
-                    (name) => typeof name === 'string' && name.trim().toLowerCase() === normalizedClientName
+                    (name) =>
+                      typeof name === 'string' && name.trim().toLowerCase() === normalizedClientName
                   )
                 )
                 .sort((a, b) => Number(Boolean(b.connected)) - Number(Boolean(a.connected)))[0]
@@ -426,7 +464,9 @@ export class ChannelsDvrClient implements IMediaServerClient {
                   ? streamInfo.encoder !== 'remux'
                   : sessionWithClient.quality.isTranscode,
                 videoDecision: streamInfo.encoder
-                  ? streamInfo.encoder === 'remux' ? 'copy' : 'transcode'
+                  ? streamInfo.encoder === 'remux'
+                    ? 'copy'
+                    : 'transcode'
                   : sessionWithClient.quality.videoDecision,
                 // The log reports the configured output codec, but not the
                 // original audio codec, so an audio decision cannot be inferred.
@@ -457,19 +497,24 @@ export class ChannelsDvrClient implements IMediaServerClient {
           parsed.kind === 'recording' && isChannelsDvrItemId(parsed.sourceId)
             ? await this.getRecordingFileDetails(parsed.sourceId)
             : null;
-        const airing = fileDetails?.Airing && typeof fileDetails.Airing === 'object'
-          ? (fileDetails.Airing as Record<string, unknown>)
-          : null;
+        const airing =
+          fileDetails?.Airing && typeof fileDetails.Airing === 'object'
+            ? (fileDetails.Airing as Record<string, unknown>)
+            : null;
         const fileShowTitle =
-          (typeof airing?.Title === 'string' ? airing.Title.trim() : '') || parsed.show?.title || '';
+          (typeof airing?.Title === 'string' ? airing.Title.trim() : '') ||
+          parsed.show?.title ||
+          '';
         const episodeTitle =
           (typeof airing?.EpisodeTitle === 'string' ? airing.EpisodeTitle.trim() : '') ||
-          parsed.show?.episodeTitle || '';
+          parsed.show?.episodeTitle ||
+          '';
         const seasonNumber =
           typeof airing?.SeasonNumber === 'number' ? airing.SeasonNumber : parsed.show?.season;
         const episodeNumber =
           typeof airing?.EpisodeNumber === 'number' ? airing.EpisodeNumber : parsed.show?.episode;
-        const fileDuration = typeof fileDetails?.Duration === 'number' ? fileDetails.Duration : null;
+        const fileDuration =
+          typeof fileDetails?.Duration === 'number' ? fileDetails.Duration : null;
         const fileArtwork = channelsDvrArtworkPath(this.baseUrl, airing?.Image);
         const liveAiring =
           parsed.kind === 'live' && parsed.sourceId
@@ -483,7 +528,13 @@ export class ChannelsDvrClient implements IMediaServerClient {
           Boolean(fileShowTitle && episodeTitle) &&
           seasonNumber !== undefined &&
           episodeNumber !== undefined;
-        if (!liveAiring?.channelTitle && !liveAiring?.programTitle && !artworkPath && !hasFileEpisode && fileDuration === null) {
+        if (
+          !liveAiring?.channelTitle &&
+          !liveAiring?.programTitle &&
+          !artworkPath &&
+          !hasFileEpisode &&
+          fileDuration === null
+        ) {
           return sessionWithStream;
         }
         return {
@@ -530,7 +581,71 @@ export class ChannelsDvrClient implements IMediaServerClient {
   }
 
   async getLibraries(): Promise<MediaLibrary[]> {
-    return [];
+    return CHANNELS_DVR_LIBRARIES.map((library) => ({ ...library }));
+  }
+
+  /** Fetch a whole Channels library list (`/api/v1/shows`, `/episodes`, ...), cached briefly. */
+  private async getLibraryList(path: string): Promise<Record<string, unknown>[]> {
+    const cached = this.libraryListCache.get(path);
+    if (cached && cached.expiresAt > Date.now()) return cached.data;
+
+    const data = await fetchJson<unknown>(`${this.baseUrl}${path}`, {
+      headers: { Accept: 'application/json' },
+      service: 'channels-dvr',
+      timeout: 60000,
+    });
+    const list = Array.isArray(data)
+      ? data.filter(
+          (item): item is Record<string, unknown> =>
+            !!item && typeof item === 'object' && !Array.isArray(item)
+        )
+      : [];
+    this.libraryListCache.set(path, {
+      data: list,
+      expiresAt: Date.now() + ChannelsDvrClient.LIBRARY_LIST_TTL_MS,
+    });
+    return list;
+  }
+
+  /**
+   * File sizes keyed by DVR file id, from `GET /dvr/files` (one request for every file).
+   * The /api/v1 library lists carry no size. Best effort: on failure sizes stay unknown.
+   */
+  private async getFileSizes(): Promise<Map<string, number>> {
+    const sizes = new Map<string, number>();
+    try {
+      for (const file of await this.getLibraryList('/dvr/files')) {
+        const id = file.ID ?? file.id;
+        const size = file.FileSize ?? file.file_size;
+        if (
+          (typeof id === 'string' || typeof id === 'number') &&
+          typeof size === 'number' &&
+          size > 0
+        ) {
+          sizes.set(String(id), size);
+        }
+      }
+    } catch {
+      // Older servers or a failed request: leave sizes unknown rather than failing the sync.
+    }
+    return sizes;
+  }
+
+  private static withSizes(
+    items: MediaLibraryItem[],
+    sizes: Map<string, number>
+  ): MediaLibraryItem[] {
+    if (sizes.size === 0) return items;
+    return items.map((item) => {
+      const fileSize = sizes.get(item.ratingKey);
+      return fileSize ? { ...item, fileSize } : item;
+    });
+  }
+
+  private static page<T>(items: T[], options?: { offset?: number; limit?: number }) {
+    const offset = Math.max(0, options?.offset ?? 0);
+    const limit = options?.limit ?? items.length;
+    return { items: items.slice(offset, offset + limit), totalCount: items.length };
   }
 
   async testConnection(): Promise<boolean> {
@@ -552,11 +667,106 @@ export class ChannelsDvrClient implements IMediaServerClient {
     }
   }
 
-  terminateSession(): Promise<boolean> {
-    return Promise.reject(new Error('Channels DVR does not support terminating sessions'));
+  /**
+   * Stop playback on a Channels client app.
+   *
+   * The Channels DVR server has no "stop session" endpoint, so this goes straight to the
+   * Channels app on the playback device (`POST http://<device>:57000/api/stop`). The request
+   * comes from the Tracearr server, so the device must be reachable from it. The caller
+   * (termination service) only calls this for sessions Tracearr classifies as local.
+   *
+   * @param deviceIp - The playback device's IP address (session.ipAddress)
+   */
+  async terminateSession(deviceIp: string): Promise<boolean> {
+    const ip = normalizeClientIp(deviceIp);
+    if (!ip) {
+      throw new Error('No device IP available for this Channels session');
+    }
+    const host = ip.includes(':') ? `[${ip}]` : ip;
+    const base = `http://${host}:${ChannelsDvrClient.CLIENT_API_PORT}`;
+
+    // Reachability probe: fail fast with a clear message instead of a long stop timeout.
+    try {
+      const probe = await fetch(`${base}/api/status`, {
+        method: 'GET',
+        signal: AbortSignal.timeout(ChannelsDvrClient.CLIENT_PROBE_TIMEOUT_MS),
+      });
+      if (!probe.ok) {
+        throw new Error(`HTTP ${probe.status}`);
+      }
+    } catch {
+      throw new Error(
+        `Channels app at ${ip}:${ChannelsDvrClient.CLIENT_API_PORT} is unreachable from the Tracearr server`
+      );
+    }
+
+    let response: Response;
+    try {
+      response = await fetch(`${base}/api/stop`, {
+        method: 'POST',
+        signal: AbortSignal.timeout(ChannelsDvrClient.CLIENT_STOP_TIMEOUT_MS),
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      throw new Error(`Stop request to Channels app at ${ip} failed: ${msg}`);
+    }
+    if (!response.ok) {
+      throw new Error(
+        `Channels app at ${ip} rejected the stop request: ${response.status} ${response.statusText}`
+      );
+    }
+    return true;
   }
 
-  getLibraryItems(): Promise<{ items: MediaLibraryItem[]; totalCount: number }> {
-    return Promise.resolve({ items: [], totalCount: 0 });
+  /**
+   * Top-level items of a library: shows for `tv`, movies for `movies`, imported
+   * videos for `videos`. Episodes come from getLibraryLeaves.
+   */
+  async getLibraryItems(
+    libraryId: string,
+    options?: { offset?: number; limit?: number; libraryType?: string }
+  ): Promise<{ items: MediaLibraryItem[]; totalCount: number }> {
+    if (!isChannelsDvrLibraryId(libraryId)) return { items: [], totalCount: 0 };
+
+    let items: MediaLibraryItem[];
+    if (libraryId === 'tv') {
+      const shows = await this.getLibraryList('/api/v1/shows');
+      items = shows.map((show) => mapShow(this.baseUrl, show)).filter((i) => i !== null);
+    } else {
+      const [list, sizes] = await Promise.all([
+        this.getLibraryList(`/api/v1/${libraryId}`),
+        this.getFileSizes(),
+      ]);
+      items = ChannelsDvrClient.withSizes(
+        list.map((item) => mapMovie(this.baseUrl, item)).filter((i) => i !== null),
+        sizes
+      );
+    }
+    return ChannelsDvrClient.page(items, options);
+  }
+
+  /** Every episode in the TV library. Movies and videos have no leaves. */
+  async getLibraryLeaves(
+    libraryId: string,
+    options?: { offset?: number; limit?: number }
+  ): Promise<{ items: MediaLibraryItem[]; totalCount: number }> {
+    if (libraryId !== 'tv') return { items: [], totalCount: 0 };
+
+    const [episodes, shows, sizes] = await Promise.all([
+      this.getLibraryList('/api/v1/episodes'),
+      this.getLibraryList('/api/v1/shows'),
+      this.getFileSizes(),
+    ]);
+    // Episodes without their own image fall back to the show poster.
+    const showArtwork = new Map(
+      shows.map((show) => [String(show.id), mapShow(this.baseUrl, show)?.thumbPath])
+    );
+    const items = ChannelsDvrClient.withSizes(
+      episodes
+        .map((episode) => mapEpisode(this.baseUrl, episode, showArtwork))
+        .filter((i) => i !== null),
+      sizes
+    );
+    return ChannelsDvrClient.page(items, options);
   }
 }

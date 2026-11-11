@@ -464,6 +464,13 @@ export const sessionRoutes: FastifyPluginAsync = async (app) => {
       return reply.conflict('Resume this server to end its streams');
     }
 
+    if (result.outcome === 'not_local') {
+      return reply.badRequest(
+        result.error ??
+          'Tracearr can only stop Channels DVR streams on devices within your local network.'
+      );
+    }
+
     if (!result.success) {
       app.log.error(
         { sessionId: id, error: result.error, terminationLogId: result.terminationLogId },

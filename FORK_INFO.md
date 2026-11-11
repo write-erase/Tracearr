@@ -1,5 +1,35 @@
 # Tracearr Fork Information
 
+## November 10, 2026 — Channels DVR termination and library
+
+**Termination.** Tracearr can now stop Channels DVR streams. Channels DVR has no
+"stop session" API, so the Tracearr server calls the Channels app on the playback
+device directly (`POST http://<device-ip>:57000/api/stop`), after a 2 s reachability
+probe of `/api/status`. Only sessions Tracearr classifies as local (and whose device
+IP is private) are attempted; remote sessions are refused with "Tracearr can only stop
+Channels DVR streams on devices within your local network." The check lives in
+`services/termination.ts` (`not_local` outcome) and is returned as a 400 by the web,
+mobile and public terminate routes. The web Now Playing card shows that message on
+click (and on hover) for remote Channels sessions instead of opening the dialog; for
+local ones the dialog names the device ("Stop … on Living Room Apple TV?", no `@`)
+and hides the message field, which Channels cannot display. The iPhone app's own
+terminate sheet still shows the message field and `@`, since that UI ships in the app.
+
+**Library.** `channels_dvr` now has `mediaLibrary: true`. The client exposes three
+fixed libraries — TV Shows (`/api/v1/shows` + `/api/v1/episodes` as leaves), Movies
+(`/api/v1/movies`) and Videos (`/api/v1/videos`) — mapped in
+`channelsDvr/library.ts`. Episode/movie ids are DVR file ids, matching session ids.
+Quality (resolution, video/audio codec, channels) is parsed from filename tags;
+file sizes come from one `GET /dvr/files` request per sync. `{imdb-…}`/`{tmdb-…}` path
+ids are applied to movies only, since for episodes they sit on the show folder. Each
+list is fetched once per sync (60 s cache). Shows match existing Plex/Emby rows by
+title and year. Movies and Videos were not verified against real data (empty on the
+test server).
+
+Validation: server typecheck, web typecheck, `termination.test.ts` (33) and
+`channelsDvr-library.test.ts` (13) pass; termination and library sync were checked
+live against a Channels DVR server.
+
 ## November 1, 2026 — Channels DVR (experimental)
 
 Adds a `channels_dvr` server type: sessions only, polled from the undocumented
