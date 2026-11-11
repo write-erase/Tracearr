@@ -376,6 +376,19 @@ jobs:
         id: playwright
         run: echo "version=$(pnpm --filter @tracearr/e2e exec playwright --version | awk '{print $2}')" >> "$GITHUB_OUTPUT"
 
+      # FORK: GitHub's Azure-hosted Ubuntu mirror (azure.archive.ubuntu.com) intermittently fails
+      # to resolve on runners, which fails the Playwright system-deps install before any test runs.
+      # Point apt at Ubuntu's main archive instead; install-deps runs apt-get update itself.
+      - name: Use Ubuntu's main package mirror
+        run: |
+          if [ -f /etc/apt/apt-mirrors.txt ]; then
+            echo "http://archive.ubuntu.com/ubuntu/" | sudo tee /etc/apt/apt-mirrors.txt > /dev/null
+          fi
+          for f in /etc/apt/sources.list /etc/apt/sources.list.d/*.sources /etc/apt/sources.list.d/*.list; do
+            [ -f "$f" ] && sudo sed -i 's#azure\.archive\.ubuntu\.com#archive.ubuntu.com#g' "$f"
+          done
+          true
+
       # Headless runs only need the headless shell, so the full Chrome build is never downloaded
       - name: Cache Playwright browsers
         id: playwright-cache
