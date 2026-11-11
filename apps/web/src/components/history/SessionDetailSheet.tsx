@@ -49,7 +49,7 @@ import { imageProxyUrl } from '@/lib/api';
 import { playbackBadge } from '@/lib/playbackBadge';
 import { DATE_TIME_OPTIONS, formatDate, formatDuration } from '@/lib/dateFormat';
 import { getAvatarUrl } from '@/components/users/utils';
-import { DeviceTypeIcon } from '@/components/sessions/DeviceTypeIcon';
+import { DeviceBrandIcon } from '@/components/sessions/DeviceBrandIcon';
 import { LocalBadge } from '@/components/sessions/LocalBadge';
 import { MediaPageLink } from '@/components/media/MediaPageLink';
 import { StreamDetailsPanel } from './StreamDetailsPanel';
@@ -353,9 +353,9 @@ function SessionContent({
                   src={getAvatarUrl(session.serverId, session.user.thumbUrl, 36) ?? undefined}
                 />
                 <AvatarFallback>
-                  {/* Channels DVR "users" are devices with no picture: show the kind of device */}
+                  {/* Channels DVR "users" are devices with no picture: show the device maker's logo */}
                   {session.server.type === 'channels_dvr' ? (
-                    <DeviceTypeIcon
+                    <DeviceBrandIcon
                       platform={session.platform}
                       device={session.device}
                       product={session.product}

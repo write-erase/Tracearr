@@ -22,6 +22,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { useServer } from '@/hooks/useServer';
 import { ServerColorAccent } from '@/components/server';
 import { TerminateSessionDialog } from './TerminateSessionDialog';
+import { DeviceBrandIcon } from './DeviceBrandIcon';
 import { DeviceTypeIcon } from './DeviceTypeIcon';
 import { CatchupIcon } from './CatchupIcon';
 import { formatDispatcharrCatchupClock } from './useDispatcharrCatchupCardProgress';
@@ -268,9 +269,14 @@ export function NowPlayingCard({ session, onClick }: NowPlayingCardProps) {
                 <Avatar className="border-background h-7 w-7 shrink-0 border-2 shadow">
                   <AvatarImage src={avatarUrl} alt={session.user.username} />
                   <AvatarFallback className="text-xs">
-                    {/* Channels DVR "users" are devices with no picture: show the kind of device */}
+                    {/* Channels DVR "users" are devices with no picture: show the device maker's logo */}
                     {isChannelsDvr ? (
-                      <DeviceIcon session={session} className="h-3.5 w-3.5" />
+                      <DeviceBrandIcon
+                        platform={session.platform}
+                        device={session.device}
+                        product={session.product}
+                        className="h-3.5 w-3.5"
+                      />
                     ) : (
                       session.user.username.slice(0, 2).toUpperCase()
                     )}

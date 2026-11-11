@@ -27,6 +27,7 @@ import {
   mapMovie,
   mapShow,
 } from './library.js';
+import { describeChannelsClient } from './macClient.js';
 
 /**
  * Channels DVR client (sessions and library).
@@ -472,6 +473,9 @@ export class ChannelsDvrClient implements IMediaServerClient {
               : parsed.ipAddress
           : parsed.ipAddress;
         const streamIp = normalizeClientIp(displayIp);
+        const clientIdentity: ReturnType<typeof describeChannelsClient> = matchingClient
+          ? describeChannelsClient(matchingClient)
+          : {};
         const sessionWithClient = matchingClient
           ? {
               ...session,
@@ -483,10 +487,10 @@ export class ChannelsDvrClient implements IMediaServerClient {
               },
               player: {
                 ...session.player,
-                name: matchingClient.hostname || matchingClient.alias || session.player.name,
+                name: clientIdentity.name || session.player.name,
                 deviceId: matchingClient.machine_id || matchingClient.id || session.player.deviceId,
-                ...(matchingClient.device ? { device: matchingClient.device } : {}),
-                ...(matchingClient.platform ? { platform: matchingClient.platform } : {}),
+                ...(clientIdentity.device ? { device: clientIdentity.device } : {}),
+                ...(clientIdentity.platform ? { platform: clientIdentity.platform } : {}),
                 ...(clientProduct ? { product: clientProduct } : {}),
               },
             }

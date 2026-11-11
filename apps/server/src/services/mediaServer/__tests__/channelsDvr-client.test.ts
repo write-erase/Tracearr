@@ -90,11 +90,12 @@ describe('Channels DVR session artwork', () => {
 
     const [session] = await client().getSessions();
 
+    // This client is the Channels Mac app (name-based machine_id), so it's reported as a Mac
     expect(session?.player).toMatchObject({
-      name: 'iPad',
+      name: 'Mac',
       deviceId: '9F5A5EE9-EE9D-5DE7-A841-C2DF1CD42F31',
-      device: 'iPad8,6',
-      platform: 'iPadOS 27.2',
+      device: 'Mac',
+      platform: 'macOS 27.2',
       product: 'Channels Beta v10.29.54',
     });
     expect(session?.network.ipAddress).toBe('192.168.30.9');

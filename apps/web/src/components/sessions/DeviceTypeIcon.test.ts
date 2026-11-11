@@ -5,7 +5,8 @@ describe('deviceKind', () => {
   it.each([
     // Channels DVR clients, as /dvr/clients/info reports them
     [{ platform: 'tvOS 27.2', device: 'AppleTV14,1' }, 'tv'],
-    [{ platform: 'iPadOS 27.2', device: 'iPad8,6' }, 'tablet'],
+    [{ platform: 'iPadOS 26.1', device: 'iPad13,18' }, 'tablet'],
+    [{ platform: 'macOS 27.2', device: 'Mac' }, 'desktop'], // Channels Mac app, as the server reports it
     [{ platform: 'iOS 27.2.1', device: 'iPhone18,3' }, 'phone'],
     [{ platform: 'Web', product: 'Channels Web' }, 'browser'],
     // Other servers' shapes
