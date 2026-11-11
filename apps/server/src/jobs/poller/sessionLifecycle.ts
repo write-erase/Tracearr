@@ -189,9 +189,10 @@ export interface BuildActiveSessionInput {
 }
 
 /**
- * Channels DVR reports no playback position, so the parser emits 0 and the
- * web estimator would restart from 0 on every poll. Use time since the session
- * was first seen (minus paused time) as the position instead.
+ * Fallback position for Channels DVR sessions that report none (live TV): time
+ * since the session was first seen, minus paused time. Without it the web
+ * estimator would restart from 0 on every poll. Recordings report their real
+ * position ("at 4m15s"), which takes precedence wherever this is used.
  */
 export function getChannelsDvrElapsedMs(
   serverType: string,
@@ -250,7 +251,10 @@ export function buildActiveSession(input: BuildActiveSessionInput): ActiveSessio
 
     // Progress
     totalDurationMs: processed.totalDurationMs || null,
+    // The real position wins; Channels DVR live TV reports none, so it falls back to
+    // time since the session was first seen.
     progressMs:
+      processed.progressMs ||
       getChannelsDvrElapsedMs(
         server.type,
         session.startedAt,
@@ -258,7 +262,6 @@ export function buildActiveSession(input: BuildActiveSessionInput): ActiveSessio
           ? overrides.pausedDurationMs
           : session.pausedDurationMs
       ) ||
-      processed.progressMs ||
       null,
     progressUpdatedAt: new Date(),
 
@@ -391,8 +394,8 @@ export function buildPendingActiveSession(pendingData: PendingSessionData): Acti
     // Progress
     totalDurationMs: processed.totalDurationMs || null,
     progressMs:
-      getChannelsDvrElapsedMs(server.type, pendingData.startedAt, pendingData.pausedDurationMs) ||
       processed.progressMs ||
+      getChannelsDvrElapsedMs(server.type, pendingData.startedAt, pendingData.pausedDurationMs) ||
       null,
 
     // Pause tracking
