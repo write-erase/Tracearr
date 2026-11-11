@@ -535,10 +535,10 @@ export class ChannelsDvrClient implements IMediaServerClient {
           liveAiring?.artworkPath ??
           fileArtwork ??
           (parsed.kind === 'recording' ? await this.getRecordingArtwork(parsed) : null);
+        // Daily shows (news, talk) often have no episode title; the show, season and
+        // episode are enough, and the show name stands in for the title.
         const hasFileEpisode =
-          Boolean(fileShowTitle && episodeTitle) &&
-          seasonNumber !== undefined &&
-          episodeNumber !== undefined;
+          Boolean(fileShowTitle) && seasonNumber !== undefined && episodeNumber !== undefined;
         if (
           !liveAiring?.channelTitle &&
           !liveAiring?.programTitle &&
@@ -570,7 +570,7 @@ export class ChannelsDvrClient implements IMediaServerClient {
           media: {
             ...session.media,
             ...(liveAiring?.programTitle ? { title: liveAiring.programTitle } : {}),
-            ...(hasFileEpisode ? { title: episodeTitle } : {}),
+            ...(hasFileEpisode ? { title: episodeTitle || fileShowTitle } : {}),
             ...(fileDuration !== null ? { durationMs: Math.round(fileDuration * 1000) } : {}),
             ...(artworkPath ? { thumbPath: artworkPath } : {}),
           },

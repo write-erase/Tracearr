@@ -340,4 +340,20 @@ describe('Channels DVR parser', () => {
       expect(s?.playback.positionMs).toBe(0);
     });
   });
+
+  it('titles an untitled daily episode by its show, not the raw activity text', () => {
+    const [s] = parseSessionsFromDvr(
+      dvr({
+        '6-file-1340-192.168.30.8':
+          'Watching News 9 @ 4a - Season 2026, Episode 1111 from Living Room Apple TV at 2m10s',
+      })
+    );
+    expect(s?.media.title).toBe('News 9 @ 4a');
+    expect(s?.episode).toEqual({
+      showTitle: 'News 9 @ 4a',
+      seasonNumber: 2026,
+      episodeNumber: 1111,
+    });
+    expect(s?.playback.positionMs).toBe(130_000);
+  });
 });

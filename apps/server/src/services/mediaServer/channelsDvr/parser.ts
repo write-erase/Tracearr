@@ -150,7 +150,8 @@ export interface ParsedWatchActivity {
 const IPV4_AT_END = /(\d{1,3}(?:\.\d{1,3}){3})$/;
 const IPV4_ANYWHERE = /\b(\d{1,3}(?:\.\d{1,3}){3})\b/;
 const WATCHING_PREFIX = /^\s*watching\b\s*/i;
-const SXXEYY = /\bS(\d{1,3})E(\d{1,4})\b/i;
+// Daily shows number seasons by year (S2026E1111).
+const SXXEYY = /\bS(\d{1,4})E(\d{1,5})\b/i;
 const STATS_TAIL = /:\s*buf=.*$/i;
 /** Elapsed-time suffix on recording lines: "at 40s", "at 4m15s", "at 1h2m3s". */
 const ELAPSED_SUFFIX = /\s+at\s+((?:\d+h)?(?:\d+m)?(?:\d+(?:\.\d+)?s)?)\s*$/i;
@@ -294,7 +295,7 @@ export function parseWatchActivity(entry: ChannelsDvrActivityEntry): ParsedWatch
   const sxxeyyMatch = kind === 'recording' ? SXXEYY.exec(title) : null;
   const seasonEpisodeMatch =
     kind === 'recording'
-      ? /\s+-\s+Season\s+(\d{1,3}),\s*Episode\s+(\d{1,4})\s*$/i.exec(title)
+      ? /\s+-\s+Season\s+(\d{1,4}),\s*Episode\s+(\d{1,5})\s*$/i.exec(title)
       : null;
   const show = sxxeyyMatch
     ? {
@@ -360,7 +361,9 @@ export function toMediaSession(parsed: ParsedWatchActivity): MediaSession {
     mediaId: parsed.sourceId ?? parsed.key,
     user: { id: userId, username: displayName },
     media: {
-      title: parsed.programme ?? parsed.show?.episodeTitle ?? parsed.title,
+      // "Show - Season 2026, Episode 1111" with no episode title: show the show name,
+      // not the raw activity text (season/episode are reported separately).
+      title: parsed.programme ?? parsed.show?.episodeTitle ?? parsed.show?.title ?? parsed.title,
       type: isLive ? 'live' : parsed.show ? 'episode' : 'movie',
       // Channels DVR does not report duration or position in the activity feed.
       durationMs: 0,
