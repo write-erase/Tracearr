@@ -1,5 +1,14 @@
 # Tracearr Fork Information
 
+## November 11, 2026 — Device icons for Channels DVR viewers
+
+Channels DVR "users" are devices with no picture, so their avatars showed initials ("LI", "WE").
+On the Now Playing card and in Session Details they now show the kind of device instead: a TV
+(Apple TV, Fire TV, Android TV, Roku, smart TVs), a tablet, a phone, or a globe for the web player.
+`components/sessions/DeviceTypeIcon.tsx` decides the kind for all servers and also drives the card's
+small device badge. It checks TVs before phones, which fixes a bug in the old badge logic: "tvOS"
+contains "ios", so Apple TVs (Plex's too) got a phone icon. Other servers' avatars are unchanged.
+
 ## November 11, 2026 — Channels DVR web player sessions
 
 The Channels web player (a browser) writes activity keys as `7-file1109-ip192.168.30.9`, where the
