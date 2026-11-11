@@ -1,13 +1,5 @@
 # Tracearr Fork Information
 
-## November 11, 2026 — CI: avoid the Azure Ubuntu mirror for Playwright deps
-
-The E2E job's `playwright install-deps chromium` failed repeatedly before any test ran because
-GitHub runners could not resolve `azure.archive.ubuntu.com`, the Azure-hosted Ubuntu mirror apt
-uses through `/etc/apt/apt-mirrors.txt`. `ci.yml` now points apt at `archive.ubuntu.com` (the
-mirror list and any `azure.archive` URIs in the sources) right before the Playwright installs.
-Marked `# FORK:` in the workflow; take it out if upstream's runners stop needing it.
-
 ## November 11, 2026 — Channels DVR web player sessions
 
 The Channels web player (a browser) writes activity keys as `7-file1109-ip192.168.30.9`, where the
