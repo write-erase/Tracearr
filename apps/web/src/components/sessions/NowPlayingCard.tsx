@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
-import { Monitor, Smartphone, Tablet, Tv, Play, Pause, Server, Subtitles, X } from 'lucide-react';
+import { Play, Pause, Server, Subtitles, X } from 'lucide-react';
 import { getAvatarUrl } from '@/components/users/utils';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
@@ -22,6 +22,8 @@ import { useAuth } from '@/hooks/useAuth';
 import { useServer } from '@/hooks/useServer';
 import { ServerColorAccent } from '@/components/server';
 import { TerminateSessionDialog } from './TerminateSessionDialog';
+import { DeviceBrandIcon } from './DeviceBrandIcon';
+import { DeviceTypeIcon } from './DeviceTypeIcon';
 import { CatchupIcon } from './CatchupIcon';
 import { formatDispatcharrCatchupClock } from './useDispatcharrCatchupCardProgress';
 import { LocalBadge } from './LocalBadge';
@@ -81,29 +83,14 @@ function getCardMediaDisplay(session: ActiveSession): { title: string; subtitle:
 
 // Get device icon based on platform/device info
 function DeviceIcon({ session, className }: { session: ActiveSession; className?: string }) {
-  const platform = session.platform?.toLowerCase() ?? '';
-  const device = session.device?.toLowerCase() ?? '';
-  const product = session.product?.toLowerCase() ?? '';
-
-  if (platform.includes('ios') || device.includes('iphone') || platform.includes('android')) {
-    return <Smartphone className={className} />;
-  }
-  if (device.includes('ipad') || platform.includes('tablet')) {
-    return <Tablet className={className} />;
-  }
-  if (
-    platform.includes('tv') ||
-    device.includes('tv') ||
-    product.includes('tv') ||
-    device.includes('roku') ||
-    device.includes('firestick') ||
-    device.includes('chromecast') ||
-    device.includes('apple tv') ||
-    device.includes('shield')
-  ) {
-    return <Tv className={className} />;
-  }
-  return <Monitor className={className} />;
+  return (
+    <DeviceTypeIcon
+      platform={session.platform}
+      device={session.device}
+      product={session.product}
+      className={className}
+    />
+  );
 }
 
 function PlaybackOverlay({ isPaused }: { isPaused: boolean }) {
@@ -282,7 +269,17 @@ export function NowPlayingCard({ session, onClick }: NowPlayingCardProps) {
                 <Avatar className="border-background h-7 w-7 shrink-0 border-2 shadow">
                   <AvatarImage src={avatarUrl} alt={session.user.username} />
                   <AvatarFallback className="text-xs">
-                    {session.user.username.slice(0, 2).toUpperCase()}
+                    {/* Channels DVR "users" are devices with no picture: show the device maker's logo */}
+                    {isChannelsDvr ? (
+                      <DeviceBrandIcon
+                        platform={session.platform}
+                        device={session.device}
+                        product={session.product}
+                        className="h-3.5 w-3.5"
+                      />
+                    ) : (
+                      session.user.username.slice(0, 2).toUpperCase()
+                    )}
                   </AvatarFallback>
                 </Avatar>
                 <span

@@ -1,5 +1,21 @@
 # Tracearr Fork Information
 
+## November 11, 2026 — Device icons for Channels DVR viewers
+
+Channels DVR "users" are devices with no picture, so their avatars showed initials ("LI", "WE").
+On the Now Playing card and in Session Details they now show the device maker's logo instead:
+Apple, Amazon (Fire TV), Google (Chromecast) or Android, the platforms Channels apps run on
+(`components/sessions/DeviceBrandIcon.tsx`, filled logos from Phosphor Icons, MIT). The web player
+gets a globe, because it doesn't say which browser it runs in. `components/sessions/DeviceTypeIcon.tsx`
+decides the kind of device for all servers and drives the card's small device badge, so the badge
+still tells an Apple TV from an iPhone. It checks TVs before phones, which fixes a bug in the old
+badge logic: "tvOS" contains "ios", so Apple TVs (Plex's too) got a phone icon. The Channels Mac app
+is the iPad app, and `/dvr/clients/info` lists it as an `iPad8,6` running iPadOS, usually named
+"iPad". Its `machine_id` gives it away: real iPhones, iPads and Apple TVs report a random (version 4)
+UUID, the Mac app a name-based (version 5) one. `channelsDvr/macClient.ts` reports those clients as
+device "Mac" on "macOS <version>", and names them "Mac" when the app only said "iPad".
+Other servers' avatars are unchanged.
+
 ## November 11, 2026 — Channels DVR web player sessions
 
 The Channels web player (a browser) writes activity keys as `7-file1109-ip192.168.30.9`, where the
