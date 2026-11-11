@@ -1125,6 +1125,12 @@ class ApiClient {
       ),
     /** Channels DVR recordings in progress (not viewing sessions) */
     recordings: () => this.request<{ data: ChannelsDvrRecordingEntry[] }>('/sessions/recordings'),
+    /** Stop a Channels DVR recording in progress; the partial recording is kept */
+    stopRecording: (serverId: string, jobId: string) =>
+      this.request<{ success: boolean }>('/sessions/recordings/stop', {
+        method: 'POST',
+        body: JSON.stringify({ serverId, jobId }),
+      }),
     terminate: (id: string, reason?: string) =>
       this.request<{ success: boolean; terminationLogId: string; message: string }>(
         `/sessions/${id}/terminate`,

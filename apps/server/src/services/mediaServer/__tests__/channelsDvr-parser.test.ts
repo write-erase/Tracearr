@@ -367,6 +367,7 @@ describe('Channels DVR parser', () => {
         })
       ).toEqual({
         key: '0-job-1794391200-ch2',
+        jobId: '1794391200-ch2',
         channelNumber: '2',
         title: 'News 9 @ 4a',
         startedAt: new Date(1794391200 * 1000),

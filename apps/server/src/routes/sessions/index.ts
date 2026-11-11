@@ -341,6 +341,45 @@ export const sessionRoutes: FastifyPluginAsync = async (app) => {
     return { data: perServer.flat() };
   });
 
+  /**
+   * POST /sessions/recordings/stop - stop a Channels DVR recording in progress
+   * Body: { serverId, jobId }. Same permission as terminating a stream. The partial
+   * recording stays in the Channels DVR library.
+   */
+  app.post('/recordings/stop', terminateSessions, async (request, reply) => {
+    const body = request.body as { serverId?: unknown; jobId?: unknown } | undefined;
+    const serverId = typeof body?.serverId === 'string' ? body.serverId : '';
+    const jobId = typeof body?.jobId === 'string' ? body.jobId : '';
+    if (!serverId || !/^\d{9,11}-[\w.-]+$/.test(jobId)) {
+      return reply.badRequest('serverId and a Channels DVR jobId are required');
+    }
+    if (!hasServerAccess(request.user, serverId)) {
+      return reply.forbidden('You do not have access to this server');
+    }
+    const [server] = await db
+      .select({ url: servers.url, type: servers.type, historicalAt: servers.historicalAt })
+      .from(servers)
+      .where(eq(servers.id, serverId))
+      .limit(1);
+    if (!server || server.type !== 'channels_dvr' || server.historicalAt) {
+      return reply.notFound('Channels DVR server not found');
+    }
+    try {
+      await new ChannelsDvrClient({ url: server.url, token: '' }).stopRecording(jobId);
+    } catch (err) {
+      app.log.warn({ serverId, jobId, err }, 'Failed to stop Channels DVR recording');
+      return reply.code(502).send({
+        success: false,
+        error: err instanceof Error ? err.message : 'Failed to stop the recording',
+      });
+    }
+    app.log.info(
+      { serverId, jobId, userId: request.user.userId },
+      'Stopped Channels DVR recording'
+    );
+    return { success: true };
+  });
+
   app.get('/active', readSessions, async (request, _reply) => {
     const authUser = request.user;
 

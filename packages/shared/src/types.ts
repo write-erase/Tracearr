@@ -3131,6 +3131,8 @@ export interface ChannelsDvrRecordingEntry {
   serverId: string;
   serverName: string;
   key: string;
+  /** Channels DVR job id, used to stop the recording; null when unknown */
+  jobId: string | null;
   channelNumber: string;
   channelTitle: string | null;
   title: string;

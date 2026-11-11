@@ -1,8 +1,19 @@
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { CircleDot } from 'lucide-react';
+import { CircleDot, Square } from 'lucide-react';
 import type { ChannelsDvrRecordingEntry } from '@tracearr/shared';
+import { Button } from '@/components/ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { Progress } from '@/components/ui/progress';
+import { useAuth } from '@/hooks/useAuth';
+import { useStopRecording } from '@/hooks/queries';
 import { imageProxyUrl } from '@/lib/api';
 import { SectionHeading } from './SectionHeading';
 
@@ -25,6 +36,66 @@ function useNow(intervalMs = 10_000): number {
     return () => clearInterval(timer);
   }, [intervalMs]);
   return now;
+}
+
+/** Admin/owner only: stops the recording after a confirmation. The partial file is kept. */
+function StopRecordingButton({ recording }: { recording: ChannelsDvrRecordingEntry }) {
+  const { t } = useTranslation(['pages', 'common']);
+  const { user } = useAuth();
+  const [open, setOpen] = useState(false);
+  const stop = useStopRecording();
+  const canStop = (user?.role === 'admin' || user?.role === 'owner') && !!recording.jobId;
+  if (!canStop) return null;
+
+  return (
+    <>
+      <Button
+        variant="ghost"
+        size="icon"
+        className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive h-6 w-6 shrink-0"
+        title={t('dashboard.recording.stop', { defaultValue: 'Stop' })}
+        aria-label={t('dashboard.recording.stop', { defaultValue: 'Stop' })}
+        onClick={() => setOpen(true)}
+      >
+        <Square className="h-3.5 w-3.5" />
+      </Button>
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>
+              {t('dashboard.recording.stopTitle', { defaultValue: 'Stop recording?' })}
+            </DialogTitle>
+            <DialogDescription>
+              {t('dashboard.recording.stopConfirm', {
+                defaultValue:
+                  'Stop recording "{{title}}" now? What has been recorded so far stays in your Channels DVR library.',
+                title: recording.title,
+              })}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setOpen(false)} disabled={stop.isPending}>
+              {t('common:actions.cancel')}
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={stop.isPending}
+              onClick={() =>
+                stop.mutate(
+                  { serverId: recording.serverId, jobId: recording.jobId! },
+                  { onSuccess: () => setOpen(false) }
+                )
+              }
+            >
+              {stop.isPending
+                ? t('dashboard.recording.stopping', { defaultValue: 'Stopping…' })
+                : t('dashboard.recording.stop', { defaultValue: 'Stop' })}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
+  );
 }
 
 function RecordingCard({
@@ -89,6 +160,8 @@ function RecordingCard({
           {showServer && (
             <span className="text-muted-foreground truncate text-xs">{recording.serverName}</span>
           )}
+          <span className="ml-auto" />
+          <StopRecordingButton recording={recording} />
         </div>
         <h3 className="mt-1 truncate text-sm leading-tight font-semibold" title={recording.title}>
           {recording.title}

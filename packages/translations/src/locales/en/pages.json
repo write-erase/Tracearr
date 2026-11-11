@@ -115,7 +115,13 @@
       "channelNamed": "Channel {{number}} · {{name}}",
       "until": "until {{time}}",
       "minutesLeft_one": "{{count}} min left",
-      "minutesLeft_other": "{{count}} min left"
+      "minutesLeft_other": "{{count}} min left",
+      "stop": "Stop",
+      "stopTitle": "Stop recording?",
+      "stopConfirm": "Stop recording \"{{title}}\" now? What has been recorded so far stays in your Channels DVR library.",
+      "stopping": "Stopping…",
+      "stopped": "Recording stopped. What was recorded is kept in Channels DVR.",
+      "stopFailed": "Could not stop the recording"
     }
   },
   "yourStats": {

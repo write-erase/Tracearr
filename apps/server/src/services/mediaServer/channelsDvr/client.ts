@@ -62,6 +62,8 @@ function normalizeClientIp(value: string | undefined): string {
 /** A recording in progress, as the dashboard shows it. */
 export interface ChannelsDvrRecording {
   key: string;
+  /** Channels DVR job id; null when the activity key carries none (cannot be stopped) */
+  jobId: string | null;
   channelNumber: string;
   channelTitle: string | null;
   title: string;
@@ -657,6 +659,7 @@ export class ChannelsDvrClient implements IMediaServerClient {
       const durationSec = sameProgramme ? airing?.durationSec : undefined;
       return {
         key: recording.key,
+        jobId: recording.jobId ?? null,
         channelNumber: recording.channelNumber,
         channelTitle: airing?.channelTitle ?? null,
         title: recording.title,
@@ -674,6 +677,21 @@ export class ChannelsDvrClient implements IMediaServerClient {
           (sameProgramme ? airing?.artworkPath : null) ?? channelLogoPath(recording.channelNumber),
       };
     });
+  }
+
+  /**
+   * Stop a recording in progress, as the Channels DVR web UI does (DVR > Schedule > Stop):
+   * `DELETE /dvr/jobs/<jobId>`. What was recorded so far stays in the library.
+   */
+  async stopRecording(jobId: string): Promise<void> {
+    if (!/^\d{9,11}-[\w.-]+$/.test(jobId)) throw new Error('Invalid Channels DVR job id');
+    const response = await fetch(`${this.baseUrl}/dvr/jobs/${encodeURIComponent(jobId)}`, {
+      method: 'DELETE',
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!response.ok) {
+      throw new Error(`Channels DVR refused to stop the recording: HTTP ${response.status}`);
+    }
   }
 
   /**
@@ -864,38 +882,9 @@ export class ChannelsDvrClient implements IMediaServerClient {
     return ChannelsDvrClient.page(items, options);
   }
 
-  /** Items Channels created or changed after `since` (its `updated_at`/`created_at`). */
-  private static changedSince(items: MediaLibraryItem[], since: Date): MediaLibraryItem[] {
-    const cutoff = since.getTime();
-    return items.filter(
-      (item) =>
-        (item.updatedAt ?? item.addedAt).getTime() > cutoff || item.addedAt.getTime() > cutoff
-    );
-  }
-
-  /**
-   * Incremental sync: top-level items added or changed since the last sync. Channels has
-   * no server-side filter, so the (cached) full list is filtered here; the saving is in the
-   * rows Tracearr has to write, not in the request.
-   */
-  async getLibraryItemsSince(
-    libraryId: string,
-    since: Date,
-    options?: { offset?: number; limit?: number; libraryType?: string }
-  ): Promise<{ items: MediaLibraryItem[]; totalCount: number }> {
-    const { items } = await this.getLibraryItems(libraryId, { libraryType: options?.libraryType });
-    return ChannelsDvrClient.page(ChannelsDvrClient.changedSince(items, since), options);
-  }
-
-  /** Incremental sync: episodes added or changed since the last sync. */
-  async getLibraryLeavesSince(
-    libraryId: string,
-    since: Date,
-    options?: { offset?: number; limit?: number }
-  ): Promise<{ items: MediaLibraryItem[]; totalCount: number }> {
-    const { items } = await this.getLibraryLeaves(libraryId);
-    return ChannelsDvrClient.page(ChannelsDvrClient.changedSince(items, since), options);
-  }
+  // No getLibraryItemsSince/getLibraryLeavesSince: Channels DVR cannot filter by date, so
+  // an incremental sync would download the whole list anyway and could not notice deleted
+  // episodes. Without them every Channels sync is a full scan, which also removes deletions.
 
   /** Every episode in the TV library. Movies and videos have no leaves. */
   async getLibraryLeaves(
