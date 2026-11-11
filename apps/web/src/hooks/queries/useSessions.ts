@@ -46,6 +46,18 @@ export function useOthersActive(serverIds: string[], socketConnected = false, se
   });
 }
 
+/** Channels DVR recordings in progress; only fetched when a Channels DVR server exists. */
+export function useChannelsRecordings(enabled: boolean) {
+  return useQuery({
+    queryKey: ['sessions', 'recordings'],
+    queryFn: () => api.sessions.recordings(),
+    select: (response) => response.data,
+    enabled,
+    staleTime: 1000 * 15,
+    refetchInterval: 1000 * 30,
+  });
+}
+
 export function useSession(id: string, startedAt?: Date | string) {
   return useQuery({
     queryKey: ['sessions', 'detail', id],

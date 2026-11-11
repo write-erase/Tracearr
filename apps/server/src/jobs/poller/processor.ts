@@ -1869,7 +1869,9 @@ export async function processServerSessions(
             if (
               checkWatchCompletion(
                 currentWatchTimeMs,
-                processed.progressMs,
+                // Live TV position is the programme's, not the viewer's: someone tuning in
+                // near the end has not watched it. Judge live TV by time watched alone.
+                processed.mediaType === 'live' ? null : processed.progressMs,
                 processed.totalDurationMs,
                 processed.mediaType === 'episode'
                   ? watchedThresholds.episode

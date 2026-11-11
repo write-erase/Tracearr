@@ -1,5 +1,38 @@
 # Tracearr Fork Information
 
+## November 11, 2026 — Channels DVR links, episode matching, recordings and live progress
+
+**Open on server.** `buildMediaServerItemUrl` gains a `channels_dvr` case: shows open
+`/admin/shows/<id>` in the Channels DVR web UI, episodes open their show (the UI has no
+episode pages), anything else falls back to the server root. Availability entries now carry
+`itemType` and `showRatingKey` (from `library_items.media_type` / `grandparent_rating_key`)
+so the detail page can build those links.
+
+**Episode matching across servers.** Plex/Jellyfin/Emby key episodes by provider id
+(`episode:tvdb:…`); Channels DVR has none, so its episodes were keyed by show and number and
+never joined the other servers' rows (The Addams Family showed 67 + 55 episodes instead of
+34 + 30). Id-less episodes now resolve to the single episode row another server holds for the
+same canonical show, season and episode, when the titles agree or one side has none
+(`findEpisodesByShowNumber`). `reconcileIdlessServerEpisodes` merges existing duplicates on
+the next library sync that processes items. Both refuse ambiguous cases (more than one
+candidate, or differing titles), which protects shows numbered differently between servers.
+
+**Recording now.** `GET /sessions/recordings` reads "Recording ch2 for … until 4:30AM"
+activity lines (`parseRecordingActivity`) from each Channels DVR server the user can see,
+with programme times and artwork from the guide when its current airing is the programme
+being recorded (otherwise the job start, Channels' own "until" text and the channel logo).
+The dashboard shows them in a separate "Recording now" panel under Now Playing. Recordings
+never enter the session pipeline, history, stats or rules.
+
+**Live TV progress.** Live sessions take the current airing's start and length from the guide,
+so the card shows progress through the programme. Live TV is judged "watched" by time watched
+only (`checkWatchCompletion` gets no position for `live`), so tuning in near the end of a
+programme does not count as watching it.
+
+**Terminate while pending.** New sessions are pending (not yet saved) for 30 s; the Now Playing
+card now greys out Terminate during that window and explains why, instead of the request
+failing with "Session not found".
+
 ## November 11, 2026 — Channels DVR playback position, pause and incremental sync
 
 **Position and progress.** Recording activity lines end with the playback position

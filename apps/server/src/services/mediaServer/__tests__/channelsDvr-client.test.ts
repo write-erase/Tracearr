@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('../../../utils/http.js', () => ({ fetchJson: vi.fn(), fetchText: vi.fn() }));
 // Session tests read the DVR server only; never reach out to real playback devices.
@@ -308,5 +308,75 @@ describe('Channels DVR session artwork', () => {
       `${BASE}/log?n=10000`,
       expect.objectContaining({ service: 'channels-dvr' })
     );
+  });
+});
+
+describe('Channels DVR recordings and live progress', () => {
+  const NOW = 1794391200 + 18 * 60; // 18 minutes into a 4:00-4:30 airing
+  const guide = [
+    {
+      Channel: { Number: '2', Name: 'KWTV' },
+      Airings: [
+        {
+          Time: 1794391200,
+          Duration: 1800,
+          Title: 'News 9 @ 4a',
+          Image: 'https://tmsimg.fancybits.co/assets/p31603093_b_h9_aa.jpg',
+        },
+      ],
+    },
+  ];
+
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(NOW * 1000);
+    vi.mocked(fetchText).mockReset().mockResolvedValue('');
+  });
+  afterEach(() => vi.useRealTimers());
+
+  it('lists a recording with guide times and artwork', async () => {
+    vi.mocked(fetchJson).mockImplementation((async (url: string) => {
+      if (url.endsWith('/dvr'))
+        return {
+          activity: {
+            '0-job-1794391200-ch2': 'Recording ch2 for News 9 @ 4a until 4:30AM: buf=0% drop=0%',
+          },
+        };
+      if (url.includes('/guide')) return guide;
+      return [];
+    }) as never);
+
+    const [recording] = await client().getRecordings();
+    expect(recording).toMatchObject({
+      channelNumber: '2',
+      channelTitle: 'KWTV',
+      title: 'News 9 @ 4a',
+      startedAt: new Date(1794391200 * 1000).toISOString(),
+      endsAt: new Date((1794391200 + 1800) * 1000).toISOString(),
+      untilText: '4:30AM',
+      thumbPath: '/tmsimg/assets/p31603093_b_h9_aa.jpg',
+    });
+  });
+
+  it('ignores guide times when the guide is airing something else', async () => {
+    vi.mocked(fetchJson).mockImplementation((async (url: string) => {
+      if (url.endsWith('/dvr'))
+        return {
+          activity: { '0-job-1794391200-ch2': 'Recording ch2 for Late Movie until 4:30AM' },
+        };
+      if (url.includes('/guide')) return guide;
+      return [];
+    }) as never);
+
+    const [recording] = await client().getRecordings();
+    expect(recording?.endsAt).toBeNull();
+    expect(recording?.untilText).toBe('4:30AM');
+    expect(recording?.thumbPath).toBe('/dvr/guide/channels/2/logo');
+  });
+
+  it('returns no recordings when nothing is recording', async () => {
+    vi.mocked(fetchJson).mockImplementation((async (url: string) =>
+      url.endsWith('/dvr') ? { activity: {} } : []) as never);
+    expect(await client().getRecordings()).toEqual([]);
   });
 });

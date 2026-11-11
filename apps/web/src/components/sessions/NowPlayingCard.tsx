@@ -146,6 +146,12 @@ export function NowPlayingCard({ session, onClick }: NowPlayingCardProps) {
   // works on the local network. Remote sessions get a message instead of the dialog.
   const isChannelsDvr = session.server.type === 'channels_dvr';
   const isRemoteChannels = isChannelsDvr && !session.isLocal;
+  // New streams are held as pending for their first 30 seconds before they are saved, and
+  // only saved sessions can be terminated ("Session not found" otherwise).
+  const isPending = session.pending === true;
+  const pendingNotYet = t('pages:terminateStream.pendingNotYet', {
+    defaultValue: 'This stream can be stopped once it has been playing for 30 seconds.',
+  });
   const remoteNotPossible = t('pages:terminateStream.remoteNotPossible', {
     defaultValue:
       'Tracearr can only stop Channels DVR streams on devices within your local network.',
@@ -334,16 +340,30 @@ export function NowPlayingCard({ session, onClick }: NowPlayingCardProps) {
                   <Button
                     variant="ghost"
                     size="icon"
-                    className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive h-6 w-6"
+                    className={cn(
+                      'text-muted-foreground hover:bg-destructive/10 hover:text-destructive h-6 w-6',
+                      isPending && 'cursor-not-allowed opacity-50 hover:bg-transparent'
+                    )}
+                    aria-disabled={isPending || undefined}
                     onClick={(e) => {
                       e.stopPropagation();
                       if (isRemoteChannels) {
                         toast.error(remoteNotPossible);
                         return;
                       }
+                      if (isPending) {
+                        toast.info(pendingNotYet);
+                        return;
+                      }
                       setShowTerminateDialog(true);
                     }}
-                    title={isRemoteChannels ? remoteNotPossible : t('pages:terminateStream.title')}
+                    title={
+                      isRemoteChannels
+                        ? remoteNotPossible
+                        : isPending
+                          ? pendingNotYet
+                          : t('pages:terminateStream.title')
+                    }
                   >
                     <X className="h-4 w-4" />
                   </Button>

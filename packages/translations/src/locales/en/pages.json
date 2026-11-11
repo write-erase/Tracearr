@@ -107,7 +107,16 @@
     "vodPlays": "VOD Plays",
     "vodWatchTime": "VOD Watch Time",
     "tvSessions": "TV Sessions",
-    "tvWatchTime": "TV Watch Time"
+    "tvWatchTime": "TV Watch Time",
+    "recording": {
+      "title": "Recording now",
+      "badge": "Recording",
+      "channel": "Channel {{number}}",
+      "channelNamed": "Channel {{number}} · {{name}}",
+      "until": "until {{time}}",
+      "minutesLeft_one": "{{count}} min left",
+      "minutesLeft_other": "{{count}} min left"
+    }
   },
   "yourStats": {
     "titles": "Titles",
@@ -2183,7 +2192,8 @@
     "messagePlaceholder": "e.g., Please don't share your account",
     "messageHint": "This message will be shown to them during playback",
     "terminating": "Terminating...",
-    "remoteNotPossible": "Tracearr can only stop Channels DVR streams on devices within your local network."
+    "remoteNotPossible": "Tracearr can only stop Channels DVR streams on devices within your local network.",
+    "pendingNotYet": "This stream can be stopped once it has been playing for 30 seconds."
   },
   "settings": {
     "plex": {

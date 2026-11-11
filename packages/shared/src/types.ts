@@ -3126,6 +3126,23 @@ export interface MediaVersionEntry {
   fileSize: number | null;
 }
 
+/** A Channels DVR recording in progress (GET /sessions/recordings). Not a viewing session. */
+export interface ChannelsDvrRecordingEntry {
+  serverId: string;
+  serverName: string;
+  key: string;
+  channelNumber: string;
+  channelTitle: string | null;
+  title: string;
+  /** ISO times; null when unknown */
+  startedAt: string | null;
+  endsAt: string | null;
+  /** End time as Channels wrote it ("4:30AM"), shown when endsAt is unknown */
+  untilText: string | null;
+  /** Artwork path on the Channels DVR server (programme image or channel logo) */
+  thumbPath: string | null;
+}
+
 export interface MediaAvailabilityEntry {
   serverId: string;
   serverType: string;
