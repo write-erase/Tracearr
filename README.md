@@ -43,7 +43,7 @@ Connect your Channels DVR server using its base URL and port `8089` (for example
 The integration monitors active sessions for Live TV and recorded content. Channels DVR does not provide individual user accounts, so Tracearr identifies viewers using their client device name or IP address.
 
 **Current Limitations:**
-- Library browsing covers TV shows, movies and imported videos. Quality details (resolution, codecs, audio channels) are read from filename tags such as `[Bluray-720p][AC3 2.0][x264]`, so files without them show no quality info.
+- Library browsing covers TV shows, movies and imported videos. Quality details (resolution, codecs, audio channels) are read from filename tags such as `[Bluray-720p][AC3 2.0][x264]`, so files without them show no quality info. File sizes come from Channels' `/dvr/files` list.
 - Importing past watch history is not supported. Sessions Tracearr observes are still recorded in History.
 - Sessions can only be terminated when the playback device is on your local network and reachable from the Tracearr server (Tracearr calls the Channels app on the device at port 57000). Remote sessions cannot be terminated, and the optional termination message is not shown.
 - Session detection relies on Channels DVR's undocumented `/dvr` activity endpoint, so compatibility may be affected by changes to that endpoint.

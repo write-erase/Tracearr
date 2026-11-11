@@ -144,6 +144,31 @@ describe('Channels DVR library client', () => {
     expect(leaves.items.map((i) => i.ratingKey)).toEqual(['587']);
   });
 
+  it('adds file sizes from /dvr/files to episodes', async () => {
+    vi.mocked(fetchJson).mockImplementation((async (url: string) => {
+      if (url.endsWith('/api/v1/shows')) return [SHOW];
+      if (url.endsWith('/api/v1/episodes')) return [EPISODE, { ...EPISODE, id: '587' }];
+      if (url.endsWith('/dvr/files')) return [{ ID: '586', FileSize: 548242169 }];
+      return [];
+    }) as never);
+
+    const { items } = await client().getLibraryLeaves('tv');
+    expect(items.find((i) => i.ratingKey === '586')?.fileSize).toBe(548242169);
+    expect(items.find((i) => i.ratingKey === '587')?.fileSize).toBeUndefined();
+  });
+
+  it('still lists episodes when /dvr/files fails', async () => {
+    vi.mocked(fetchJson).mockImplementation((async (url: string) => {
+      if (url.endsWith('/api/v1/shows')) return [SHOW];
+      if (url.endsWith('/api/v1/episodes')) return [EPISODE];
+      throw new Error('HTTP 404');
+    }) as never);
+
+    const { items } = await client().getLibraryLeaves('tv');
+    expect(items).toHaveLength(1);
+    expect(items[0]?.fileSize).toBeUndefined();
+  });
+
   it('fetches each list once while a sync pages through it', async () => {
     vi.mocked(fetchJson).mockResolvedValue([SHOW] as never);
     const c = client();

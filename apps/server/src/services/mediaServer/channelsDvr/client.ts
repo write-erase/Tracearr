@@ -607,6 +607,41 @@ export class ChannelsDvrClient implements IMediaServerClient {
     return list;
   }
 
+  /**
+   * File sizes keyed by DVR file id, from `GET /dvr/files` (one request for every file).
+   * The /api/v1 library lists carry no size. Best effort: on failure sizes stay unknown.
+   */
+  private async getFileSizes(): Promise<Map<string, number>> {
+    const sizes = new Map<string, number>();
+    try {
+      for (const file of await this.getLibraryList('/dvr/files')) {
+        const id = file.ID ?? file.id;
+        const size = file.FileSize ?? file.file_size;
+        if (
+          (typeof id === 'string' || typeof id === 'number') &&
+          typeof size === 'number' &&
+          size > 0
+        ) {
+          sizes.set(String(id), size);
+        }
+      }
+    } catch {
+      // Older servers or a failed request: leave sizes unknown rather than failing the sync.
+    }
+    return sizes;
+  }
+
+  private static withSizes(
+    items: MediaLibraryItem[],
+    sizes: Map<string, number>
+  ): MediaLibraryItem[] {
+    if (sizes.size === 0) return items;
+    return items.map((item) => {
+      const fileSize = sizes.get(item.ratingKey);
+      return fileSize ? { ...item, fileSize } : item;
+    });
+  }
+
   private static page<T>(items: T[], options?: { offset?: number; limit?: number }) {
     const offset = Math.max(0, options?.offset ?? 0);
     const limit = options?.limit ?? items.length;
@@ -698,8 +733,14 @@ export class ChannelsDvrClient implements IMediaServerClient {
       const shows = await this.getLibraryList('/api/v1/shows');
       items = shows.map((show) => mapShow(this.baseUrl, show)).filter((i) => i !== null);
     } else {
-      const list = await this.getLibraryList(`/api/v1/${libraryId}`);
-      items = list.map((item) => mapMovie(this.baseUrl, item)).filter((i) => i !== null);
+      const [list, sizes] = await Promise.all([
+        this.getLibraryList(`/api/v1/${libraryId}`),
+        this.getFileSizes(),
+      ]);
+      items = ChannelsDvrClient.withSizes(
+        list.map((item) => mapMovie(this.baseUrl, item)).filter((i) => i !== null),
+        sizes
+      );
     }
     return ChannelsDvrClient.page(items, options);
   }
@@ -711,17 +752,21 @@ export class ChannelsDvrClient implements IMediaServerClient {
   ): Promise<{ items: MediaLibraryItem[]; totalCount: number }> {
     if (libraryId !== 'tv') return { items: [], totalCount: 0 };
 
-    const [episodes, shows] = await Promise.all([
+    const [episodes, shows, sizes] = await Promise.all([
       this.getLibraryList('/api/v1/episodes'),
       this.getLibraryList('/api/v1/shows'),
+      this.getFileSizes(),
     ]);
     // Episodes without their own image fall back to the show poster.
     const showArtwork = new Map(
       shows.map((show) => [String(show.id), mapShow(this.baseUrl, show)?.thumbPath])
     );
-    const items = episodes
-      .map((episode) => mapEpisode(this.baseUrl, episode, showArtwork))
-      .filter((i) => i !== null);
+    const items = ChannelsDvrClient.withSizes(
+      episodes
+        .map((episode) => mapEpisode(this.baseUrl, episode, showArtwork))
+        .filter((i) => i !== null),
+      sizes
+    );
     return ChannelsDvrClient.page(items, options);
   }
 }
