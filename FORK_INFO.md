@@ -9,6 +9,11 @@ the `ip` prefix, and marks such sessions as web player ones. Channels names a br
 app last used its address (here "iPad"), so web player sessions are named "Web Browser (<address>)",
 shown as product "Channels Web" on platform "Web", never matched to a registered app in
 `/dvr/clients/info`, and never asked for status on :57000 (pause falls back to server-side detection).
+When the web player reaches the end of a file, Channels keeps listing it but drops the "at …"
+position. Such a file stream is now shown paused at its last known position, and the poller's
+time-since-first-seen fallback (`getChannelsDvrElapsedMs`) applies to live TV only, so a finished
+episode no longer counts up from 0 as if playing.
+
 Terminate is refused for them, on the card and in `services/termination.ts`: there is no app to
 send the stop to, and an app that once had the browser's address could be stopped instead. The X
 says "Tracearr can't stop Channels DVR streams playing in a web browser."

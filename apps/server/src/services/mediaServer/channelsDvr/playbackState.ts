@@ -48,7 +48,26 @@ export function applyPauseState(
 
   const result = sessions.map((session) => {
     // Live TV has no position to watch, so it is always playing.
-    if (session.media.type === 'live' || session.playback.positionMs <= 0) return session;
+    if (session.media.type === 'live') return session;
+
+    // A file stream that has lost its position (the web player sitting on its end screen
+    // drops "at …" but stays listed) is not playing: hold the last position, paused.
+    if (session.playback.positionMs <= 0) {
+      const last = seen.get(session.sessionKey);
+      if (!last || last.positionMs <= 0) return session;
+      const durationMs = session.media.durationMs;
+      return {
+        ...session,
+        playback: {
+          ...session.playback,
+          state: 'paused' as const,
+          positionMs: last.positionMs,
+          ...(durationMs > 0
+            ? { progressPercent: calculateProgress(last.positionMs, durationMs) }
+            : {}),
+        },
+      };
+    }
 
     // The device said exactly what it is doing: use that, and keep the server-side
     // tracker current so a later fallback starts from the right place.
