@@ -169,6 +169,8 @@ const FILE_EXTENSION = /\.(?:mpg|mpeg|ts|mp4|mkv|m4v|avi)$/i;
 /** A recording the DVR is making right now, from a "Recording ch2 for ..." activity line. */
 export interface ParsedRecordingActivity {
   key: string;
+  /** Channels DVR job id ("1794391200-ch2"), used to stop the recording */
+  jobId?: string;
   /** Channel number ("2", "5.1") */
   channelNumber: string;
   /** Programme title as written in the line */
@@ -196,8 +198,11 @@ export function parseRecordingActivity(
   if (!title) return null;
   // Job keys look like "0-job-1794391200-ch2"; the number is the job start in epoch seconds.
   const started = /-job-(\d{9,11})-/.exec(entry.key)?.[1];
+  // "0-job-1794391200-ch2" -> "1794391200-ch2", the id DELETE /dvr/jobs/<id> takes.
+  const jobId = /^\d+-job-(.+)$/.exec(entry.key)?.[1];
   return {
     key: entry.key,
+    ...(jobId ? { jobId } : {}),
     channelNumber: match[1]!,
     title,
     ...(started ? { startedAt: new Date(Number(started) * 1000) } : {}),

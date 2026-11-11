@@ -58,6 +58,30 @@ export function useChannelsRecordings(enabled: boolean) {
   });
 }
 
+/** Stop a Channels DVR recording; refreshes the Recording Now panel. */
+export function useStopRecording() {
+  const { t } = useTranslation('pages');
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ serverId, jobId }: { serverId: string; jobId: string }) =>
+      api.sessions.stopRecording(serverId, jobId),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['sessions', 'recordings'] });
+      toast.success(
+        t('dashboard.recording.stopped', {
+          defaultValue: 'Recording stopped. What was recorded is kept in Channels DVR.',
+        })
+      );
+    },
+    onError: (error: Error) => {
+      toast.error(
+        t('dashboard.recording.stopFailed', { defaultValue: 'Could not stop the recording' }),
+        { description: error.message }
+      );
+    },
+  });
+}
+
 export function useSession(id: string, startedAt?: Date | string) {
   return useQuery({
     queryKey: ['sessions', 'detail', id],

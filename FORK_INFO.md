@@ -24,6 +24,17 @@ being recorded (otherwise the job start, Channels' own "until" text and the chan
 The dashboard shows them in a separate "Recording now" panel under Now Playing. Recordings
 never enter the session pipeline, history, stats or rules.
 
+**Stop a recording.** Admins and owners get a Stop button on each Recording Now card (with a
+confirmation). `POST /sessions/recordings/stop` sends `DELETE /dvr/jobs/<jobId>` to Channels
+DVR, the same call its web UI makes for DVR > Schedule > Stop; the job id comes from the
+activity key (`0-job-1794391200-ch2` -> `1794391200-ch2`). Verified live: the partial
+recording stays in the Channels DVR library.
+
+**Landscape artwork in Browse.** Shows that exist only on Channels DVR carry 16:9 TV-guide
+banners, which the portrait poster frame cropped hard ("KOCO 5 NEWS" -> "OCO 5 NEW").
+`PosterArt` now detects landscape images on load and shows them whole over a blurred copy of
+themselves; portrait posters are unchanged.
+
 **Live TV progress.** Live sessions take the current airing's start and length from the guide,
 so the card shows progress through the programme. Live TV is judged "watched" by time watched
 only (`checkWatchCompletion` gets no position for `live`), so tuning in near the end of a

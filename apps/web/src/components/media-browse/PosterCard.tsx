@@ -100,6 +100,9 @@ export function PosterArt({
   fetchPriority,
 }: PosterArtProps) {
   const [failedSrc, setFailedSrc] = useState<string | null>(null);
+  // Landscape artwork (Channels DVR's TV-guide banners) would be cropped hard by the
+  // portrait frame, so it is shown whole over a blurred copy of itself instead.
+  const [landscapeSrc, setLandscapeSrc] = useState<string | null>(null);
 
   if (!src || failedSrc === src) {
     return (
@@ -121,7 +124,8 @@ export function PosterArt({
       </div>
     );
   }
-  return (
+  const isLandscape = landscapeSrc === src;
+  const image = (
     <img
       src={src}
       alt=""
@@ -129,8 +133,27 @@ export function PosterArt({
       decoding="async"
       fetchPriority={fetchPriority}
       onError={() => setFailedSrc(src)}
-      className="h-full w-full object-cover"
+      onLoad={(e) => {
+        const { naturalWidth, naturalHeight } = e.currentTarget;
+        if (naturalWidth > naturalHeight * 1.1) setLandscapeSrc(src);
+      }}
+      className={
+        isLandscape ? 'relative h-full w-full object-contain' : 'h-full w-full object-cover'
+      }
     />
+  );
+  if (!isLandscape) return image;
+  return (
+    <div className="relative h-full w-full overflow-hidden">
+      <img
+        src={src}
+        alt=""
+        aria-hidden="true"
+        decoding="async"
+        className="absolute inset-0 h-full w-full scale-110 object-cover opacity-60 blur-xl"
+      />
+      {image}
+    </div>
   );
 }
 

@@ -62,6 +62,8 @@ function normalizeClientIp(value: string | undefined): string {
 /** A recording in progress, as the dashboard shows it. */
 export interface ChannelsDvrRecording {
   key: string;
+  /** Channels DVR job id; null when the activity key carries none (cannot be stopped) */
+  jobId: string | null;
   channelNumber: string;
   channelTitle: string | null;
   title: string;
@@ -657,6 +659,7 @@ export class ChannelsDvrClient implements IMediaServerClient {
       const durationSec = sameProgramme ? airing?.durationSec : undefined;
       return {
         key: recording.key,
+        jobId: recording.jobId ?? null,
         channelNumber: recording.channelNumber,
         channelTitle: airing?.channelTitle ?? null,
         title: recording.title,
@@ -674,6 +677,21 @@ export class ChannelsDvrClient implements IMediaServerClient {
           (sameProgramme ? airing?.artworkPath : null) ?? channelLogoPath(recording.channelNumber),
       };
     });
+  }
+
+  /**
+   * Stop a recording in progress, as the Channels DVR web UI does (DVR > Schedule > Stop):
+   * `DELETE /dvr/jobs/<jobId>`. What was recorded so far stays in the library.
+   */
+  async stopRecording(jobId: string): Promise<void> {
+    if (!/^\d{9,11}-[\w.-]+$/.test(jobId)) throw new Error('Invalid Channels DVR job id');
+    const response = await fetch(`${this.baseUrl}/dvr/jobs/${encodeURIComponent(jobId)}`, {
+      method: 'DELETE',
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!response.ok) {
+      throw new Error(`Channels DVR refused to stop the recording: HTTP ${response.status}`);
+    }
   }
 
   /**
