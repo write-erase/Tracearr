@@ -15,8 +15,9 @@ light joke. It now also shows:
   (padding included) instead of the guide's current airing. The guide is still the fallback.
 - **Disk space**: "186.6 GB free" (binary units, as Channels shows them) from the `disk` block of
   `GET /dvr`, amber below 10% free.
-- **Open in Channels**: a queued show's title links to its page in the Channels web UI
-  (`/admin/shows/<show_id>`).
+- **Open in Channels**: a queued show's title links to the Channels DVR schedule page
+  (`/admin/dvr/jobs`). A show's own page only lists recordings already made, so it's empty for a
+  show that hasn't recorded yet.
 - **Cancel a queued recording** (owner/admin, with a confirmation): `DELETE /dvr/jobs/<id>`, the
   request Stop already uses, which removes the job from the schedule.
 - **Tuner usage**: "2 of 5 tuners in use", amber when all are busy. The total is the sum of

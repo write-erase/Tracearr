@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { CalendarClock, CircleDot, ExternalLink, HardDrive, Square, X } from 'lucide-react';
-import { buildMediaServerItemUrl } from '@tracearr/shared';
 import type {
   ChannelsDvrDiskUsage,
   ChannelsDvrRecordingEntry,
@@ -317,7 +316,7 @@ function CancelRecordingButton({ job }: { job: ChannelsDvrUpcomingEntry }) {
             <DialogDescription>
               {t('dashboard.recording.cancelConfirm', {
                 defaultValue:
-                  'Cancel "{{title}}" at {{time}}? It\'s removed from your Channels DVR schedule.',
+                  'Cancel "{{title}}" at {{time}}? It will be removed from your Channels DVR schedule.',
                 title: job.title,
                 time: formatClock(job.startsAt),
               })}
@@ -368,15 +367,9 @@ function UpcomingRow({
           episode: job.episodeNumber,
         })
       : null;
-  const showUrl =
-    linkBase && job.showId
-      ? buildMediaServerItemUrl({
-          serverType: 'channels_dvr',
-          baseUrl: linkBase,
-          ratingKey: job.showId,
-          itemType: 'show',
-        })
-      : null;
+  // Channels' schedule page lists every queued recording; a show's page only lists what
+  // it has already recorded, so it's empty for a show that hasn't recorded yet.
+  const showUrl = linkBase ? `${linkBase.replace(/\/+$/, '')}/admin/dvr/jobs` : null;
   const channel = job.channelNumber
     ? job.channelTitle
       ? t('dashboard.recording.channelNamed', {
@@ -415,7 +408,7 @@ function UpcomingRow({
             rel="noopener noreferrer"
             className="group/link flex min-w-0 items-center gap-1 text-sm font-medium hover:underline"
             title={t('dashboard.recording.openInChannels', {
-              defaultValue: 'Open in Channels DVR',
+              defaultValue: 'Open the Channels DVR schedule',
             })}
           >
             <span className="truncate">{job.title}</span>

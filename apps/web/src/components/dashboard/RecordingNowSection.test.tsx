@@ -111,7 +111,7 @@ describe('RecordingNowSection', () => {
     expect(screen.getByTestId('disk-usage').className).toMatch(/amber/);
   });
 
-  it('links a queued show to its page in the Channels web UI', () => {
+  it('links a queued show to the Channels DVR schedule page', () => {
     render(
       <RecordingNowSection
         recordings={[]}
@@ -120,7 +120,7 @@ describe('RecordingNowSection', () => {
       />
     );
     expect(screen.getByRole('link').getAttribute('href')).toBe(
-      'http://192.168.30.241:8089/admin/shows/The%20Jennifer%20Hudson%20Show'
+      'http://192.168.30.241:8089/admin/dvr/jobs'
     );
   });
 
