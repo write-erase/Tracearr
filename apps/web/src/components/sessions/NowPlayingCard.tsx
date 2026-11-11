@@ -145,10 +145,15 @@ export function NowPlayingCard({ session, onClick }: NowPlayingCardProps) {
   // Channels DVR stops playback by calling the Channels app on the device itself, which only
   // works on the local network. Remote sessions get a message instead of the dialog.
   const isChannelsDvr = session.server.type === 'channels_dvr';
+  // The Channels web player (a browser) cannot be stopped: there is no app to send the stop to.
+  const isChannelsWeb = isChannelsDvr && session.product === 'Channels Web';
   const isRemoteChannels = isChannelsDvr && !session.isLocal;
   // New streams are held as pending for their first 30 seconds before they are saved, and
   // only saved sessions can be terminated ("Session not found" otherwise).
   const isPending = session.pending === true;
+  const webNotPossible = t('pages:terminateStream.webNotPossible', {
+    defaultValue: "Tracearr can't stop Channels DVR streams playing in a web browser.",
+  });
   const pendingNotYet = t('pages:terminateStream.pendingNotYet', {
     defaultValue: 'This stream can be stopped once it has been playing for 30 seconds.',
   });
@@ -347,6 +352,10 @@ export function NowPlayingCard({ session, onClick }: NowPlayingCardProps) {
                     aria-disabled={isPending || undefined}
                     onClick={(e) => {
                       e.stopPropagation();
+                      if (isChannelsWeb) {
+                        toast.error(webNotPossible);
+                        return;
+                      }
                       if (isRemoteChannels) {
                         toast.error(remoteNotPossible);
                         return;
@@ -358,11 +367,13 @@ export function NowPlayingCard({ session, onClick }: NowPlayingCardProps) {
                       setShowTerminateDialog(true);
                     }}
                     title={
-                      isRemoteChannels
-                        ? remoteNotPossible
-                        : isPending
-                          ? pendingNotYet
-                          : t('pages:terminateStream.title')
+                      isChannelsWeb
+                        ? webNotPossible
+                        : isRemoteChannels
+                          ? remoteNotPossible
+                          : isPending
+                            ? pendingNotYet
+                            : t('pages:terminateStream.title')
                     }
                   >
                     <X className="h-4 w-4" />

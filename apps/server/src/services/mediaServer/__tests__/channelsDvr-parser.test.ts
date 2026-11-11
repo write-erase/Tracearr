@@ -405,4 +405,22 @@ describe('Channels DVR parser', () => {
       ).toEqual([]);
     });
   });
+
+  it('reads the Channels web player key ("7-file1109-ip192.168.30.9")', () => {
+    const [s] = parseSessionsFromDvr(
+      dvr({
+        '7-file1109-ip192.168.30.9': 'Watching M*A*S*H - Season 1, Episode 21 from iPad at 25s',
+      })
+    );
+    expect(s?.media.type).toBe('episode');
+    expect(s?.mediaId).toBe('1109');
+    expect(s?.media.thumbPath).toBe('/dvr/files/1109/preview.jpg');
+    expect(s?.network.ipAddress).toBe('192.168.30.9');
+    expect(s?.episode).toEqual({ showTitle: 'M*A*S*H', seasonNumber: 1, episodeNumber: 21 });
+    expect(s?.playback.positionMs).toBe(25_000);
+    // Channels calls it "iPad" after the app that last had that address; it is a browser.
+    expect(s?.user.username).toBe('Web Browser (192.168.30.9)');
+    expect(s?.player.product).toBe('Channels Web');
+    expect(s?.player.platform).toBe('Web');
+  });
 });

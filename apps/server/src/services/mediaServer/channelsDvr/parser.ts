@@ -145,6 +145,8 @@ export interface ParsedWatchActivity {
   show?: { title: string; season: number; episode: number; episodeTitle?: string };
   /** Recording playback position in seconds, from the "at 4m15s" suffix. */
   positionSec?: number;
+  /** Played in the Channels web player (a browser), not a Channels app */
+  webPlayer?: boolean;
 }
 
 const IPV4_AT_END = /(\d{1,3}(?:\.\d{1,3}){3})$/;
@@ -224,11 +226,16 @@ export function parseDvrActivity(data: unknown): ChannelsDvrActivityEntry[] {
   return entries;
 }
 
-/** Key shape: `<n>-file-<fileId>-<ip>` or `<n>-stream-<source...>-<channel>-<ip>`. */
+/**
+ * Key shape: `<n>-file-<fileId>-<ip>` or `<n>-stream-<source...>-<channel>-<ip>`.
+ * The Channels web player writes `<n>-file<fileId>-ip<ip>`.
+ */
 function parseKey(key: string): {
   kind: 'recording' | 'live' | null;
   sourceId?: string;
   ipAddress?: string;
+  /** The Channels web player, whose keys carry "-ip<address>" and "file<id>" */
+  webPlayer?: boolean;
 } {
   // Cellular HLS activity keys carry an opaque session ID, not an IP.
   const hlsSession = key.match(/^\d+-ch(\d+)-dANY-.+$/i);
@@ -236,11 +243,25 @@ function parseKey(key: string): {
 
   const ipMatch = IPV4_AT_END.exec(key);
   const ipAddress = ipMatch?.[1];
-  const withoutIp = ipMatch ? key.slice(0, ipMatch.index).replace(/-$/, '') : key;
+  // The Channels web player writes "-ip192.168.30.9" where the apps write "-192.168.30.9",
+  // and joins the kind to its id: "7-file1109-ip192.168.30.9".
+  const webPlayer = ipMatch ? /-ip$/i.test(key.slice(0, ipMatch.index)) : false;
+  const withoutIp = ipMatch ? key.slice(0, ipMatch.index).replace(/-(?:ip)?$/i, '') : key;
+
+  const compactFile = /^\d+-file(\d+)$/i.exec(withoutIp);
+  if (compactFile) {
+    return { kind: 'recording', sourceId: compactFile[1], ipAddress, webPlayer: true };
+  }
+
   const parts = withoutIp.split('-');
 
   if (parts.length >= 3 && parts[1] === 'file') {
-    return { kind: 'recording', sourceId: parts.slice(2).join('-') || undefined, ipAddress };
+    return {
+      kind: 'recording',
+      sourceId: parts.slice(2).join('-') || undefined,
+      ipAddress,
+      ...(webPlayer ? { webPlayer } : {}),
+    };
   }
   if (parts.length >= 3 && parts[1] === 'stream') {
     // Channel is the last segment once the IP is removed.
@@ -322,6 +343,12 @@ export function parseWatchActivity(entry: ChannelsDvrActivityEntry): ParsedWatch
     }
   }
 
+  // The web player has no device name of its own: Channels names it after whichever app last
+  // used that address, which may be another device entirely. Name it for what it is, per address.
+  if (keyInfo.webPlayer) {
+    clientName = `Web Browser${ipAddress ? ` (${ipAddress})` : ''}`;
+  }
+
   // Live text often leads with the channel number ("ch1429 MLBTV.WSH").
   let title = kind === 'recording' ? cleanRecordingTitle(body) : body.trim();
   let programme: string | undefined;
@@ -367,6 +394,7 @@ export function parseWatchActivity(entry: ChannelsDvrActivityEntry): ParsedWatch
     videoDecision,
     show,
     ...(positionSec !== undefined ? { positionSec } : {}),
+    ...(keyInfo.webPlayer ? { webPlayer: true } : {}),
   };
 }
 
@@ -423,8 +451,8 @@ export function toMediaSession(parsed: ParsedWatchActivity): MediaSession {
     player: {
       name: displayName,
       deviceId: userId,
-      product: 'Channels',
-      platform: 'Channels DVR',
+      product: parsed.webPlayer ? 'Channels Web' : 'Channels',
+      platform: parsed.webPlayer ? 'Web' : 'Channels DVR',
     },
     network: { ipAddress: ip, isLocal: isPrivateIp(ip) },
     quality: {

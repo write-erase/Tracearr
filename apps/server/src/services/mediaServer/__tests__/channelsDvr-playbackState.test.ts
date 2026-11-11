@@ -71,4 +71,18 @@ describe('Channels DVR pause detection', () => {
     const [end] = applyPauseState(URL, [recording(1_535_000)], { complete: true, now: 10_000 });
     expect(end?.playback.positionMs).toBe(1_538_932);
   });
+
+  it('holds the last position, paused, when a file stream stops reporting one', () => {
+    state([recording(1_500_000)], 0);
+    const [ended] = applyPauseState(URL, [recording(0)], { complete: true, now: 5_000 });
+    expect(ended?.playback.state).toBe('paused');
+    expect(ended?.playback.positionMs).toBe(1_500_000);
+    expect(ended?.playback.progressPercent).toBe(97);
+  });
+
+  it('leaves a file stream that never reported a position alone', () => {
+    const [s] = applyPauseState(URL, [recording(0)], { complete: true, now: 0 });
+    expect(s?.playback.state).toBe('playing');
+    expect(s?.playback.positionMs).toBe(0);
+  });
 });

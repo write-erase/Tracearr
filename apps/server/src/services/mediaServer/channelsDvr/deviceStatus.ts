@@ -84,6 +84,8 @@ export async function readDeviceStatuses(
   await Promise.all(
     sessions.map(async (session) => {
       const ip = session.network.ipAddress;
+      // Only Channels apps answer on :57000; a browser has nothing to ask.
+      if (session.player?.product === 'Channels Web') return;
       if (session.media.type === 'live' || !session.network.isLocal || !ip) return;
       if ((unreachableUntil.get(ip) ?? 0) > now) return;
       try {
