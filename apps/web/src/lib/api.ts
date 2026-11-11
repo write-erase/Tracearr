@@ -1,4 +1,5 @@
 import type {
+  ChannelsDvrRecordingEntry,
   Server,
   ServerDownReason,
   UpdateUserAccessInput,
@@ -1122,6 +1123,8 @@ class ApiClient {
       this.request<SessionWithDetails>(
         `/sessions/${id}${startedAt ? `?startedAt=${new Date(startedAt).toISOString()}` : ''}`
       ),
+    /** Channels DVR recordings in progress (not viewing sessions) */
+    recordings: () => this.request<{ data: ChannelsDvrRecordingEntry[] }>('/sessions/recordings'),
     terminate: (id: string, reason?: string) =>
       this.request<{ success: boolean; terminationLogId: string; message: string }>(
         `/sessions/${id}/terminate`,

@@ -166,6 +166,45 @@ const FILE_DATE_SUFFIX = /\s+\d{4}-\d{2}-\d{2}-\d{4}(?:\.\w{2,4})?$/;
 const FILE_EXTENSION = /\.(?:mpg|mpeg|ts|mp4|mkv|m4v|avi)$/i;
 
 /** Pull the activity object out of a `/dvr` response. */
+/** A recording the DVR is making right now, from a "Recording ch2 for ..." activity line. */
+export interface ParsedRecordingActivity {
+  key: string;
+  /** Channel number ("2", "5.1") */
+  channelNumber: string;
+  /** Programme title as written in the line */
+  title: string;
+  /** When the recording job started (from the job key), if present */
+  startedAt?: Date;
+  /** End time as Channels wrote it ("4:30AM"), in the DVR's local time */
+  untilText?: string;
+}
+
+const RECORDING_LINE =
+  /^\s*recording\s+ch(?:annel)?\s*([\w.]+)\s+(?:for\s+)?(.+?)(?:\s+until\s+(.+?))?\s*$/i;
+
+/**
+ * Parse a "Recording ch2 for News 9 @ 4a until 4:30AM: buf=0% drop=0%" entry.
+ * Returns null for anything that is not a recording in progress.
+ */
+export function parseRecordingActivity(
+  entry: ChannelsDvrActivityEntry
+): ParsedRecordingActivity | null {
+  const text = entry.text.replace(STATS_TAIL, '').trim();
+  const match = RECORDING_LINE.exec(text);
+  if (!match) return null;
+  const title = match[2]!.trim();
+  if (!title) return null;
+  // Job keys look like "0-job-1794391200-ch2"; the number is the job start in epoch seconds.
+  const started = /-job-(\d{9,11})-/.exec(entry.key)?.[1];
+  return {
+    key: entry.key,
+    channelNumber: match[1]!,
+    title,
+    ...(started ? { startedAt: new Date(Number(started) * 1000) } : {}),
+    ...(match[3] ? { untilText: match[3].trim() } : {}),
+  };
+}
+
 export function parseDvrActivity(data: unknown): ChannelsDvrActivityEntry[] {
   if (!data || typeof data !== 'object' || Array.isArray(data)) return [];
   const activity = (data as { activity?: unknown }).activity;

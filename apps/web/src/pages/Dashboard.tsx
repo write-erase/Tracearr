@@ -11,10 +11,11 @@ import { ServerResourceCharts } from '@/components/charts/ServerResourceCharts';
 import { ServerBandwidthChart } from '@/components/charts/BandwidthChart';
 import { ErrorState } from '@/components/library/ErrorState';
 import { NowPlayingSection } from '@/components/dashboard/NowPlayingSection';
+import { RecordingNowSection } from '@/components/dashboard/RecordingNowSection';
 import { SectionHeading } from '@/components/dashboard/SectionHeading';
 import { PersonalDashboard } from '@/components/dashboard/PersonalDashboard';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
-import { useDashboardStats, useActiveSessions } from '@/hooks/queries';
+import { useDashboardStats, useActiveSessions, useChannelsRecordings } from '@/hooks/queries';
 import { useServerLiveStats, useMultiServerLiveStats } from '@/hooks/queries/useServers';
 import { useAuth } from '@/hooks/useAuth';
 import { useServer } from '@/hooks/useServer';
@@ -27,6 +28,18 @@ import { cn } from '@/lib/utils';
 function ServerDashboard({ actions }: { actions?: ReactNode }) {
   const { t } = useTranslation(['pages', 'common']);
   const { selectedServerIds, selectedServers, isMultiServer, selectedServerId } = useServer();
+
+  // Channels DVR recordings in progress: only asked for when a Channels server is selected.
+  const channelsServerIds = useMemo(
+    () =>
+      selectedServers.filter((s) => s.type === 'channels_dvr' && !s.historicalAt).map((s) => s.id),
+    [selectedServers]
+  );
+  const { data: allRecordings } = useChannelsRecordings(channelsServerIds.length > 0);
+  const recordings = useMemo(
+    () => allRecordings?.filter((r) => channelsServerIds.includes(r.serverId)),
+    [allRecordings, channelsServerIds]
+  );
   const { isConnected } = useSocket();
   const {
     data: stats,
@@ -241,6 +254,8 @@ function ServerDashboard({ actions }: { actions?: ReactNode }) {
       </section>
 
       <NowPlayingSection sessions={sortedSessions} />
+
+      <RecordingNowSection recordings={recordings} showServer={channelsServerIds.length > 1} />
 
       {/* Stream Map - only show when there are active streams */}
       {hasActiveStreams && (

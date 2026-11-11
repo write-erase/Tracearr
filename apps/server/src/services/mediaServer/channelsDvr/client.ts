@@ -15,9 +15,11 @@ import type {
 import {
   channelsDvrUserId,
   parseDvrActivity,
+  parseRecordingActivity,
   parseWatchActivity,
   toMediaSession,
 } from './parser.js';
+import { channelLogoPath } from './logos.js';
 import {
   CHANNELS_DVR_LIBRARIES,
   isChannelsDvrLibraryId,
@@ -55,6 +57,21 @@ function normalizeClientIp(value: string | undefined): string {
     .toLowerCase()
     .replace(/^::ffff:/, '')
     .replace(/^\[|\]$/g, '');
+}
+
+/** A recording in progress, as the dashboard shows it. */
+export interface ChannelsDvrRecording {
+  key: string;
+  channelNumber: string;
+  channelTitle: string | null;
+  title: string;
+  /** ISO times; null when neither the guide nor the job key has them */
+  startedAt: string | null;
+  endsAt: string | null;
+  /** "4:30AM" as Channels wrote it, shown when endsAt is unknown */
+  untilText: string | null;
+  /** Programme artwork or channel logo, relative to the Channels DVR server */
+  thumbPath: string | null;
 }
 
 export class ChannelsDvrClient implements IMediaServerClient {
@@ -212,6 +229,12 @@ export class ChannelsDvrClient implements IMediaServerClient {
     channelTitle: string | null;
     artworkPath: string | null;
     programTitle: string | null;
+    /** Current airing start, epoch seconds */
+    startSec?: number;
+    /** Current airing length, seconds */
+    durationSec?: number;
+    /** Current airing series/programme title (not the episode title) */
+    airingTitle?: string;
   } | null {
     if (!Array.isArray(guide)) return null;
 
@@ -257,6 +280,11 @@ export class ChannelsDvrClient implements IMediaServerClient {
           channelTitle,
           artworkPath: channelsDvrArtworkPath(this.baseUrl, item.Image),
           programTitle,
+          startSec: item.Time,
+          durationSec: item.Duration,
+          ...(typeof item.Title === 'string' && item.Title.trim()
+            ? { airingTitle: item.Title.trim() }
+            : {}),
         };
       }
       return { channelTitle, artworkPath: null, programTitle: null };
@@ -544,7 +572,8 @@ export class ChannelsDvrClient implements IMediaServerClient {
           !liveAiring?.programTitle &&
           !artworkPath &&
           !hasFileEpisode &&
-          fileDuration === null
+          fileDuration === null &&
+          liveAiring?.startSec === undefined
         ) {
           return sessionWithStream;
         }
@@ -555,6 +584,25 @@ export class ChannelsDvrClient implements IMediaServerClient {
             : {}),
           ...(hasFileEpisode && seasonNumber !== undefined && episodeNumber !== undefined
             ? { episode: { showTitle: fileShowTitle, seasonNumber, episodeNumber } }
+            : {}),
+          // Live TV: progress through the current programme, from the guide.
+          ...(liveAiring?.startSec !== undefined &&
+          liveAiring.durationSec !== undefined &&
+          liveAiring.durationSec > 0
+            ? (() => {
+                const durationMs = Math.round(liveAiring.durationSec! * 1000);
+                const positionMs = Math.min(
+                  durationMs,
+                  Math.max(0, Date.now() - liveAiring.startSec! * 1000)
+                );
+                return {
+                  playback: {
+                    ...sessionWithStream.playback,
+                    positionMs,
+                    progressPercent: calculateProgress(positionMs, durationMs),
+                  },
+                };
+              })()
             : {}),
           ...(fileDuration !== null && fileDuration > 0
             ? {
@@ -572,11 +620,60 @@ export class ChannelsDvrClient implements IMediaServerClient {
             ...(liveAiring?.programTitle ? { title: liveAiring.programTitle } : {}),
             ...(hasFileEpisode ? { title: episodeTitle || fileShowTitle } : {}),
             ...(fileDuration !== null ? { durationMs: Math.round(fileDuration * 1000) } : {}),
+            ...(fileDuration === null &&
+            liveAiring?.durationSec !== undefined &&
+            liveAiring.durationSec > 0
+              ? { durationMs: Math.round(liveAiring.durationSec * 1000) }
+              : {}),
             ...(artworkPath ? { thumbPath: artworkPath } : {}),
           },
         };
       })
     );
+  }
+
+  /**
+   * Recordings the DVR is making right now. These are not viewing sessions and never
+   * enter the session pipeline; the dashboard shows them in their own panel. Programme
+   * times and artwork come from the guide when it has the channel's current airing.
+   */
+  async getRecordings(): Promise<ChannelsDvrRecording[]> {
+    const data = await this.getDvrStatus();
+    const parsed = parseDvrActivity(data)
+      .map((entry) => parseRecordingActivity(entry))
+      .filter((r) => r !== null);
+    if (parsed.length === 0) return [];
+
+    const guide = await this.getGuideDataForSession();
+    return parsed.map((recording) => {
+      const airing = guide ? this.getLiveAiring(guide, recording.channelNumber) : null;
+      // Only trust the guide's times and artwork when its current airing is the programme
+      // being recorded (a padded recording can run into the next programme).
+      const sameProgramme =
+        !!airing?.airingTitle &&
+        airing.airingTitle.toLowerCase().replace(/[^a-z0-9]+/g, '') ===
+          recording.title.toLowerCase().replace(/[^a-z0-9]+/g, '');
+      const startSec = sameProgramme ? airing?.startSec : undefined;
+      const durationSec = sameProgramme ? airing?.durationSec : undefined;
+      return {
+        key: recording.key,
+        channelNumber: recording.channelNumber,
+        channelTitle: airing?.channelTitle ?? null,
+        title: recording.title,
+        startedAt:
+          (startSec !== undefined
+            ? new Date(startSec * 1000)
+            : (recording.startedAt ?? null)
+          )?.toISOString() ?? null,
+        endsAt:
+          startSec !== undefined && durationSec !== undefined
+            ? new Date((startSec + durationSec) * 1000).toISOString()
+            : null,
+        untilText: recording.untilText ?? null,
+        thumbPath:
+          (sameProgramme ? airing?.artworkPath : null) ?? channelLogoPath(recording.channelNumber),
+      };
+    });
   }
 
   /**

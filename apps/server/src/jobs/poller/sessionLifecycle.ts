@@ -1228,7 +1228,8 @@ export async function stopSessionAtomic(input: SessionStopInput): Promise<Sessio
     : session.watched ||
       checkWatchCompletion(
         durationMs,
-        session.progressMs,
+        // Live TV: judged by time watched only (see processor.ts).
+        session.mediaType === 'live' ? null : session.progressMs,
         session.totalDurationMs,
         await getWatchedThreshold(session.mediaType)
       );

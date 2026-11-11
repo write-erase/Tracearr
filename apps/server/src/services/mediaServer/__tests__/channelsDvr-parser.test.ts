@@ -5,6 +5,7 @@ import {
   parseDvrActivity,
   parseWatchActivity,
   parseElapsed,
+  parseRecordingActivity,
 } from '../channelsDvr/parser.js';
 
 // Shapes taken from public Channels community posts; the format is undocumented.
@@ -355,5 +356,52 @@ describe('Channels DVR parser', () => {
       episodeNumber: 1111,
     });
     expect(s?.playback.positionMs).toBe(130_000);
+  });
+
+  describe('recordings in progress', () => {
+    it('parses channel, title, job start and end time', () => {
+      expect(
+        parseRecordingActivity({
+          key: '0-job-1794391200-ch2',
+          text: 'Recording ch2 for News 9 @ 4a until 4:30AM: buf=0% drop=0%',
+        })
+      ).toEqual({
+        key: '0-job-1794391200-ch2',
+        channelNumber: '2',
+        title: 'News 9 @ 4a',
+        startedAt: new Date(1794391200 * 1000),
+        untilText: '4:30AM',
+      });
+    });
+
+    it('handles sub-channels and lines without an end time', () => {
+      const r = parseRecordingActivity({
+        key: '0-job-x-ch5.1',
+        text: 'Recording ch5.1 for The Price Is Right',
+      });
+      expect(r).toMatchObject({ channelNumber: '5.1', title: 'The Price Is Right' });
+      expect(r?.untilText).toBeUndefined();
+      expect(r?.startedAt).toBeUndefined();
+    });
+
+    it('ignores viewers and other activity', () => {
+      expect(
+        parseRecordingActivity({
+          key: '6-file-1089-192.168.30.8',
+          text: 'Watching M*A*S*H - Season 1, Episode 1 from Living Room Apple TV at 40s',
+        })
+      ).toBeNull();
+      expect(parseRecordingActivity({ key: 'x', text: 'Updating guide data' })).toBeNull();
+    });
+
+    it('never turns a recording into a viewing session', () => {
+      expect(
+        parseSessionsFromDvr(
+          dvr({
+            '0-job-1794391200-ch2': 'Recording ch2 for News 9 @ 4a until 4:30AM: buf=0% drop=0%',
+          })
+        )
+      ).toEqual([]);
+    });
   });
 });

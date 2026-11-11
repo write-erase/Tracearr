@@ -186,7 +186,7 @@ export interface OpenOnServerTarget {
 
 /** One deep link per copy whose server is known, falling back to the server's own address. */
 export function openOnServerTargets(
-  copies: Pick<MediaAvailabilityEntry, 'serverId' | 'ratingKey'>[],
+  copies: Pick<MediaAvailabilityEntry, 'serverId' | 'ratingKey' | 'itemType' | 'showRatingKey'>[],
   serverById: Map<string, HeroServerLookupEntry>
 ): OpenOnServerTarget[] {
   return copies.flatMap((entry) => {
@@ -198,6 +198,8 @@ export function openOnServerTargets(
       baseUrl: base ?? '',
       ratingKey: entry.ratingKey,
       machineIdentifier: server.machineIdentifier,
+      itemType: entry.itemType,
+      showRatingKey: entry.showRatingKey,
     });
     const url = itemUrl ?? base;
     return url ? [{ serverId: entry.serverId, name: server.name, url }] : [];

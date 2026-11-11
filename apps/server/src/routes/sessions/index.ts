@@ -7,7 +7,7 @@
  */
 
 import type { FastifyPluginAsync } from 'fastify';
-import { sql } from 'drizzle-orm';
+import { and, eq, isNull, sql } from 'drizzle-orm';
 import {
   sessionQuerySchema,
   historyQuerySchema,
@@ -24,7 +24,7 @@ import {
   type HistoryAggregates,
 } from '@tracearr/shared';
 import { db } from '../../db/client.js';
-import { sessions } from '../../db/schema.js';
+import { servers, sessions } from '../../db/schema.js';
 import {
   baseSessionConditions,
   historyMediaTypeDefault,
@@ -35,6 +35,7 @@ import {
 import { hasServerAccess, resolveServerIds } from '../../utils/serverFiltering.js';
 import { terminateSession } from '../../services/termination.js';
 import { getCacheService } from '../../services/cache.js';
+import { ChannelsDvrClient } from '../../services/mediaServer/channelsDvr/client.js';
 import {
   assertInScope,
   memberCacheSegment,
@@ -306,6 +307,40 @@ export const sessionRoutes: FastifyPluginAsync = async (app) => {
   /**
    * GET /sessions/active - Get currently active streams from cache
    */
+  /**
+   * GET /sessions/recordings - Channels DVR recordings in progress
+   *
+   * Recordings are not viewing sessions: they are read live from each Channels DVR
+   * server the user can see and never enter the session pipeline, history or stats.
+   * A server that cannot be reached is skipped.
+   */
+  app.get('/recordings', readSessions, async (request) => {
+    const authUser = request.user;
+    const channelsServers = await db
+      .select({ id: servers.id, name: servers.name, url: servers.url })
+      .from(servers)
+      .where(and(eq(servers.type, 'channels_dvr'), isNull(servers.historicalAt)));
+
+    const visible = channelsServers.filter((server) => hasServerAccess(authUser, server.id));
+    const perServer = await Promise.all(
+      visible.map(async (server) => {
+        try {
+          const client = new ChannelsDvrClient({ url: server.url, token: '' });
+          const recordings = await client.getRecordings();
+          return recordings.map((recording) => ({
+            ...recording,
+            serverId: server.id,
+            serverName: server.name,
+          }));
+        } catch (err) {
+          app.log.debug({ serverId: server.id, err }, 'Channels DVR recordings unavailable');
+          return [];
+        }
+      })
+    );
+    return { data: perServer.flat() };
+  });
+
   app.get('/active', readSessions, async (request, _reply) => {
     const authUser = request.user;
 

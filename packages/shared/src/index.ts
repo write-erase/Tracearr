@@ -283,6 +283,7 @@ export type {
   GenreTitle,
   GenreDetailResponse,
   MediaVersionEntry,
+  ChannelsDvrRecordingEntry,
   MediaAvailabilityEntry,
   MediaReplacedCopy,
   MediaDetailResponse,
