@@ -3145,6 +3145,40 @@ export interface ChannelsDvrRecordingEntry {
   thumbPath: string | null;
 }
 
+/** A Channels DVR recording queued to start within the next day. */
+export interface ChannelsDvrUpcomingEntry {
+  serverId: string;
+  serverName: string;
+  jobId: string;
+  title: string;
+  episodeTitle: string | null;
+  seasonNumber: number | null;
+  episodeNumber: number | null;
+  channelNumber: string | null;
+  channelTitle: string | null;
+  /** ISO times */
+  startsAt: string;
+  endsAt: string;
+  /** Artwork path on the Channels DVR server (programme image or channel logo) */
+  thumbPath: string | null;
+}
+
+/** Tuners busy on one Channels DVR server: one per channel being watched live or recorded. */
+export interface ChannelsDvrTunerUsage {
+  serverId: string;
+  serverName: string;
+  inUse: number;
+  total: number;
+}
+
+/** GET /sessions/recordings */
+export interface ChannelsDvrScheduleResponse {
+  /** Recordings in progress */
+  data: ChannelsDvrRecordingEntry[];
+  upcoming: ChannelsDvrUpcomingEntry[];
+  tuners: ChannelsDvrTunerUsage[];
+}
+
 export interface MediaAvailabilityEntry {
   serverId: string;
   serverType: string;

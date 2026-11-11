@@ -109,6 +109,7 @@
     "tvSessions": "TV Sessions",
     "tvWatchTime": "TV Watch Time",
     "recording": {
+      "panelTitle": "Channels DVR",
       "title": "Recording Now",
       "badge": "Recording",
       "channel": "Channel {{number}}",
@@ -121,7 +122,17 @@
       "stopConfirm": "Stop recording \"{{title}}\" now? What has been recorded so far stays in your Channels DVR library.",
       "stopping": "Stopping…",
       "stopped": "Recording stopped. What was recorded is kept in Channels DVR.",
-      "stopFailed": "Could not stop the recording"
+      "stopFailed": "Could not stop the recording",
+      "nothingRecording": "Nothing, absolutely nothing.",
+      "tuners": "{{inUse}} of {{total}} tuners in use",
+      "tunersOnServer": "{{server}}: {{inUse}} of {{total}} tuners in use",
+      "tunersHint": "One tuner per channel being watched live or recorded",
+      "comingUp": "Coming Up",
+      "comingUpCaption": "next 24 hours",
+      "tomorrow": "Tomorrow {{time}}",
+      "episode": "S{{season}} E{{episode}}",
+      "moreComingUp_one": "+{{count}} more in the next 24 hours",
+      "moreComingUp_other": "+{{count}} more in the next 24 hours"
     }
   },
   "yourStats": {

@@ -22,6 +22,7 @@ import {
   type ActiveSession,
   type HistorySessionResponse,
   type HistoryAggregates,
+  type ChannelsDvrScheduleResponse,
 } from '@tracearr/shared';
 import { db } from '../../db/client.js';
 import { servers, sessions } from '../../db/schema.js';
@@ -308,13 +309,14 @@ export const sessionRoutes: FastifyPluginAsync = async (app) => {
    * GET /sessions/active - Get currently active streams from cache
    */
   /**
-   * GET /sessions/recordings - Channels DVR recordings in progress
+   * GET /sessions/recordings - Channels DVR recordings in progress, recordings starting
+   * in the next day, and tuner usage
    *
    * Recordings are not viewing sessions: they are read live from each Channels DVR
    * server the user can see and never enter the session pipeline, history or stats.
    * A server that cannot be reached is skipped.
    */
-  app.get('/recordings', readSessions, async (request) => {
+  app.get('/recordings', readSessions, async (request): Promise<ChannelsDvrScheduleResponse> => {
     const authUser = request.user;
     const channelsServers = await db
       .select({ id: servers.id, name: servers.name, url: servers.url })
@@ -326,19 +328,26 @@ export const sessionRoutes: FastifyPluginAsync = async (app) => {
       visible.map(async (server) => {
         try {
           const client = new ChannelsDvrClient({ url: server.url, token: '' });
-          const recordings = await client.getRecordings();
-          return recordings.map((recording) => ({
-            ...recording,
-            serverId: server.id,
-            serverName: server.name,
-          }));
+          const schedule = await client.getSchedule();
+          const tag = { serverId: server.id, serverName: server.name };
+          return {
+            recordings: schedule.recordings.map((recording) => ({ ...recording, ...tag })),
+            upcoming: schedule.upcoming.map((job) => ({ ...job, ...tag })),
+            tuners: schedule.tuners ? [{ ...schedule.tuners, ...tag }] : [],
+          };
         } catch (err) {
           app.log.debug({ serverId: server.id, err }, 'Channels DVR recordings unavailable');
-          return [];
+          return { recordings: [], upcoming: [], tuners: [] };
         }
       })
     );
-    return { data: perServer.flat() };
+    return {
+      data: perServer.flatMap((s) => s.recordings),
+      upcoming: perServer
+        .flatMap((s) => s.upcoming)
+        .sort((a, b) => a.startsAt.localeCompare(b.startsAt)),
+      tuners: perServer.flatMap((s) => s.tuners),
+    };
   });
 
   /**
