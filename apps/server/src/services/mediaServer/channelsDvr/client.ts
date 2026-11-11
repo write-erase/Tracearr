@@ -430,26 +430,28 @@ export class ChannelsDvrClient implements IMediaServerClient {
       parsedSessions.map(async (parsed) => {
         const session = toMediaSession(parsed);
         const sessionIp = normalizeClientIp(parsed.ipAddress);
-        const matchingClientByIp = sessionIp
-          ? clients
-              .filter(
-                (client) =>
-                  normalizeClientIp(client.local_ip) === sessionIp ||
-                  normalizeClientIp(client.remote_ip) === sessionIp
-              )
-              .sort((a, b) => {
-                const connected = Number(Boolean(b.connected)) - Number(Boolean(a.connected));
-                if (connected !== 0) return connected;
-                return (
-                  Number(normalizeClientIp(b.local_ip) === sessionIp) -
-                  Number(normalizeClientIp(a.local_ip) === sessionIp)
-                );
-              })[0]
-          : undefined;
+        // The web player is not a registered client; an app that once had its address is not it.
+        const matchingClientByIp =
+          sessionIp && !parsed.webPlayer
+            ? clients
+                .filter(
+                  (client) =>
+                    normalizeClientIp(client.local_ip) === sessionIp ||
+                    normalizeClientIp(client.remote_ip) === sessionIp
+                )
+                .sort((a, b) => {
+                  const connected = Number(Boolean(b.connected)) - Number(Boolean(a.connected));
+                  if (connected !== 0) return connected;
+                  return (
+                    Number(normalizeClientIp(b.local_ip) === sessionIp) -
+                    Number(normalizeClientIp(a.local_ip) === sessionIp)
+                  );
+                })[0]
+            : undefined;
         const normalizedClientName = (parsed.clientName ?? '').trim().toLowerCase();
         const matchingClient =
           matchingClientByIp ??
-          (normalizedClientName
+          (normalizedClientName && !parsed.webPlayer
             ? clients
                 .filter((client) =>
                   [client.hostname, client.alias].some(

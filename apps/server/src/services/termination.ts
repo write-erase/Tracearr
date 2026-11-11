@@ -55,6 +55,9 @@ export type TerminationOutcome =
 export const REMOTE_STREAM_NOT_TERMINABLE =
   'Tracearr can only stop Channels DVR streams on devices within your local network.';
 
+export const WEB_PLAYER_NOT_TERMINABLE =
+  "Tracearr can't stop Channels DVR streams playing in a web browser.";
+
 export interface TerminationResult {
   success: boolean;
   terminationLogId: string;
@@ -146,6 +149,21 @@ export async function terminateSession(
 
   // Channels DVR stops playback by calling the Channels app on the device itself, which
   // only works on the local network. Refuse remote sessions up front.
+  // The Channels web player is a browser: there is no app on :57000 to stop it, and an app
+  // that once had its address might be stopped instead. Refuse before anything is sent.
+  if (session.server.type === 'channels_dvr' && session.product === 'Channels Web') {
+    const logEntries = await db
+      .insert(terminationLogs)
+      .values({ ...logBase, success: false, errorMessage: WEB_PLAYER_NOT_TERMINABLE })
+      .returning({ id: terminationLogs.id });
+    return {
+      success: false,
+      terminationLogId: logEntries[0]?.id ?? '',
+      error: WEB_PLAYER_NOT_TERMINABLE,
+      outcome: 'not_local',
+    };
+  }
+
   if (
     session.server.type === 'channels_dvr' &&
     !(isLocalSession(session) && !!session.ipAddress && isPrivateIP(session.ipAddress))

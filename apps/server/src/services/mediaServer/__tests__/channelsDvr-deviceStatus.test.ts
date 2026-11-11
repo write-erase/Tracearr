@@ -94,6 +94,12 @@ describe('Channels device status', () => {
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 
+  it('never asks a browser (Channels web player) session', async () => {
+    const fetchImpl = ok(MASH_STATUS);
+    await readDeviceStatuses([session({ player: { product: 'Channels Web' } })], { fetchImpl });
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
   it('skips an unreachable device until the retry window passes', async () => {
     const failing = vi.fn(async () => {
       throw new Error('timeout');

@@ -2199,7 +2199,8 @@
     "messageHint": "This message will be shown to them during playback",
     "terminating": "Terminating...",
     "remoteNotPossible": "Tracearr can only stop Channels DVR streams on devices within your local network.",
-    "pendingNotYet": "This stream can be stopped once it has been playing for 30 seconds."
+    "pendingNotYet": "This stream can be stopped once it has been playing for 30 seconds.",
+    "webNotPossible": "Tracearr can't stop Channels DVR streams playing in a web browser."
   },
   "settings": {
     "plex": {
