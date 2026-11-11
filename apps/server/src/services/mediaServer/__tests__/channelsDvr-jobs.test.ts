@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { countTunersInUse, parseJobs, parseTunerTotal, upcomingJobs } from '../channelsDvr/jobs.js';
+import {
+  countTunersInUse,
+  parseDisk,
+  parseJobs,
+  parseTunerTotal,
+  upcomingJobs,
+} from '../channelsDvr/jobs.js';
 
 // From GET /api/v1/jobs
 const JOB = {
@@ -12,6 +18,7 @@ const JOB = {
   skipped: false,
   failed: false,
   item: {
+    show_id: 'The Jennifer Hudson Show',
     title: 'The Jennifer Hudson Show',
     season_number: 5,
     episode_number: 43,
@@ -26,6 +33,7 @@ describe('parseJobs', () => {
       {
         id: '1794427200-ch1',
         title: 'The Jennifer Hudson Show',
+        showId: 'The Jennifer Hudson Show',
         episodeTitle: null,
         seasonNumber: 5,
         episodeNumber: 43,
@@ -63,6 +71,20 @@ describe('upcomingJobs', () => {
   it('lists jobs not yet started within the window, soonest first, skipping skipped ones', () => {
     expect(upcomingJobs(jobs, 1000, 10_000, 10).map((j) => j.id)).toEqual(['soon', 'later']);
     expect(upcomingJobs(jobs, 1000, 10_000, 1).map((j) => j.id)).toEqual(['soon']);
+  });
+});
+
+describe('parseDisk', () => {
+  it('reads free and total space from GET /dvr', () => {
+    expect(
+      parseDisk({ disk: { free: 200396926976, total: 315923169280, used: 99403497472 } })
+    ).toEqual({ freeBytes: 200396926976, totalBytes: 315923169280 });
+  });
+
+  it('is null when Channels reports no disk', () => {
+    expect(parseDisk({ activity: {} })).toBeNull();
+    expect(parseDisk({ disk: { free: 1, total: 0 } })).toBeNull();
+    expect(parseDisk(null)).toBeNull();
   });
 });
 

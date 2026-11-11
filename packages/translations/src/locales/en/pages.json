@@ -132,7 +132,18 @@
       "tomorrow": "Tomorrow {{time}}",
       "episode": "S{{season}} E{{episode}}",
       "moreComingUp_one": "+{{count}} more in the next 24 hours",
-      "moreComingUp_other": "+{{count}} more in the next 24 hours"
+      "moreComingUp_other": "+{{count}} more in the next 24 hours",
+      "diskFree": "{{free}} free",
+      "diskFreeOnServer": "{{server}}: {{free}} free",
+      "diskHint": "{{free}} free of {{total}} for recordings",
+      "cancel": "Cancel recording",
+      "cancelTitle": "Cancel this recording?",
+      "cancelConfirm": "Cancel \"{{title}}\" at {{time}}? It will be removed from your Channels DVR schedule.",
+      "keep": "Keep it",
+      "cancelling": "Cancelling…",
+      "cancelled": "Recording cancelled.",
+      "cancelFailed": "Could not cancel the recording",
+      "openInChannels": "Open the Channels DVR schedule"
     }
   },
   "yourStats": {

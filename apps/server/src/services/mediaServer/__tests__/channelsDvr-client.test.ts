@@ -406,6 +406,7 @@ describe('Channels DVR recordings and live progress', () => {
     vi.mocked(fetchJson).mockImplementation((async (url: string) => {
       if (url.endsWith('/dvr'))
         return {
+          disk: { free: 200396926976, total: 315923169280, used: 99403497472 },
           activity: {
             '0-job-1794391200-ch2': 'Recording ch2 for News 9 @ 4a until 4:30AM',
             '6-stream-M3U-DispatcharrMPEGTS-2-192.168.30.8': 'Watching ch2 KWTV from Den',
@@ -422,6 +423,7 @@ describe('Channels DVR recordings and live progress', () => {
             end_time: 1794430800,
             channels: ['1'],
             item: {
+              show_id: 'The Jennifer Hudson Show',
               title: 'The Jennifer Hudson Show',
               season_number: 5,
               episode_number: 43,
@@ -442,6 +444,7 @@ describe('Channels DVR recordings and live progress', () => {
       expect.objectContaining({
         jobId: '1794427200-ch1',
         title: 'The Jennifer Hudson Show',
+        showId: 'The Jennifer Hudson Show',
         seasonNumber: 5,
         episodeNumber: 43,
         channelNumber: '1',
@@ -451,6 +454,7 @@ describe('Channels DVR recordings and live progress', () => {
     ]);
     // ch2 is recorded and watched (one shared tuner); ch23 is watched
     expect(schedule.tuners).toEqual({ inUse: 2, total: 5 });
+    expect(schedule.disk).toEqual({ freeBytes: 200396926976, totalBytes: 315923169280 });
   });
 
   it('still lists recordings when the job list and tuner count are unavailable', async () => {
@@ -466,6 +470,7 @@ describe('Channels DVR recordings and live progress', () => {
     expect(schedule.recordings).toHaveLength(1);
     expect(schedule.upcoming).toEqual([]);
     expect(schedule.tuners).toBeNull();
+    expect(schedule.disk).toBeNull();
   });
 
   it('returns no recordings when nothing is recording', async () => {

@@ -3151,6 +3151,8 @@ export interface ChannelsDvrUpcomingEntry {
   serverName: string;
   jobId: string;
   title: string;
+  /** The show's id in Channels (for XMLTV guides, its name), for /admin/shows/<id> */
+  showId: string | null;
   episodeTitle: string | null;
   seasonNumber: number | null;
   episodeNumber: number | null;
@@ -3171,12 +3173,21 @@ export interface ChannelsDvrTunerUsage {
   total: number;
 }
 
+/** Free disk space for recordings on one Channels DVR server. */
+export interface ChannelsDvrDiskUsage {
+  serverId: string;
+  serverName: string;
+  freeBytes: number;
+  totalBytes: number;
+}
+
 /** GET /sessions/recordings */
 export interface ChannelsDvrScheduleResponse {
   /** Recordings in progress */
   data: ChannelsDvrRecordingEntry[];
   upcoming: ChannelsDvrUpcomingEntry[];
   tuners: ChannelsDvrTunerUsage[];
+  disks: ChannelsDvrDiskUsage[];
 }
 
 export interface MediaAvailabilityEntry {

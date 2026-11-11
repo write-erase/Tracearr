@@ -2,23 +2,30 @@
 
 ## November 11, 2026 — Channels DVR: Coming Up, exact recording times, tuner usage
 
-The dashboard's Recording Now panel is now titled with the Channels DVR server's name as entered
-in Tracearr ("Channels DVR" when several are selected), with the tuner pill beside it and "Recording
-Now" and "Coming Up" as sub-headings. When nothing is recording it says so with a light joke. It
-now also shows:
+The dashboard's Recording Now panel is now a bordered card, like the resource charts, shown
+whenever a Channels DVR server is selected (idle or not), and titled with the server's name as
+entered in Tracearr ("Channels DVR" when several are selected), with the tuner pill beside it
+and "Recording Now" and "Coming Up" as sub-headings. When nothing is recording it says so with a
+light joke. It now also shows:
 
 - **Coming Up**: recordings queued to start in the next 24 hours (time, show, episode, channel,
   artwork), five at a time with "+N more". Read from `GET /api/v1/jobs`, which lists every queued
   job with exact start and end times; finished jobs drop off it.
 - **Exact recording times**: a recording in progress takes its start and end from its job
   (padding included) instead of the guide's current airing. The guide is still the fallback.
+- **Disk space**: "186.6 GB free" (binary units, as Channels shows them) from the `disk` block of
+  `GET /dvr`, amber below 10% free.
+- **Open in Channels**: a queued show's title links to the Channels DVR schedule page
+  (`/admin/dvr/jobs`). A show's own page only lists recordings already made, so it's empty for a
+  show that hasn't recorded yet.
+- **Cancel a queued recording** (owner/admin, with a confirmation): `DELETE /dvr/jobs/<id>`, the
+  request Stop already uses, which removes the job from the schedule.
 - **Tuner usage**: "2 of 5 tuners in use", amber when all are busy. The total is the sum of
   `TunerCount` across `GET /devices`; in use is one per distinct channel being watched live or
   recorded, since Channels shares a tuner between everyone on a channel.
 
-The panel now appears when anything is recording, queued for the next day, or using a tuner. The
-job list is cached for 15 s and the tuner count for 5 min (`channelsDvr/jobs.ts`, `client.ts`
-`getSchedule`); if either request fails, recordings still show. `GET /sessions/recordings` returns
+The job list is cached for 15 s and the tuner count for 5 min (`channelsDvr/jobs.ts`,
+`client.ts` `getSchedule`); if either request fails, recordings still show. `GET /sessions/recordings` returns
 `{ data, upcoming, tuners }` (was `{ data }`).
 
 ## November 11, 2026 — Device icons for Channels DVR viewers

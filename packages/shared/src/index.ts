@@ -286,6 +286,7 @@ export type {
   ChannelsDvrRecordingEntry,
   ChannelsDvrUpcomingEntry,
   ChannelsDvrTunerUsage,
+  ChannelsDvrDiskUsage,
   ChannelsDvrScheduleResponse,
   MediaAvailabilityEntry,
   MediaReplacedCopy,

@@ -334,10 +334,11 @@ export const sessionRoutes: FastifyPluginAsync = async (app) => {
             recordings: schedule.recordings.map((recording) => ({ ...recording, ...tag })),
             upcoming: schedule.upcoming.map((job) => ({ ...job, ...tag })),
             tuners: schedule.tuners ? [{ ...schedule.tuners, ...tag }] : [],
+            disks: schedule.disk ? [{ ...schedule.disk, ...tag }] : [],
           };
         } catch (err) {
           app.log.debug({ serverId: server.id, err }, 'Channels DVR recordings unavailable');
-          return { recordings: [], upcoming: [], tuners: [] };
+          return { recordings: [], upcoming: [], tuners: [], disks: [] };
         }
       })
     );
@@ -347,6 +348,7 @@ export const sessionRoutes: FastifyPluginAsync = async (app) => {
         .flatMap((s) => s.upcoming)
         .sort((a, b) => a.startsAt.localeCompare(b.startsAt)),
       tuners: perServer.flatMap((s) => s.tuners),
+      disks: perServer.flatMap((s) => s.disks),
     };
   });
 

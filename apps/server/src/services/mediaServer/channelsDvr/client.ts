@@ -30,6 +30,7 @@ import {
 import { describeChannelsClient } from './macClient.js';
 import {
   countTunersInUse,
+  parseDisk,
   parseJobs,
   parseTunerTotal,
   upcomingJobs,
@@ -104,6 +105,7 @@ export interface ChannelsDvrRecording {
 export interface ChannelsDvrUpcomingRecording {
   jobId: string;
   title: string;
+  showId: string | null;
   episodeTitle: string | null;
   seasonNumber: number | null;
   episodeNumber: number | null;
@@ -121,6 +123,8 @@ export interface ChannelsDvrSchedule {
   upcoming: ChannelsDvrUpcomingRecording[];
   /** Null when no tuner source reports a tuner count */
   tuners: { inUse: number; total: number } | null;
+  /** Recording disk space; null when Channels doesn't report it */
+  disk: { freeBytes: number; totalBytes: number } | null;
 }
 
 export class ChannelsDvrClient implements IMediaServerClient {
@@ -730,7 +734,8 @@ export class ChannelsDvrClient implements IMediaServerClient {
    * if Channels doesn't answer for them, recordings still show.
    */
   async getSchedule(): Promise<ChannelsDvrSchedule> {
-    const entries = parseDvrActivity(await this.getDvrStatus());
+    const status = await this.getDvrStatus();
+    const entries = parseDvrActivity(status);
     const [jobs, tunerTotal] = await Promise.all([
       this.getJobs().catch(() => [] as ChannelsDvrJob[]),
       this.getTunerTotal().catch(() => null),
@@ -744,6 +749,7 @@ export class ChannelsDvrClient implements IMediaServerClient {
       return {
         jobId: job.id,
         title: job.title,
+        showId: job.showId,
         episodeTitle: job.episodeTitle,
         seasonNumber: job.seasonNumber,
         episodeNumber: job.episodeNumber,
@@ -770,7 +776,7 @@ export class ChannelsDvrClient implements IMediaServerClient {
             ),
             total: tunerTotal,
           };
-    return { recordings, upcoming, tuners };
+    return { recordings, upcoming, tuners, disk: parseDisk(status) };
   }
 
   /**
