@@ -53,8 +53,8 @@ export function useChannelsRecordings(enabled: boolean) {
     queryFn: () => api.sessions.recordings(),
     select: (response) => response.data,
     enabled,
-    staleTime: 1000 * 15,
-    refetchInterval: 1000 * 30,
+    staleTime: 1000 * 5,
+    refetchInterval: 1000 * 10,
   });
 }
 

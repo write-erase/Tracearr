@@ -109,7 +109,7 @@
     "tvSessions": "TV Sessions",
     "tvWatchTime": "TV Watch Time",
     "recording": {
-      "title": "Recording now",
+      "title": "Recording Now",
       "badge": "Recording",
       "channel": "Channel {{number}}",
       "channelNamed": "Channel {{number}} · {{name}}",

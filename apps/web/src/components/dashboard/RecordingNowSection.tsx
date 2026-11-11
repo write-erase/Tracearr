@@ -17,8 +17,8 @@ function formatClock(iso: string): string {
   return new Date(iso).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
 }
 
-/** Re-render every 30 s so time left and progress stay current between refetches. */
-function useNow(intervalMs = 30_000): number {
+/** Re-render every 10 s so time left and progress stay current between refetches. */
+function useNow(intervalMs = 10_000): number {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), intervalMs);
@@ -126,7 +126,7 @@ export function RecordingNowSection({ recordings, showServer = false }: Recordin
     <section>
       <SectionHeading
         icon={CircleDot}
-        title={t('dashboard.recording.title', { defaultValue: 'Recording now' })}
+        title={t('dashboard.recording.title', { defaultValue: 'Recording Now' })}
       >
         <span className="bg-muted text-foreground rounded-full px-2 py-0.5 text-xs font-medium">
           {recordings.length}
