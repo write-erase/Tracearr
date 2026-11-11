@@ -12,6 +12,8 @@ export interface ChannelsDvrJob {
   id: string;
   /** Show or movie name */
   title: string;
+  /** The show's id in Channels (for XMLTV guides, its name); opens /admin/shows/<id> */
+  showId: string | null;
   episodeTitle: string | null;
   seasonNumber: number | null;
   episodeNumber: number | null;
@@ -44,13 +46,14 @@ export function parseJobs(data: unknown): ChannelsDvrJob[] {
       job.item && typeof job.item === 'object' ? (job.item as Record<string, unknown>) : {};
     const id = str(job.id);
     const startSec = num(job.start_time);
+    const duration = num(job.duration);
     const endSec =
-      num(job.end_time) ??
-      (startSec !== null && num(job.duration) !== null ? startSec + num(job.duration)! : null);
+      num(job.end_time) ?? (startSec !== null && duration !== null ? startSec + duration : null);
     if (!id || startSec === null || endSec === null || endSec <= startSec) continue;
     jobs.push({
       id,
       title: str(item.title) ?? str(job.name) ?? id,
+      showId: str(item.show_id),
       episodeTitle: str(item.episode_title),
       seasonNumber: num(item.season_number),
       episodeNumber: num(item.episode_number),
@@ -78,6 +81,18 @@ export function upcomingJobs(
     .filter((job) => !job.skipped && job.startSec > nowSec && job.startSec <= nowSec + withinSec)
     .sort((a, b) => a.startSec - b.startSec)
     .slice(0, limit);
+}
+
+/** Free and total disk space for recordings, from the `disk` block of `GET /dvr`. */
+export function parseDisk(data: unknown): { freeBytes: number; totalBytes: number } | null {
+  if (!data || typeof data !== 'object') return null;
+  const disk = (data as { disk?: unknown }).disk;
+  if (!disk || typeof disk !== 'object') return null;
+  const free = num((disk as { free?: unknown }).free);
+  const total = num((disk as { total?: unknown }).total);
+  return free !== null && total !== null && total > 0
+    ? { freeBytes: free, totalBytes: total }
+    : null;
 }
 
 /** Total tuners across the DVR's sources, from `GET /devices`; null when none report a count. */

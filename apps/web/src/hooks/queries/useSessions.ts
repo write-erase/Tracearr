@@ -81,6 +81,31 @@ export function useStopRecording() {
   });
 }
 
+/**
+ * Cancel a queued Channels DVR recording. Channels takes the same request it uses to stop
+ * one in progress (DELETE /dvr/jobs/<id>), which removes the job from its schedule.
+ */
+export function useCancelRecording() {
+  const { t } = useTranslation('pages');
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ serverId, jobId }: { serverId: string; jobId: string }) =>
+      api.sessions.stopRecording(serverId, jobId),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['sessions', 'recordings'] });
+      toast.success(t('dashboard.recording.cancelled', { defaultValue: 'Recording cancelled.' }));
+    },
+    onError: (error: Error) => {
+      toast.error(
+        t('dashboard.recording.cancelFailed', {
+          defaultValue: 'Could not cancel the recording',
+        }),
+        { description: error.message }
+      );
+    },
+  });
+}
+
 export function useSession(id: string, startedAt?: Date | string) {
   return useQuery({
     queryKey: ['sessions', 'detail', id],

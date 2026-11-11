@@ -21,7 +21,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { useServer } from '@/hooks/useServer';
 import { useServerColorMap } from '@/hooks/useServerColorMap';
 import { useSocket } from '@/hooks/useSocket';
-import { pickServerColor } from '@tracearr/shared';
+import { pickServerColor, serverLinkBase } from '@tracearr/shared';
 import { formatWatchTime } from '@/lib/dateFormat';
 import { cn } from '@/lib/utils';
 
@@ -35,6 +35,10 @@ function ServerDashboard({ actions }: { actions?: ReactNode }) {
     [selectedServers]
   );
   const channelsServerIds = useMemo(() => channelsServers.map((s) => s.id), [channelsServers]);
+  const channelsLinkBases = useMemo(
+    () => Object.fromEntries(channelsServers.map((s) => [s.id, serverLinkBase(s)])),
+    [channelsServers]
+  );
   const { data: schedule } = useChannelsRecordings(channelsServerIds.length > 0);
   const dvr = useMemo(() => {
     if (!schedule) return undefined;
@@ -43,6 +47,7 @@ function ServerDashboard({ actions }: { actions?: ReactNode }) {
       recordings: schedule.data.filter(selected),
       upcoming: schedule.upcoming.filter(selected),
       tuners: schedule.tuners.filter(selected),
+      disks: schedule.disks.filter(selected),
     };
   }, [schedule, channelsServerIds]);
   const { isConnected } = useSocket();
@@ -261,10 +266,12 @@ function ServerDashboard({ actions }: { actions?: ReactNode }) {
       <NowPlayingSection sessions={sortedSessions} />
 
       <RecordingNowSection
-        title={channelsServers.length === 1 ? channelsServers[0]!.name : undefined}
+        title={channelsServers.length === 1 ? channelsServers[0]?.name : undefined}
         recordings={dvr?.recordings}
         upcoming={dvr?.upcoming}
         tuners={dvr?.tuners}
+        disks={dvr?.disks}
+        linkBases={channelsLinkBases}
         showServer={channelsServerIds.length > 1}
       />
 
