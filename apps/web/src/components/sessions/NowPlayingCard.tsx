@@ -51,9 +51,15 @@ function getCardMediaDisplay(session: ActiveSession): { title: string; subtitle:
       session.seasonNumber && session.episodeNumber
         ? `S${session.seasonNumber.toString().padStart(2, '0')} E${session.episodeNumber.toString().padStart(2, '0')}`
         : '';
+    // Untitled episodes (daily news, talk shows) carry the show name as their title;
+    // don't repeat it under the show name.
+    const episodeTitle =
+      session.mediaTitle && session.mediaTitle !== session.grandparentTitle
+        ? session.mediaTitle
+        : null;
     return {
       title: session.grandparentTitle,
-      subtitle: episodeInfo ? `${episodeInfo} · ${session.mediaTitle}` : session.mediaTitle,
+      subtitle: [episodeInfo, episodeTitle].filter(Boolean).join(' · ') || session.mediaTitle,
     };
   }
 

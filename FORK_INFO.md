@@ -1,5 +1,44 @@
 # Tracearr Fork Information
 
+## November 11, 2026 — Channels DVR playback position, pause and incremental sync
+
+**Position and progress.** Recording activity lines end with the playback position
+("at 40s", "at 4m15s", "at 1h2m3s"); the parser now reads it (`parseElapsed`) instead of
+discarding it, and the client derives `progressPercent` from the file duration. The poller
+prefers this reported position over `getChannelsDvrElapsedMs` (time since first seen), which
+is now only the fallback for live TV. This fixes the Now Playing counter restarting from 0
+on every poll and after a Tracearr restart. It also fixes a parser bug: the elapsed-time
+suffix was only stripped in the plain-seconds form, so past one minute the device name
+became "Living Room Apple TV at 4m15s" and created a new user per position.
+
+**Pause state.** Local devices are asked directly: `GET http://<device>:57000/api/status`
+(1 s timeout, in parallel) returns `playing`/`paused` and an exact `playback_time`, used only
+when its `now_playing` matches the session (season/episode/show, or movie title). Devices that
+do not answer are skipped for 60 s (`deviceStatus.ts`). Remote or unreachable devices fall back
+to server-side inference (`playbackState.ts`): Channels refreshes the activity position about
+every 10 s, so a recording is reported paused once its position has not moved for 20 s, and
+between refreshes a playing position is carried forward so it never steps backwards. Watched
+status needs no Channels-specific code: the poller's completion check now has real progress
+and duration, and paused time is excluded from watch time. Live TV still has no position.
+
+**Daily shows.** Daily recordings (news, talk) number seasons by year ("Season 2026,
+Episode 1111" / S2026E1111); the parser only accepted 3-digit seasons, so they were treated
+as movies with the raw activity text as title. Seasons now allow 4 digits and episodes 5.
+They also often have no episode title in `/dvr/files/<id>`; they are still treated as
+episodes and titled by the show name, and the Now Playing card omits an episode title that
+merely repeats the show ("News 9 @ 4a" / "S2026 E1111").
+
+**Incremental library sync.** `getLibraryItemsSince` / `getLibraryLeavesSince` return items
+whose Channels `created_at`/`updated_at` is after the last sync (the cached full list is
+filtered client-side; Channels has no server-side filter).
+
+Known limitation (upstream behaviour, all server types): new sessions are pending for 30 s
+before they are written to the database, so Terminate returns "Session not found" during that
+window.
+
+Validation: server typecheck and all Channels DVR test files pass; position, pause/resume via
+the device API, and the restart case were checked live on an Apple TV.
+
 ## November 10, 2026 — Channels DVR termination and library
 
 **Termination.** Tracearr can now stop Channels DVR streams. Channels DVR has no
