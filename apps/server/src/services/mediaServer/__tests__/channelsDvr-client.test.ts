@@ -7,7 +7,7 @@ vi.mock('../channelsDvr/deviceStatus.js', () => ({
 }));
 
 import { fetchJson, fetchText } from '../../../utils/http.js';
-import { ChannelsDvrClient } from '../channelsDvr/client.js';
+import { ChannelsDvrClient, clearChannelsDvrScheduleCaches } from '../channelsDvr/client.js';
 
 const BASE = 'http://channels.local:8089';
 const client = () => new ChannelsDvrClient({ url: BASE, token: 'none' });
@@ -332,6 +332,7 @@ describe('Channels DVR recordings and live progress', () => {
     vi.useFakeTimers({ toFake: ['Date'] });
     vi.setSystemTime(NOW * 1000);
     vi.mocked(fetchText).mockReset().mockResolvedValue('');
+    clearChannelsDvrScheduleCaches();
   });
   afterEach(() => vi.useRealTimers());
 
@@ -373,6 +374,98 @@ describe('Channels DVR recordings and live progress', () => {
     expect(recording?.endsAt).toBeNull();
     expect(recording?.untilText).toBe('4:30AM');
     expect(recording?.thumbPath).toBe('/dvr/guide/channels/2/logo');
+  });
+
+  it("takes exact times from the recording's job, padding included", async () => {
+    vi.mocked(fetchJson).mockImplementation((async (url: string) => {
+      if (url.endsWith('/dvr'))
+        return {
+          activity: { '0-job-1794391200-ch2': 'Recording ch2 for Late Movie until 4:32AM' },
+        };
+      if (url.endsWith('/api/v1/jobs'))
+        return [
+          {
+            id: '1794391200-ch2',
+            name: 'Late Movie',
+            start_time: 1794391080,
+            end_time: 1794393120,
+            channels: ['2'],
+            item: { title: 'Late Movie' },
+          },
+        ];
+      if (url.includes('/guide')) return guide;
+      return [];
+    }) as never);
+
+    const [recording] = await client().getRecordings();
+    expect(recording?.startedAt).toBe(new Date(1794391080 * 1000).toISOString());
+    expect(recording?.endsAt).toBe(new Date(1794393120 * 1000).toISOString());
+  });
+
+  it('builds the schedule: recordings, the next day of jobs and tuner usage', async () => {
+    vi.mocked(fetchJson).mockImplementation((async (url: string) => {
+      if (url.endsWith('/dvr'))
+        return {
+          activity: {
+            '0-job-1794391200-ch2': 'Recording ch2 for News 9 @ 4a until 4:30AM',
+            '6-stream-M3U-DispatcharrMPEGTS-2-192.168.30.8': 'Watching ch2 KWTV from Den',
+            '6-stream-M3U-DispatcharrMPEGTS-23-192.168.30.9': 'Watching ch23 Heroes from Mac',
+          },
+        };
+      if (url.endsWith('/api/v1/jobs'))
+        return [
+          { id: '1794391200-ch2', start_time: 1794391200, end_time: 1794393000, channels: ['2'] },
+          {
+            id: '1794427200-ch1',
+            name: 'The Jennifer Hudson Show',
+            start_time: 1794427200,
+            end_time: 1794430800,
+            channels: ['1'],
+            item: {
+              title: 'The Jennifer Hudson Show',
+              season_number: 5,
+              episode_number: 43,
+              image_url: 'https://ebyl.tmsimg.com/assets/p33904385_b_h9_aa.jpg',
+            },
+          },
+          // More than a day away: left out
+          { id: '1794600000-ch4', start_time: 1794600000, end_time: 1794601800, channels: ['4'] },
+        ];
+      if (url.endsWith('/devices')) return [{ DeviceID: 'M3U-DispatcharrMPEGTS', TunerCount: 5 }];
+      if (url.includes('/guide')) return guide;
+      return [];
+    }) as never);
+
+    const schedule = await client().getSchedule();
+    expect(schedule.recordings).toHaveLength(1);
+    expect(schedule.upcoming).toEqual([
+      expect.objectContaining({
+        jobId: '1794427200-ch1',
+        title: 'The Jennifer Hudson Show',
+        seasonNumber: 5,
+        episodeNumber: 43,
+        channelNumber: '1',
+        startsAt: new Date(1794427200 * 1000).toISOString(),
+        endsAt: new Date(1794430800 * 1000).toISOString(),
+      }),
+    ]);
+    // ch2 is recorded and watched (one shared tuner); ch23 is watched
+    expect(schedule.tuners).toEqual({ inUse: 2, total: 5 });
+  });
+
+  it('still lists recordings when the job list and tuner count are unavailable', async () => {
+    vi.mocked(fetchJson).mockImplementation((async (url: string) => {
+      if (url.endsWith('/dvr'))
+        return { activity: { '0-job-1794391200-ch2': 'Recording ch2 for News 9 @ 4a' } };
+      if (url.endsWith('/api/v1/jobs') || url.endsWith('/devices')) throw new Error('404');
+      if (url.includes('/guide')) return guide;
+      return [];
+    }) as never);
+
+    const schedule = await client().getSchedule();
+    expect(schedule.recordings).toHaveLength(1);
+    expect(schedule.upcoming).toEqual([]);
+    expect(schedule.tuners).toBeNull();
   });
 
   it('returns no recordings when nothing is recording', async () => {

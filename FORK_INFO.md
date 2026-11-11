@@ -1,5 +1,26 @@
 # Tracearr Fork Information
 
+## November 11, 2026 — Channels DVR: Coming Up, exact recording times, tuner usage
+
+The dashboard's Recording Now panel is now titled with the Channels DVR server's name as entered
+in Tracearr ("Channels DVR" when several are selected), with the tuner pill beside it and "Recording
+Now" and "Coming Up" as sub-headings. When nothing is recording it says so with a light joke. It
+now also shows:
+
+- **Coming Up**: recordings queued to start in the next 24 hours (time, show, episode, channel,
+  artwork), five at a time with "+N more". Read from `GET /api/v1/jobs`, which lists every queued
+  job with exact start and end times; finished jobs drop off it.
+- **Exact recording times**: a recording in progress takes its start and end from its job
+  (padding included) instead of the guide's current airing. The guide is still the fallback.
+- **Tuner usage**: "2 of 5 tuners in use", amber when all are busy. The total is the sum of
+  `TunerCount` across `GET /devices`; in use is one per distinct channel being watched live or
+  recorded, since Channels shares a tuner between everyone on a channel.
+
+The panel now appears when anything is recording, queued for the next day, or using a tuner. The
+job list is cached for 15 s and the tuner count for 5 min (`channelsDvr/jobs.ts`, `client.ts`
+`getSchedule`); if either request fails, recordings still show. `GET /sessions/recordings` returns
+`{ data, upcoming, tuners }` (was `{ data }`).
+
 ## November 11, 2026 — Device icons for Channels DVR viewers
 
 Channels DVR "users" are devices with no picture, so their avatars showed initials ("LI", "WE").

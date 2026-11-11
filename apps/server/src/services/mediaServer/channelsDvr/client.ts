@@ -28,6 +28,29 @@ import {
   mapShow,
 } from './library.js';
 import { describeChannelsClient } from './macClient.js';
+import {
+  countTunersInUse,
+  parseJobs,
+  parseTunerTotal,
+  upcomingJobs,
+  type ChannelsDvrJob,
+} from './jobs.js';
+import type { ChannelsDvrActivityEntry } from './parser.js';
+
+/** The job list changes rarely; the dashboard asks every 10 s. Shared across client instances. */
+const JOBS_CACHE_TTL_MS = 15 * 1000;
+/** Tuner counts only change when a source is reconfigured. */
+const TUNERS_CACHE_TTL_MS = 5 * 60 * 1000;
+const jobsCache = new Map<string, { data: ChannelsDvrJob[]; expiresAt: number }>();
+const tunersCache = new Map<string, { total: number | null; expiresAt: number }>();
+/** Tests share a fake clock and a base URL; let them start each case with empty caches. */
+export function clearChannelsDvrScheduleCaches(): void {
+  jobsCache.clear();
+  tunersCache.clear();
+}
+/** How far ahead the dashboard's Coming Up list looks, and how many it shows. */
+const UPCOMING_WINDOW_SEC = 24 * 60 * 60;
+const UPCOMING_LIMIT = 10;
 
 /**
  * Channels DVR client (sessions and library).
@@ -75,6 +98,29 @@ export interface ChannelsDvrRecording {
   untilText: string | null;
   /** Programme artwork or channel logo, relative to the Channels DVR server */
   thumbPath: string | null;
+}
+
+/** A recording queued to start within the next day. */
+export interface ChannelsDvrUpcomingRecording {
+  jobId: string;
+  title: string;
+  episodeTitle: string | null;
+  seasonNumber: number | null;
+  episodeNumber: number | null;
+  channelNumber: string | null;
+  channelTitle: string | null;
+  /** ISO times */
+  startsAt: string;
+  endsAt: string;
+  thumbPath: string | null;
+}
+
+/** Everything the dashboard's DVR panel shows, read in one pass. */
+export interface ChannelsDvrSchedule {
+  recordings: ChannelsDvrRecording[];
+  upcoming: ChannelsDvrUpcomingRecording[];
+  /** Null when no tuner source reports a tuner count */
+  tuners: { inUse: number; total: number } | null;
 }
 
 export class ChannelsDvrClient implements IMediaServerClient {
@@ -640,20 +686,108 @@ export class ChannelsDvrClient implements IMediaServerClient {
     );
   }
 
+  /** Queued recordings, including the one running now (`GET /api/v1/jobs`). */
+  private async getJobs(): Promise<ChannelsDvrJob[]> {
+    const cached = jobsCache.get(this.baseUrl);
+    if (cached && cached.expiresAt > Date.now()) return cached.data;
+    const data = await fetchJson<unknown>(`${this.baseUrl}/api/v1/jobs`, {
+      headers: { Accept: 'application/json' },
+      service: 'channels-dvr',
+      timeout: 10000,
+    });
+    const jobs = parseJobs(data);
+    jobsCache.set(this.baseUrl, { data: jobs, expiresAt: Date.now() + JOBS_CACHE_TTL_MS });
+    return jobs;
+  }
+
+  /** Total tuners across the DVR's sources (`GET /devices`). */
+  private async getTunerTotal(): Promise<number | null> {
+    const cached = tunersCache.get(this.baseUrl);
+    if (cached && cached.expiresAt > Date.now()) return cached.total;
+    const data = await fetchJson<unknown>(`${this.baseUrl}/devices`, {
+      headers: { Accept: 'application/json' },
+      service: 'channels-dvr',
+      timeout: 10000,
+    });
+    const total = parseTunerTotal(data);
+    tunersCache.set(this.baseUrl, { total, expiresAt: Date.now() + TUNERS_CACHE_TTL_MS });
+    return total;
+  }
+
   /**
    * Recordings the DVR is making right now. These are not viewing sessions and never
-   * enter the session pipeline; the dashboard shows them in their own panel. Programme
-   * times and artwork come from the guide when it has the channel's current airing.
+   * enter the session pipeline; the dashboard shows them in their own panel.
    */
   async getRecordings(): Promise<ChannelsDvrRecording[]> {
-    const data = await this.getDvrStatus();
-    const parsed = parseDvrActivity(data)
-      .map((entry) => parseRecordingActivity(entry))
-      .filter((r) => r !== null);
+    const entries = parseDvrActivity(await this.getDvrStatus());
+    const jobs = await this.getJobs().catch(() => [] as ChannelsDvrJob[]);
+    return this.buildRecordings(entries, jobs);
+  }
+
+  /**
+   * The dashboard's DVR panel: recordings in progress, recordings starting in the next
+   * day, and how many tuners are busy. The job list and tuner count are optional extras:
+   * if Channels doesn't answer for them, recordings still show.
+   */
+  async getSchedule(): Promise<ChannelsDvrSchedule> {
+    const entries = parseDvrActivity(await this.getDvrStatus());
+    const [jobs, tunerTotal] = await Promise.all([
+      this.getJobs().catch(() => [] as ChannelsDvrJob[]),
+      this.getTunerTotal().catch(() => null),
+    ]);
+    const recordings = await this.buildRecordings(entries, jobs);
+
+    const next = upcomingJobs(jobs, Date.now() / 1000, UPCOMING_WINDOW_SEC, UPCOMING_LIMIT);
+    const guide = next.length > 0 ? await this.getGuideDataForSession() : null;
+    const upcoming = next.map((job): ChannelsDvrUpcomingRecording => {
+      const channelNumber = job.channels[0] ?? null;
+      return {
+        jobId: job.id,
+        title: job.title,
+        episodeTitle: job.episodeTitle,
+        seasonNumber: job.seasonNumber,
+        episodeNumber: job.episodeNumber,
+        channelNumber,
+        channelTitle:
+          guide && channelNumber
+            ? (this.getLiveAiring(guide, channelNumber)?.channelTitle ?? null)
+            : null,
+        startsAt: new Date(job.startSec * 1000).toISOString(),
+        endsAt: new Date(job.endSec * 1000).toISOString(),
+        thumbPath:
+          channelsDvrArtworkPath(this.baseUrl, job.image) ??
+          (channelNumber ? channelLogoPath(channelNumber) : null),
+      };
+    });
+
+    const tuners =
+      tunerTotal === null
+        ? null
+        : {
+            inUse: countTunersInUse(
+              entries,
+              recordings.map((r) => r.channelNumber)
+            ),
+            total: tunerTotal,
+          };
+    return { recordings, upcoming, tuners };
+  }
+
+  /**
+   * Turn "Recording ch2 for …" activity lines into recordings. Start and end come from the
+   * recording's job when the job list has it (exact, padding included); otherwise from the
+   * guide's current airing on that channel, if it's the same programme.
+   */
+  private async buildRecordings(
+    entries: ChannelsDvrActivityEntry[],
+    jobs: ChannelsDvrJob[]
+  ): Promise<ChannelsDvrRecording[]> {
+    const parsed = entries.map((entry) => parseRecordingActivity(entry)).filter((r) => r !== null);
     if (parsed.length === 0) return [];
 
     const guide = await this.getGuideDataForSession();
     return parsed.map((recording) => {
+      const job = recording.jobId ? jobs.find((j) => j.id === recording.jobId) : undefined;
       const airing = guide ? this.getLiveAiring(guide, recording.channelNumber) : null;
       // Only trust the guide's times and artwork when its current airing is the programme
       // being recorded (a padded recording can run into the next programme).
@@ -661,8 +795,14 @@ export class ChannelsDvrClient implements IMediaServerClient {
         !!airing?.airingTitle &&
         airing.airingTitle.toLowerCase().replace(/[^a-z0-9]+/g, '') ===
           recording.title.toLowerCase().replace(/[^a-z0-9]+/g, '');
-      const startSec = sameProgramme ? airing?.startSec : undefined;
-      const durationSec = sameProgramme ? airing?.durationSec : undefined;
+      const guideStart = sameProgramme ? airing?.startSec : undefined;
+      const guideDuration = sameProgramme ? airing?.durationSec : undefined;
+      const startSec = job?.startSec ?? guideStart;
+      const endSec =
+        job?.endSec ??
+        (guideStart !== undefined && guideDuration !== undefined
+          ? guideStart + guideDuration
+          : undefined);
       return {
         key: recording.key,
         jobId: recording.jobId ?? null,
@@ -674,13 +814,12 @@ export class ChannelsDvrClient implements IMediaServerClient {
             ? new Date(startSec * 1000)
             : (recording.startedAt ?? null)
           )?.toISOString() ?? null,
-        endsAt:
-          startSec !== undefined && durationSec !== undefined
-            ? new Date((startSec + durationSec) * 1000).toISOString()
-            : null,
+        endsAt: endSec !== undefined ? new Date(endSec * 1000).toISOString() : null,
         untilText: recording.untilText ?? null,
         thumbPath:
-          (sameProgramme ? airing?.artworkPath : null) ?? channelLogoPath(recording.channelNumber),
+          (sameProgramme ? airing?.artworkPath : null) ??
+          channelsDvrArtworkPath(this.baseUrl, job?.image) ??
+          channelLogoPath(recording.channelNumber),
       };
     });
   }

@@ -30,16 +30,21 @@ function ServerDashboard({ actions }: { actions?: ReactNode }) {
   const { selectedServerIds, selectedServers, isMultiServer, selectedServerId } = useServer();
 
   // Channels DVR recordings in progress: only asked for when a Channels server is selected.
-  const channelsServerIds = useMemo(
-    () =>
-      selectedServers.filter((s) => s.type === 'channels_dvr' && !s.historicalAt).map((s) => s.id),
+  const channelsServers = useMemo(
+    () => selectedServers.filter((s) => s.type === 'channels_dvr' && !s.historicalAt),
     [selectedServers]
   );
-  const { data: allRecordings } = useChannelsRecordings(channelsServerIds.length > 0);
-  const recordings = useMemo(
-    () => allRecordings?.filter((r) => channelsServerIds.includes(r.serverId)),
-    [allRecordings, channelsServerIds]
-  );
+  const channelsServerIds = useMemo(() => channelsServers.map((s) => s.id), [channelsServers]);
+  const { data: schedule } = useChannelsRecordings(channelsServerIds.length > 0);
+  const dvr = useMemo(() => {
+    if (!schedule) return undefined;
+    const selected = (entry: { serverId: string }) => channelsServerIds.includes(entry.serverId);
+    return {
+      recordings: schedule.data.filter(selected),
+      upcoming: schedule.upcoming.filter(selected),
+      tuners: schedule.tuners.filter(selected),
+    };
+  }, [schedule, channelsServerIds]);
   const { isConnected } = useSocket();
   const {
     data: stats,
@@ -255,7 +260,13 @@ function ServerDashboard({ actions }: { actions?: ReactNode }) {
 
       <NowPlayingSection sessions={sortedSessions} />
 
-      <RecordingNowSection recordings={recordings} showServer={channelsServerIds.length > 1} />
+      <RecordingNowSection
+        title={channelsServers.length === 1 ? channelsServers[0]!.name : undefined}
+        recordings={dvr?.recordings}
+        upcoming={dvr?.upcoming}
+        tuners={dvr?.tuners}
+        showServer={channelsServerIds.length > 1}
+      />
 
       {/* Stream Map - only show when there are active streams */}
       {hasActiveStreams && (
