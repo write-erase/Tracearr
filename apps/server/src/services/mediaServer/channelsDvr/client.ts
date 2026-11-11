@@ -1,4 +1,6 @@
 import { fetchJson, fetchText } from '../../../utils/http.js';
+import { calculateProgress } from '../shared/parserUtils.js';
+import { applyPauseState } from './playbackState.js';
 import { channelsDvrArtworkPath, isChannelsDvrItemId } from './artwork.js';
 import { parseChannelsDvrStreamDetails } from './streamDetails.js';
 import type {
@@ -347,6 +349,11 @@ export class ChannelsDvrClient implements IMediaServerClient {
   }
 
   async getSessions(sessionKey?: string): Promise<MediaSession[]> {
+    const sessions = await this.readSessions(sessionKey);
+    return applyPauseState(this.baseUrl, sessions, { complete: !sessionKey });
+  }
+
+  private async readSessions(sessionKey?: string): Promise<MediaSession[]> {
     const data = await this.getDvrStatus();
     const parsedSessions = [];
     for (const entry of parseDvrActivity(data)) {
@@ -544,6 +551,17 @@ export class ChannelsDvrClient implements IMediaServerClient {
             : {}),
           ...(hasFileEpisode && seasonNumber !== undefined && episodeNumber !== undefined
             ? { episode: { showTitle: fileShowTitle, seasonNumber, episodeNumber } }
+            : {}),
+          ...(fileDuration !== null && fileDuration > 0
+            ? {
+                playback: {
+                  ...sessionWithStream.playback,
+                  progressPercent: calculateProgress(
+                    sessionWithStream.playback.positionMs,
+                    Math.round(fileDuration * 1000)
+                  ),
+                },
+              }
             : {}),
           media: {
             ...session.media,
@@ -743,6 +761,39 @@ export class ChannelsDvrClient implements IMediaServerClient {
       );
     }
     return ChannelsDvrClient.page(items, options);
+  }
+
+  /** Items Channels created or changed after `since` (its `updated_at`/`created_at`). */
+  private static changedSince(items: MediaLibraryItem[], since: Date): MediaLibraryItem[] {
+    const cutoff = since.getTime();
+    return items.filter(
+      (item) =>
+        (item.updatedAt ?? item.addedAt).getTime() > cutoff || item.addedAt.getTime() > cutoff
+    );
+  }
+
+  /**
+   * Incremental sync: top-level items added or changed since the last sync. Channels has
+   * no server-side filter, so the (cached) full list is filtered here; the saving is in the
+   * rows Tracearr has to write, not in the request.
+   */
+  async getLibraryItemsSince(
+    libraryId: string,
+    since: Date,
+    options?: { offset?: number; limit?: number; libraryType?: string }
+  ): Promise<{ items: MediaLibraryItem[]; totalCount: number }> {
+    const { items } = await this.getLibraryItems(libraryId, { libraryType: options?.libraryType });
+    return ChannelsDvrClient.page(ChannelsDvrClient.changedSince(items, since), options);
+  }
+
+  /** Incremental sync: episodes added or changed since the last sync. */
+  async getLibraryLeavesSince(
+    libraryId: string,
+    since: Date,
+    options?: { offset?: number; limit?: number }
+  ): Promise<{ items: MediaLibraryItem[]; totalCount: number }> {
+    const { items } = await this.getLibraryLeaves(libraryId);
+    return ChannelsDvrClient.page(ChannelsDvrClient.changedSince(items, since), options);
   }
 
   /** Every episode in the TV library. Movies and videos have no leaves. */

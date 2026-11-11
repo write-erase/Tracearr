@@ -37,11 +37,7 @@ function normalizeArtworkIp(ip: string | null | undefined): string {
 }
 
 function normalizeArtworkChannel(title: string | null | undefined): string {
-  return (title ?? '')
-    .normalize('NFKC')
-    .trim()
-    .replace(/\s+/g, ' ')
-    .toLowerCase();
+  return (title ?? '').normalize('NFKC').trim().replace(/\s+/g, ' ').toLowerCase();
 }
 
 /**
@@ -147,6 +143,8 @@ export interface ParsedWatchActivity {
   /** Live only: playback mode reported in the activity suffix. */
   videoDecision?: 'copy' | 'transcode';
   show?: { title: string; season: number; episode: number; episodeTitle?: string };
+  /** Recording playback position in seconds, from the "at 4m15s" suffix. */
+  positionSec?: number;
 }
 
 const IPV4_AT_END = /(\d{1,3}(?:\.\d{1,3}){3})$/;
@@ -154,6 +152,15 @@ const IPV4_ANYWHERE = /\b(\d{1,3}(?:\.\d{1,3}){3})\b/;
 const WATCHING_PREFIX = /^\s*watching\b\s*/i;
 const SXXEYY = /\bS(\d{1,3})E(\d{1,4})\b/i;
 const STATS_TAIL = /:\s*buf=.*$/i;
+/** Elapsed-time suffix on recording lines: "at 40s", "at 4m15s", "at 1h2m3s". */
+const ELAPSED_SUFFIX = /\s+at\s+((?:\d+h)?(?:\d+m)?(?:\d+(?:\.\d+)?s)?)\s*$/i;
+
+/** "1h2m3s" / "4m15s" / "40s" -> seconds; undefined when nothing parses. */
+export function parseElapsed(text: string): number | undefined {
+  const m = /^(?:(\d+)h)?(?:(\d+)m)?(?:(\d+(?:\.\d+)?)s)?$/i.exec(text.trim());
+  if (!m || (!m[1] && !m[2] && !m[3])) return undefined;
+  return Number(m[1] ?? 0) * 3600 + Number(m[2] ?? 0) * 60 + Number(m[3] ?? 0);
+}
 const FILE_DATE_SUFFIX = /\s+\d{4}-\d{2}-\d{2}-\d{4}(?:\.\w{2,4})?$/;
 const FILE_EXTENSION = /\.(?:mpg|mpeg|ts|mp4|mkv|m4v|avi)$/i;
 
@@ -222,6 +229,7 @@ export function parseWatchActivity(entry: ChannelsDvrActivityEntry): ParsedWatch
 
   let clientName: string | undefined;
   let ipAddress = keyInfo.ipAddress;
+  let positionSec: number | undefined;
 
   // Live lines end with player stats: ": buf=0% drop=0% timeouts=0 ..."
   body = body.replace(STATS_TAIL, '').trim();
@@ -243,15 +251,23 @@ export function parseWatchActivity(entry: ChannelsDvrActivityEntry): ParsedWatch
     // trailing playback status rather than stopping at the first closing paren.
     const playbackMode = who.match(/\((Remux|Transcoder)\b.*\)\s*$/i);
     videoDecision = playbackMode
-      ? playbackMode[1]!.toLowerCase() === 'remux' ? 'copy' : 'transcode'
+      ? playbackMode[1]!.toLowerCase() === 'remux'
+        ? 'copy'
+        : 'transcode'
       : undefined;
     // Strip transient playback status and elapsed-time suffixes before using
     // the client name as a stable identity. Older recording lines use "at 0s".
     who = who
       .replace(/\s*\((?:Remux|Transcoder)\b.*\)\s*$/i, '')
       .replace(/\s*\(\s*\)\s*$/i, '')
-      .replace(/\s+at\s+\d+(?:\.\d+)?s$/i, '')
       .trim();
+    // Recording lines end with the playback position ("at 40s", "at 4m15s", "at 1h2m3s").
+    // Strip it so the device name stays a stable identity, and keep it as the position.
+    const elapsed = ELAPSED_SUFFIX.exec(who);
+    if (elapsed && elapsed[1]) {
+      positionSec = parseElapsed(elapsed[1]);
+      who = who.slice(0, elapsed.index).trim();
+    }
     body = body.slice(0, sepIdx).trim();
     const ipInWho = IPV4_ANYWHERE.exec(who);
     if (ipInWho && who === ipInWho[1]) {
@@ -277,7 +293,9 @@ export function parseWatchActivity(entry: ChannelsDvrActivityEntry): ParsedWatch
 
   const sxxeyyMatch = kind === 'recording' ? SXXEYY.exec(title) : null;
   const seasonEpisodeMatch =
-    kind === 'recording' ? /\s+-\s+Season\s+(\d{1,3}),\s*Episode\s+(\d{1,4})\s*$/i.exec(title) : null;
+    kind === 'recording'
+      ? /\s+-\s+Season\s+(\d{1,3}),\s*Episode\s+(\d{1,4})\s*$/i.exec(title)
+      : null;
   const show = sxxeyyMatch
     ? {
         title: title.slice(0, sxxeyyMatch.index).trim() || title,
@@ -303,6 +321,7 @@ export function parseWatchActivity(entry: ChannelsDvrActivityEntry): ParsedWatch
     programme,
     videoDecision,
     show,
+    ...(positionSec !== undefined ? { positionSec } : {}),
   };
 }
 
@@ -349,7 +368,11 @@ export function toMediaSession(parsed: ParsedWatchActivity): MediaSession {
       // Live channels without Dispatcharr artwork fall back to the guide logo.
       ...(isLive && logoPath ? { thumbPath: logoPath } : {}),
     },
-    playback: { state: 'playing', positionMs: 0, progressPercent: 0 },
+    playback: {
+      state: 'playing',
+      positionMs: parsed.positionSec !== undefined ? Math.round(parsed.positionSec * 1000) : 0,
+      progressPercent: 0,
+    },
     player: {
       name: displayName,
       deviceId: userId,

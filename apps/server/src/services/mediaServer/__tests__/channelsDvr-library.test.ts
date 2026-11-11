@@ -169,6 +169,27 @@ describe('Channels DVR library client', () => {
     expect(items[0]?.fileSize).toBeUndefined();
   });
 
+  it('returns only items changed since the last sync for incremental sync', async () => {
+    const OLD = 1_700_000_000_000;
+    const NEW = 1_800_000_000_000;
+    vi.mocked(fetchJson).mockImplementation((async (url: string) => {
+      if (url.endsWith('/api/v1/shows')) return [{ ...SHOW, created_at: OLD, updated_at: OLD }];
+      if (url.endsWith('/api/v1/episodes'))
+        return [
+          { ...EPISODE, id: '1', created_at: OLD, updated_at: OLD },
+          { ...EPISODE, id: '2', created_at: OLD, updated_at: NEW },
+          { ...EPISODE, id: '3', created_at: NEW, updated_at: NEW },
+        ];
+      return [];
+    }) as never);
+
+    const since = new Date(1_750_000_000_000);
+    const c = client();
+    expect((await c.getLibraryItemsSince('tv', since)).totalCount).toBe(0);
+    const leaves = await c.getLibraryLeavesSince('tv', since);
+    expect(leaves.items.map((i) => i.ratingKey)).toEqual(['2', '3']);
+  });
+
   it('fetches each list once while a sync pages through it', async () => {
     vi.mocked(fetchJson).mockResolvedValue([SHOW] as never);
     const c = client();
