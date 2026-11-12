@@ -81,30 +81,7 @@ Development images, built from the `dev` branch (AMD64 and ARM64):
 
 Dispatcharr-only images from the fork this one builds on are published by d4rk-4lchemy as `ghcr.io/d4rk-4lchemy/distracearr` (and `darkalchemy2137/distracearr`); they do not include Channels DVR support.
 
-Example `docker-compose.yml` for the **supervised** image:
-```yaml
-tracearr:
-  image: ghcr.io/write-erase/tracearr:supervised-latest
-  container_name: tracearr
-  ports:
-    - 3000:3000
-  environment:
-    - TZ=Etc/UTC
-    - LOG_LEVEL=info
-  volumes:
-    - /docker/tracearr/postgres:/data/postgres
-    - /docker/tracearr/redis:/data/redis
-    - /docker/tracearr/data:/data/tracearr
-  restart: unless-stopped
-  healthcheck:
-    test: ["CMD", "curl", "-f", "http://127.0.0.1:3000/health"]
-    interval: 30s
-    timeout: 10s
-    start_period: 60s
-    retries: 3
-```
-
-For the **standalone** image, use `ghcr.io/write-erase/tracearr:latest` in the [Docker Compose examples](https://github.com/write-erase/Tracearr/tree/baseline/docker/examples) in place of the official image.
+To deploy, use one of the images above in place of the official image in the [Docker Compose examples](https://github.com/write-erase/Tracearr/tree/baseline/docker/examples).
 
 **Building your own image:**
 
