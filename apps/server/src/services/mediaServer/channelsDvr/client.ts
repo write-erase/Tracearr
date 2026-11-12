@@ -1048,9 +1048,14 @@ export class ChannelsDvrClient implements IMediaServerClient {
     }
   }
 
+  /** The server's build ("2026.11.11.2228"), from `GET /status`: `GET /dvr` doesn't carry it. */
   async getSoftwareVersion(): Promise<string | null> {
     try {
-      const data = await this.getDvrStatus();
+      const data = await fetchJson<unknown>(`${this.baseUrl}/status`, {
+        headers: { Accept: 'application/json' },
+        service: 'channels-dvr',
+        timeout: 10000,
+      });
       const version = (data as { version?: unknown } | null)?.version;
       return typeof version === 'string' && version ? version : null;
     } catch {

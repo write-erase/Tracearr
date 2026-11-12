@@ -45,6 +45,8 @@ export const isActive = (role: UserRole): boolean => canLogin(role);
 // Server types
 export type ServerType = 'plex' | 'jellyfin' | 'emby' | 'dispatcharr' | 'channels_dvr';
 export type DispatcharrAuthMode = 'token' | 'credentials';
+/** Which Channels DVR releases the update checker follows. */
+export type ServerUpdateTrack = 'auto' | 'stable' | 'prerelease';
 
 export interface Server {
   id: string;
@@ -62,6 +64,8 @@ export interface Server {
   /** What the server reports running, and the newest release the update checker saw. */
   version?: string | null;
   latestVersion?: string | null;
+  /** Channels DVR only: which releases the update checker follows */
+  updateTrack?: ServerUpdateTrack;
   /** When Tracearr stopped contacting this server. Null, or absent on older payloads, while it is live. */
   historicalAt?: string | null;
   allowMemberLogin?: boolean;

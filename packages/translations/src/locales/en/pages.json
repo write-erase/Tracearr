@@ -136,6 +136,9 @@
       "diskFree": "{{free}} free",
       "diskFreeOnServer": "{{server}}: {{free}} free",
       "diskHint": "{{free}} free of {{total}} for recordings",
+      "update": "Update available",
+      "updateOnServer": "{{server}}: update available",
+      "updateHint": "{{latest}} is available (running {{installed}})",
       "cancel": "Cancel recording",
       "cancelTitle": "Cancel this recording?",
       "cancelConfirm": "Cancel \"{{title}}\" at {{time}}? It will be removed from your Channels DVR schedule.",
@@ -2068,7 +2071,7 @@
       "server-update": {
         "name": "Media server update",
         "description": "Tell a destination when a media server has an update available.",
-        "keywords": "update upgrade version release plex jellyfin emby notify discord"
+        "keywords": "update upgrade version release plex jellyfin emby channels dvr notify discord"
       },
       "simultaneous-locations": {
         "name": "Two places at once",

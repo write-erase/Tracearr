@@ -14,16 +14,25 @@ import { getSettings } from '../services/settings.js';
 import { createLogger } from '../utils/logger.js';
 import { startPeriodic, type PeriodicTimers } from '../utils/periodic.js';
 import {
+  CHANNELS_PRERELEASE_NOTES,
   SERVER_RELEASE_PAGES,
+  channelsTrackFor,
   isNewerServerVersion,
+  latestChannelsVersions,
   latestVersionFor,
   normalizeServerVersion,
+  type ChannelsLatestVersions,
 } from '../utils/serverVersions.js';
 
 const logger = createLogger('ServerUpdate');
 
 const CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
+// Channels DVR ships pre-releases often, sometimes several a day: its servers are checked hourly.
+const CHANNELS_CHECK_INTERVAL_MS = 60 * 60 * 1000;
 const INITIAL_DELAY_MS = 15_000;
+
+/** Which servers a run covers: the 6-hourly sweep skips Channels DVR, which has its own hourly one. */
+type CheckScope = 'all' | 'channels' | 'others';
 
 export interface CheckedServer {
   id: string;
@@ -31,9 +40,12 @@ export interface CheckedServer {
   type: ServerType;
   url: string;
   token: string;
+  /** Channels DVR only; absent reads as 'auto' */
+  updateTrack?: 'auto' | 'stable' | 'prerelease';
 }
 
 let timers: PeriodicTimers | null = null;
+let channelsTimers: PeriodicTimers | null = null;
 // serverId -> latest version already nudged for; re-arms when a newer release lands
 const nudgedVersions = new Map<string, string>();
 
@@ -65,8 +77,18 @@ export async function installedVersionOf(server: CheckedServer): Promise<string 
   return normalized;
 }
 
-async function checkServer(server: CheckedServer, latest: string | null): Promise<void> {
+/**
+ * The newest release for this server: one per type, except Channels DVR, where each server
+ * follows its own track (stable or pre-release) and so has its own "latest".
+ */
+type LatestFor = (installed: string | null) => {
+  version: string | null;
+  releaseUrl: string;
+};
+
+async function checkServer(server: CheckedServer, latestFor: LatestFor): Promise<void> {
   const installed = await installedVersionOf(server);
+  const { version: latest, releaseUrl } = latestFor(installed);
 
   const patch: { version?: string; latestVersion?: string } = {};
   if (installed) patch.version = installed;
@@ -95,25 +117,48 @@ async function checkServer(server: CheckedServer, latest: string | null): Promis
     server: { id: server.id, name: server.name, type: server.type },
     installedVersion: installed,
     latestVersion: latest,
-    releaseUrl: SERVER_RELEASE_PAGES[server.type],
+    releaseUrl,
   });
   logger.info(`${server.name}: ${installed} -> ${latest} available`);
 }
 
-export async function runServerUpdateCheck(): Promise<void> {
+export async function runServerUpdateCheck(scope: CheckScope = 'all'): Promise<void> {
   try {
     const settings = await getSettings(['serverUpdateCheckEnabled']);
     if (!settings.serverUpdateCheckEnabled) return;
 
-    const rows = await liveServers();
+    const rows = (await liveServers()).filter((server) =>
+      scope === 'all'
+        ? true
+        : scope === 'channels'
+          ? server.type === 'channels_dvr'
+          : server.type !== 'channels_dvr'
+    );
 
     // The vendor feed is per type, not per server: read it once however many servers share it.
     const latestByType = new Map<ServerType, Promise<string | null>>();
+    let channels: Promise<ChannelsLatestVersions> | null = null;
     for (const server of rows) {
-      await checkServer(
-        server,
-        await latestByType.getOrInsertComputed(server.type, latestVersionFor)
-      );
+      if (server.type === 'channels_dvr') {
+        channels ??= latestChannelsVersions();
+        const versions = await channels;
+        await checkServer(server, (installed) => {
+          const track = channelsTrackFor(server.updateTrack ?? 'auto', installed, versions);
+          return {
+            version: versions[track],
+            releaseUrl:
+              track === 'prerelease'
+                ? CHANNELS_PRERELEASE_NOTES
+                : SERVER_RELEASE_PAGES.channels_dvr,
+          };
+        });
+        continue;
+      }
+      const latest = await latestByType.getOrInsertComputed(server.type, latestVersionFor);
+      await checkServer(server, () => ({
+        version: latest,
+        releaseUrl: SERVER_RELEASE_PAGES[server.type],
+      }));
     }
   } catch (error) {
     logger.error('Check failed', { error });
@@ -122,11 +167,16 @@ export async function runServerUpdateCheck(): Promise<void> {
 
 export function startServerUpdateChecker(): void {
   if (timers) return;
-  timers = startPeriodic(INITIAL_DELAY_MS, CHECK_INTERVAL_MS, runServerUpdateCheck);
-  logger.info('Checker started (every 6h)');
+  timers = startPeriodic(INITIAL_DELAY_MS, CHECK_INTERVAL_MS, () => runServerUpdateCheck('others'));
+  channelsTimers = startPeriodic(INITIAL_DELAY_MS, CHANNELS_CHECK_INTERVAL_MS, () =>
+    runServerUpdateCheck('channels')
+  );
+  logger.info('Checker started (every 6h; Channels DVR every hour)');
 }
 
 export function stopServerUpdateChecker(): void {
   timers?.stop();
   timers = null;
+  channelsTimers?.stop();
+  channelsTimers = null;
 }

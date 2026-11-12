@@ -28,7 +28,7 @@ vi.mock('../../services/mediaServer/index.js', () => ({
 
 vi.mock('../../utils/serverVersions.js', async (importActual) => {
   const actual = await importActual<typeof ServerVersionsModule>();
-  return { ...actual, latestVersionFor: vi.fn() };
+  return { ...actual, latestVersionFor: vi.fn(), latestChannelsVersions: vi.fn() };
 });
 
 const mockDispatchServerUpdate = vi.fn().mockResolvedValue(undefined);
@@ -36,7 +36,7 @@ vi.mock('../../services/automations/events/producers.js', () => ({
   dispatchServerUpdate: (...args: unknown[]) => mockDispatchServerUpdate(...args),
 }));
 
-import { latestVersionFor } from '../../utils/serverVersions.js';
+import { latestChannelsVersions, latestVersionFor } from '../../utils/serverVersions.js';
 import {
   _resetServerUpdateStateForTests,
   runServerUpdateCheck,
@@ -45,6 +45,7 @@ import {
 } from '../serverUpdateChecker.js';
 
 const mockLatestVersionFor = vi.mocked(latestVersionFor);
+const mockLatestChannelsVersions = vi.mocked(latestChannelsVersions);
 
 const JELLYFIN = {
   id: 's1',
@@ -213,14 +214,20 @@ describe('startServerUpdateChecker', () => {
     vi.useRealTimers();
   });
 
-  it('checks once after the initial delay and again on the interval', async () => {
+  it('checks once after the initial delay, then every 6h, and Channels DVR every hour', async () => {
     startServerUpdateChecker();
 
+    // Both sweeps run once after the delay
     await vi.advanceTimersByTimeAsync(15_000);
-    expect(mockGetSettings).toHaveBeenCalledTimes(1);
-
-    await vi.advanceTimersByTimeAsync(6 * 60 * 60 * 1000);
     expect(mockGetSettings).toHaveBeenCalledTimes(2);
+
+    // An hour on: only the Channels DVR sweep again
+    await vi.advanceTimersByTimeAsync(60 * 60 * 1000);
+    expect(mockGetSettings).toHaveBeenCalledTimes(3);
+
+    // Six hours in: the Channels sweep five more times, the other sweep once
+    await vi.advanceTimersByTimeAsync(5 * 60 * 60 * 1000);
+    expect(mockGetSettings).toHaveBeenCalledTimes(9);
   });
 
   it('stops checking once stopped', async () => {
@@ -230,5 +237,105 @@ describe('startServerUpdateChecker', () => {
     await vi.advanceTimersByTimeAsync(12 * 60 * 60 * 1000);
 
     expect(mockGetSettings).not.toHaveBeenCalled();
+  });
+});
+
+describe('runServerUpdateCheck for Channels DVR', () => {
+  const CHANNELS_DVR = {
+    id: 's3',
+    name: 'Channels',
+    type: 'channels_dvr' as const,
+    url: 'http://cdvr.local:8089',
+    token: '',
+    updateTrack: 'auto' as const,
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    _resetServerUpdateStateForTests();
+    mockGetSettings.mockResolvedValue({ serverUpdateCheckEnabled: true });
+    mockCreateClient.mockReturnValue({ getSoftwareVersion: mockGetSoftwareVersion });
+    mockLatestChannelsVersions.mockResolvedValue({
+      stable: '2026.10.24.0621',
+      prerelease: '2026.11.12.0900',
+    });
+  });
+
+  it('nudges a pre-release build about the next pre-release, with the pre-release notes', async () => {
+    mockServerRows.mockResolvedValue([CHANNELS_DVR]);
+    mockGetSoftwareVersion.mockResolvedValue('2026.11.11.2228');
+
+    await runServerUpdateCheck();
+
+    expect(mockUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({ version: '2026.11.11.2228', latestVersion: '2026.11.12.0900' })
+    );
+    expect(mockDispatchServerUpdate).toHaveBeenCalledWith({
+      server: { id: 's3', name: 'Channels', type: 'channels_dvr' },
+      installedVersion: '2026.11.11.2228',
+      latestVersion: '2026.11.12.0900',
+      releaseUrl: 'https://community.getchannels.com/t/dvr-pre-release-notes/28832',
+    });
+    expect(mockLatestVersionFor).not.toHaveBeenCalled();
+  });
+
+  it('leaves a stable build alone when only a pre-release is newer', async () => {
+    mockServerRows.mockResolvedValue([CHANNELS_DVR]);
+    mockGetSoftwareVersion.mockResolvedValue('2026.10.24.0621');
+
+    await runServerUpdateCheck();
+
+    expect(mockUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({ latestVersion: '2026.10.24.0621' })
+    );
+    expect(mockDispatchServerUpdate).not.toHaveBeenCalled();
+  });
+
+  it('follows pre-releases when chosen, even from a stable build', async () => {
+    mockServerRows.mockResolvedValue([{ ...CHANNELS_DVR, updateTrack: 'prerelease' as const }]);
+    mockGetSoftwareVersion.mockResolvedValue('2026.10.24.0621');
+
+    await runServerUpdateCheck();
+
+    expect(mockDispatchServerUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({ latestVersion: '2026.11.12.0900' })
+    );
+  });
+
+  it('reads the Channels feeds once for several Channels servers', async () => {
+    mockServerRows.mockResolvedValue([CHANNELS_DVR, { ...CHANNELS_DVR, id: 's4' }]);
+    mockGetSoftwareVersion.mockResolvedValue('2026.11.12.0900');
+
+    await runServerUpdateCheck();
+
+    expect(mockLatestChannelsVersions).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('runServerUpdateCheck scopes', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    _resetServerUpdateStateForTests();
+    mockGetSettings.mockResolvedValue({ serverUpdateCheckEnabled: true });
+    mockCreateClient.mockReturnValue({ getSoftwareVersion: mockGetSoftwareVersion });
+    mockGetSoftwareVersion.mockResolvedValue('10.11.11');
+    mockLatestVersionFor.mockResolvedValue('10.11.11');
+    mockLatestChannelsVersions.mockResolvedValue({ stable: null, prerelease: null });
+    mockServerRows.mockResolvedValue([
+      JELLYFIN,
+      { id: 's3', name: 'Channels', type: 'channels_dvr', url: 'http://c', token: '' },
+    ]);
+  });
+
+  it('checks only Channels DVR servers on the hourly sweep', async () => {
+    await runServerUpdateCheck('channels');
+    expect(mockLatestChannelsVersions).toHaveBeenCalledTimes(1);
+    expect(mockLatestVersionFor).not.toHaveBeenCalled();
+  });
+
+  it('leaves Channels DVR servers out of the 6-hourly sweep', async () => {
+    await runServerUpdateCheck('others');
+    expect(mockLatestChannelsVersions).not.toHaveBeenCalled();
+    expect(mockLatestVersionFor).toHaveBeenCalledWith('jellyfin');
   });
 });

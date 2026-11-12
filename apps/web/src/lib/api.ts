@@ -1,6 +1,7 @@
 import type {
   ChannelsDvrScheduleResponse,
   Server,
+  ServerUpdateTrack,
   ServerDownReason,
   UpdateUserAccessInput,
   UserRole,
@@ -830,6 +831,7 @@ class ApiClient {
         color?: string | null;
         apiKey?: string;
         allowMemberLogin?: boolean;
+        updateTrack?: ServerUpdateTrack;
       }
     ) =>
       this.request<Server>(`/servers/${id}`, {

@@ -539,3 +539,20 @@ describe('ChannelsDvrClient.setRecordingSkipped', () => {
     await expect(client().setRecordingSkipped('1794510000-1', true)).rejects.toThrow(/HTTP 404/);
   });
 });
+
+describe('ChannelsDvrClient.getSoftwareVersion', () => {
+  it('reads the build from GET /status, which carries it (GET /dvr does not)', async () => {
+    vi.mocked(fetchJson).mockImplementation((async (url: string) =>
+      url.endsWith('/status')
+        ? { version: '2026.11.11.2228', arch: 'x86_64', booted: true }
+        : { activity: {} }) as never);
+
+    await expect(client().getSoftwareVersion()).resolves.toBe('2026.11.11.2228');
+    expect(fetchJson).toHaveBeenCalledWith(`${BASE}/status`, expect.anything());
+  });
+
+  it('reads as unknown when the server cannot be reached', async () => {
+    vi.mocked(fetchJson).mockRejectedValue(new Error('offline'));
+    await expect(client().getSoftwareVersion()).resolves.toBeNull();
+  });
+});

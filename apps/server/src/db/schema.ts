@@ -114,6 +114,12 @@ export const servers = pgTable(
     // The version the media server reports, and the newest release known for it.
     version: text('version'),
     latestVersion: text('latest_version'),
+    // Channels DVR only: which releases the update checker follows. 'auto' picks pre-release when
+    // the installed build is newer than the newest stable one.
+    updateTrack: varchar('update_track', { length: 12 })
+      .notNull()
+      .default('auto')
+      .$type<'auto' | 'stable' | 'prerelease'>(),
     // Bumped on every save of this server's server_locations; the sync job records the version it applied
     locationVersion: integer('location_version').notNull().default(1),
     locationSyncedVersion: integer('location_synced_version').notNull().default(0),

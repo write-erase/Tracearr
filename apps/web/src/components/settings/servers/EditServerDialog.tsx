@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Loader2 } from 'lucide-react';
 import { SERVER_COLOR_PALETTE, pickServerColor, serverLocationsSchema } from '@tracearr/shared';
-import type { Server } from '@tracearr/shared';
+import type { Server, ServerUpdateTrack } from '@tracearr/shared';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -14,6 +14,13 @@ import {
 } from '@/components/ui/dialog';
 import { Field, FieldDescription, FieldGroup, FieldLabel, FieldTitle } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { ColorSwatchPicker } from '@/components/settings/shared/ColorSwatchPicker';
 import { PlexServerSelector } from '@/components/auth/PlexServerSelector';
 import { api } from '@/lib/api';
@@ -46,6 +53,7 @@ export interface ServerPatch {
   password?: string;
   ignoreAnonymousStreams?: boolean;
   apiKey?: string;
+  updateTrack?: ServerUpdateTrack;
 }
 
 export function EditServerDialog({
@@ -67,6 +75,7 @@ export function EditServerDialog({
   const [manualPublicUrl, setManualPublicUrl] = useState('');
   const [editApiKey, setEditApiKey] = useState('');
   const [editColor, setEditColor] = useState<string>(SERVER_COLOR_OPTIONS[3]?.hex ?? '#3B82F6');
+  const [editUpdateTrack, setEditUpdateTrack] = useState<ServerUpdateTrack>('auto');
   const [seededServer, setSeededServer] = useState<Server | null>(null);
   const isPlexServer = server?.type === 'plex';
   const isDispatcharr = server?.type === 'dispatcharr';
@@ -103,6 +112,7 @@ export function EditServerDialog({
         ignoreAnonymousStreams: server.ignoreAnonymousStreams ?? true,
       });
       setEditApiKey('');
+      setEditUpdateTrack(server.updateTrack ?? 'auto');
       const otherColors = servers.filter((s) => s.id !== server.id).map((s) => s.color);
       setEditColor(server.color ?? pickServerColor(server.type, otherColors));
     }
@@ -155,7 +165,9 @@ export function EditServerDialog({
     server && !isPlexServer && !isDispatcharr && !isChannelsDvr && !locked
       ? editApiKey.trim().length > 0
       : false;
+  const hasUpdateTrackChange = isChannelsDvr && editUpdateTrack !== (server?.updateTrack ?? 'auto');
   const hasServerChange =
+    hasUpdateTrackChange ||
     hasNameChange ||
     hasUrlChange ||
     hasPublicUrlChange ||
@@ -192,11 +204,11 @@ export function EditServerDialog({
       >
         <DialogHeader>
           <DialogTitle>{t('servers.editServer')}</DialogTitle>
-            <DialogDescription>
-              {isChannelsDvr
-                ? 'Update the server name or connection URL.'
-                : t('servers.editServerDesc')}
-            </DialogDescription>
+          <DialogDescription>
+            {isChannelsDvr
+              ? 'Update the server name, connection URL or which updates to watch for.'
+              : t('servers.editServerDesc')}
+          </DialogDescription>
         </DialogHeader>
 
         <FieldGroup className="py-4">
@@ -312,6 +324,38 @@ export function EditServerDialog({
           {isDispatcharr && (
             <DispatcharrFields value={dispatcharr} onChange={setDispatcharr} editing />
           )}
+          {isChannelsDvr && (
+            <Field>
+              <FieldLabel htmlFor="edit-update-track">
+                {t('servers.updateTrack.label', { defaultValue: 'Updates to watch for' })}
+              </FieldLabel>
+              <Select
+                value={editUpdateTrack}
+                onValueChange={(value) => setEditUpdateTrack(value as ServerUpdateTrack)}
+              >
+                <SelectTrigger id="edit-update-track">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="auto">
+                    {t('servers.updateTrack.auto', { defaultValue: 'Automatic' })}
+                  </SelectItem>
+                  <SelectItem value="stable">
+                    {t('servers.updateTrack.stable', { defaultValue: 'Stable releases' })}
+                  </SelectItem>
+                  <SelectItem value="prerelease">
+                    {t('servers.updateTrack.prerelease', { defaultValue: 'Pre-releases' })}
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+              <FieldDescription>
+                {t('servers.updateTrack.hint', {
+                  defaultValue:
+                    'Automatic follows pre-releases when this server runs one, and stable releases otherwise.',
+                })}
+              </FieldDescription>
+            </Field>
+          )}
           <Field>
             <FieldTitle>{t('servers.serverColor')}</FieldTitle>
             {/* Colors saved before the palette's casing are stored lowercase. */}
@@ -357,6 +401,7 @@ export function EditServerDialog({
                       : { username: dispatcharr.username.trim(), password: dispatcharr.password }
                     : {}),
                   apiKey: hasApiKeyChange ? editApiKey.trim() : undefined,
+                  updateTrack: hasUpdateTrackChange ? editUpdateTrack : undefined,
                 });
               } else {
                 onClose();

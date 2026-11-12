@@ -43,6 +43,13 @@
       "when": 1790294400000,
       "tag": "0005_dispatcharr_user_agent",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1794510000000,
+      "tag": "0006_server_update_track",
+      "breakpoints": true
     }
   ]
 }
