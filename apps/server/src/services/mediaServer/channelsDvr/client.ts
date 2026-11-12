@@ -31,10 +31,12 @@ import { describeChannelsClient } from './macClient.js';
 import {
   countTunersInUse,
   parseDisk,
+  parseDvrJobStatuses,
   parseJobs,
   parseTunerTotal,
   upcomingJobs,
   type ChannelsDvrJob,
+  type ChannelsDvrJobStatus,
 } from './jobs.js';
 import type { ChannelsDvrActivityEntry } from './parser.js';
 
@@ -115,6 +117,20 @@ export interface ChannelsDvrUpcomingRecording {
   startsAt: string;
   endsAt: string;
   thumbPath: string | null;
+  /** Skipped in Channels: it won't record unless unskipped */
+  skipped: boolean;
+  /** Scheduled by a series pass, so it can be skipped; otherwise it can only be cancelled */
+  fromPass: boolean;
+}
+
+/** What the alert monitor reads each minute. */
+export interface ChannelsDvrAlertSnapshot {
+  jobs: ChannelsDvrJobStatus[];
+  /** Job ids recording right now, from the activity feed */
+  recordingJobIds: string[];
+  /** File ids of recordings in progress that Channels marks corrupted (a stream gap) */
+  corruptedFileIds: string[];
+  disk: { freeBytes: number; totalBytes: number } | null;
 }
 
 /** Everything the dashboard's DVR panel shows, read in one pass. */
@@ -743,7 +759,15 @@ export class ChannelsDvrClient implements IMediaServerClient {
     const recordings = await this.buildRecordings(entries, jobs);
 
     const next = upcomingJobs(jobs, Date.now() / 1000, UPCOMING_WINDOW_SEC, UPCOMING_LIMIT);
-    const guide = next.length > 0 ? await this.getGuideDataForSession() : null;
+    const [guide, passJobIds] =
+      next.length > 0
+        ? await Promise.all([
+            this.getGuideDataForSession(),
+            // Which jobs a series pass scheduled: only GET /dvr/jobs says (RuleID). Without it
+            // every job falls back to Cancel, as before.
+            this.getPassJobIds().catch(() => new Set<string>()),
+          ])
+        : [null, new Set<string>()];
     const upcoming = next.map((job): ChannelsDvrUpcomingRecording => {
       const channelNumber = job.channels[0] ?? null;
       return {
@@ -763,6 +787,8 @@ export class ChannelsDvrClient implements IMediaServerClient {
         thumbPath:
           channelsDvrArtworkPath(this.baseUrl, job.image) ??
           (channelNumber ? channelLogoPath(channelNumber) : null),
+        skipped: job.skipped,
+        fromPass: passJobIds.has(job.id),
       };
     });
 
@@ -831,6 +857,50 @@ export class ChannelsDvrClient implements IMediaServerClient {
   }
 
   /**
+   * The alert monitor's view: every job with its failure state, which are recording now,
+   * which of those Channels has marked corrupted (it does this when the stream drops and
+   * it reconnects), and disk space. Read fresh each time, bypassing the dashboard caches.
+   */
+  async getAlertSnapshot(): Promise<ChannelsDvrAlertSnapshot> {
+    const [status, jobsData] = await Promise.all([
+      this.getDvrStatus(),
+      fetchJson<unknown>(`${this.baseUrl}/dvr/jobs`, {
+        headers: { Accept: 'application/json' },
+        service: 'channels-dvr',
+        timeout: 10000,
+      }),
+    ]);
+    const jobs = parseDvrJobStatuses(jobsData);
+    const recordingJobIds = parseDvrActivity(status)
+      .map((entry) => parseRecordingActivity(entry)?.jobId)
+      .filter((id): id is string => !!id);
+
+    const corruptedFileIds: string[] = [];
+    await Promise.all(
+      jobs
+        .filter((job) => job.fileId && recordingJobIds.includes(job.id))
+        .map(async (job) => {
+          try {
+            const file = await fetchJson<unknown>(
+              `${this.baseUrl}/dvr/files/${encodeURIComponent(job.fileId!)}`,
+              { headers: { Accept: 'application/json' }, service: 'channels-dvr', timeout: 10000 }
+            );
+            if (
+              file &&
+              typeof file === 'object' &&
+              (file as { Corrupted?: unknown }).Corrupted === true
+            ) {
+              corruptedFileIds.push(job.fileId!);
+            }
+          } catch {
+            // A file Channels can't describe right now is checked again next minute.
+          }
+        })
+    );
+    return { jobs, recordingJobIds, corruptedFileIds, disk: parseDisk(status) };
+  }
+
+  /**
    * Stop a recording in progress, as the Channels DVR web UI does (DVR > Schedule > Stop):
    * `DELETE /dvr/jobs/<jobId>`. What was recorded so far stays in the library.
    */
@@ -843,6 +913,39 @@ export class ChannelsDvrClient implements IMediaServerClient {
     if (!response.ok) {
       throw new Error(`Channels DVR refused to stop the recording: HTTP ${response.status}`);
     }
+    jobsCache.delete(this.baseUrl);
+  }
+
+  /**
+   * Skip one airing a series pass scheduled, or undo that, as the web UI does
+   * (DVR > Schedule > Skip / Queued): `PUT /dvr/jobs/<jobId>/skip` or `.../unskip`. The pass
+   * keeps going; a skipped job stays on the schedule, marked skipped, until its time passes.
+   */
+  async setRecordingSkipped(jobId: string, skipped: boolean): Promise<void> {
+    if (!/^\d{9,11}-[\w.-]+$/.test(jobId)) throw new Error('Invalid Channels DVR job id');
+    const action = skipped ? 'skip' : 'unskip';
+    const response = await fetch(
+      `${this.baseUrl}/dvr/jobs/${encodeURIComponent(jobId)}/${action}`,
+      { method: 'PUT', signal: AbortSignal.timeout(10_000) }
+    );
+    if (!response.ok) {
+      throw new Error(`Channels DVR refused to ${action} the recording: HTTP ${response.status}`);
+    }
+    jobsCache.delete(this.baseUrl);
+  }
+
+  /** Ids of the queued jobs a series pass scheduled (non-empty `RuleID` in `GET /dvr/jobs`). */
+  private async getPassJobIds(): Promise<Set<string>> {
+    const data = await fetchJson<unknown>(`${this.baseUrl}/dvr/jobs`, {
+      headers: { Accept: 'application/json' },
+      service: 'channels-dvr',
+      timeout: 10000,
+    });
+    return new Set(
+      parseDvrJobStatuses(data)
+        .filter((job) => job.ruleId !== null)
+        .map((job) => job.id)
+    );
   }
 
   /**
@@ -945,9 +1048,14 @@ export class ChannelsDvrClient implements IMediaServerClient {
     }
   }
 
+  /** The server's build ("2026.11.11.2228"), from `GET /status`: `GET /dvr` doesn't carry it. */
   async getSoftwareVersion(): Promise<string | null> {
     try {
-      const data = await this.getDvrStatus();
+      const data = await fetchJson<unknown>(`${this.baseUrl}/status`, {
+        headers: { Accept: 'application/json' },
+        service: 'channels-dvr',
+        timeout: 10000,
+      });
       const version = (data as { version?: unknown } | null)?.version;
       return typeof version === 'string' && version ? version : null;
     } catch {

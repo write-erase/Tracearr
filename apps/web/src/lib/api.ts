@@ -1,6 +1,7 @@
 import type {
   ChannelsDvrScheduleResponse,
   Server,
+  ServerUpdateTrack,
   ServerDownReason,
   UpdateUserAccessInput,
   UserRole,
@@ -830,6 +831,7 @@ class ApiClient {
         color?: string | null;
         apiKey?: string;
         allowMemberLogin?: boolean;
+        updateTrack?: ServerUpdateTrack;
       }
     ) =>
       this.request<Server>(`/servers/${id}`, {
@@ -1130,6 +1132,12 @@ class ApiClient {
       this.request<{ success: boolean }>('/sessions/recordings/stop', {
         method: 'POST',
         body: JSON.stringify({ serverId, jobId }),
+      }),
+    /** Skip one airing a Channels DVR series pass scheduled, or undo that */
+    setRecordingSkipped: (serverId: string, jobId: string, skipped: boolean) =>
+      this.request<{ success: boolean }>('/sessions/recordings/skip', {
+        method: 'POST',
+        body: JSON.stringify({ serverId, jobId, skipped }),
       }),
     terminate: (id: string, reason?: string) =>
       this.request<{ success: boolean; terminationLogId: string; message: string }>(

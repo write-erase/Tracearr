@@ -70,7 +70,10 @@ export function parseJobs(data: unknown): ChannelsDvrJob[] {
   return jobs;
 }
 
-/** Jobs that haven't started yet and will run, soonest first. */
+/**
+ * Jobs that haven't started yet, soonest first. Skipped ones stay in (marked by `skipped`) so
+ * the dashboard can show them and offer to unskip.
+ */
 export function upcomingJobs(
   jobs: ChannelsDvrJob[],
   nowSec: number,
@@ -78,7 +81,7 @@ export function upcomingJobs(
   limit: number
 ): ChannelsDvrJob[] {
   return jobs
-    .filter((job) => !job.skipped && job.startSec > nowSec && job.startSec <= nowSec + withinSec)
+    .filter((job) => job.startSec > nowSec && job.startSec <= nowSec + withinSec)
     .sort((a, b) => a.startSec - b.startSec)
     .slice(0, limit);
 }
@@ -129,4 +132,73 @@ export function countTunersInUse(
     if (channel) channels.add(channel);
   }
   return channels.size;
+}
+
+/** A job as `GET /dvr/jobs` lists it: the alert monitor's view, with failure state and file. */
+export interface ChannelsDvrJobStatus {
+  id: string;
+  title: string;
+  channel: string | null;
+  failed: boolean;
+  /** Channels' raw error text, or null */
+  error: string | null;
+  /** The recording's file id once it has one */
+  fileId: string | null;
+  /** When the airing ends (ms since epoch), from `Time` + `Duration`; null when either is missing */
+  endsAt: number | null;
+  /** The series pass (rule) that scheduled it; null for a one-time recording */
+  ruleId: string | null;
+}
+
+/** Parse `GET /dvr/jobs` (capitalised fields, unlike `/api/v1/jobs`). */
+export function parseDvrJobStatuses(data: unknown): ChannelsDvrJobStatus[] {
+  if (!Array.isArray(data)) return [];
+  const jobs: ChannelsDvrJobStatus[] = [];
+  for (const raw of data) {
+    if (!raw || typeof raw !== 'object') continue;
+    const job = raw as Record<string, unknown>;
+    const id = str(job.ID);
+    if (!id) continue;
+    const airing =
+      job.Airing && typeof job.Airing === 'object' ? (job.Airing as Record<string, unknown>) : {};
+    const channels = Array.isArray(job.Channels)
+      ? job.Channels.filter((c): c is string => typeof c === 'string' && !!c.trim())
+      : [];
+    jobs.push({
+      id,
+      title: str(airing.Title) ?? str(job.Name) ?? id,
+      channel: str(job.Channel) ?? str(airing.Channel) ?? channels[0] ?? null,
+      failed: job.Failed === true,
+      error: str(job.Error),
+      fileId: str(job.FileID) ?? (typeof job.FileID === 'number' ? String(job.FileID) : null),
+      endsAt:
+        typeof job.Time === 'number' && typeof job.Duration === 'number'
+          ? (job.Time + job.Duration) * 1000
+          : null,
+      ruleId: str(job.RuleID) ?? (typeof job.RuleID === 'number' ? String(job.RuleID) : null),
+    });
+  }
+  return jobs;
+}
+
+/**
+ * Channels' error text for people. It reads like
+ * `could not start stream on channels=[2]: M3U: Get "http://…": dial tcp …: connect: connection refused`,
+ * where the useful part is the last clause, and the URL can carry a private stream token.
+ */
+export function tidyDvrError(error: string | null): string | null {
+  if (!error) return null;
+  const withoutUrls = error.replace(/"?https?:\/\/[^\s"]+"?/g, '').trim();
+  const parts = withoutUrls
+    .split(/:\s+/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+  const last = parts[parts.length - 1] ?? withoutUrls;
+  const reason = last.length > 120 ? `${last.slice(0, 117)}...` : last;
+  return /could not start stream/i.test(error) ? `couldn't start the stream (${reason})` : reason;
+}
+
+/** Recording space as a percentage of the disk, from the `disk` block of `GET /dvr`. */
+export function diskFreePercent(disk: { freeBytes: number; totalBytes: number }): number {
+  return (disk.freeBytes / disk.totalBytes) * 100;
 }

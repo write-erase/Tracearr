@@ -62,6 +62,11 @@ const TRIGGER_PREFERENCE = {
   'tracearr.update_available': null,
   'newsletter.sent': null,
   'newsletter.failed': null,
+  'dvr.recording_failed': null,
+  'dvr.recording_resumed': null,
+  'dvr.recording_glitch': null,
+  'dvr.disk_low': null,
+  'dvr.disk_ok': null,
 } as const satisfies Record<TriggerType, PushEventPreference | null>;
 
 type EventPreference = Exclude<PushEventPreference, 'onViolationDetected'>;

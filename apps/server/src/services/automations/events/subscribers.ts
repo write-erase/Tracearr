@@ -118,6 +118,14 @@ export function edgeKeyOf(event: ContextEvaluatingEvent, node: TriggerNode | nul
     case 'server.down':
     case 'server.up':
       return event.at.toISOString();
+    // The producer only emits on a change, so every firing is news.
+    case 'dvr.recording_failed':
+    case 'dvr.recording_resumed':
+    case 'dvr.recording_glitch':
+      return `${event.recording.jobId}@${event.at.toISOString()}`;
+    case 'dvr.disk_low':
+    case 'dvr.disk_ok':
+      return event.at.toISOString();
     case 'plugin.update_available':
     case 'server.update_available':
       return event.latestVersion;
@@ -308,6 +316,11 @@ const SERVER_TRIGGERS = [
   'server.up',
   'plugin.update_available',
   'server.update_available',
+  'dvr.recording_failed',
+  'dvr.recording_resumed',
+  'dvr.recording_glitch',
+  'dvr.disk_low',
+  'dvr.disk_ok',
 ] as const;
 
 const INSTALL_TRIGGERS = [

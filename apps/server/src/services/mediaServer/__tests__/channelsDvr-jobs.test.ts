@@ -2,8 +2,10 @@ import { describe, expect, it } from 'vitest';
 import {
   countTunersInUse,
   parseDisk,
+  parseDvrJobStatuses,
   parseJobs,
   parseTunerTotal,
+  tidyDvrError,
   upcomingJobs,
 } from '../channelsDvr/jobs.js';
 
@@ -68,9 +70,14 @@ describe('upcomingJobs', () => {
     { id: 'too-far', start_time: 99999, end_time: 100000 },
   ]);
 
-  it('lists jobs not yet started within the window, soonest first, skipping skipped ones', () => {
-    expect(upcomingJobs(jobs, 1000, 10_000, 10).map((j) => j.id)).toEqual(['soon', 'later']);
-    expect(upcomingJobs(jobs, 1000, 10_000, 1).map((j) => j.id)).toEqual(['soon']);
+  it('lists jobs not yet started within the window, soonest first, skipped ones included', () => {
+    expect(upcomingJobs(jobs, 1000, 10_000, 10).map((j) => j.id)).toEqual([
+      'skipped',
+      'soon',
+      'later',
+    ]);
+    expect(upcomingJobs(jobs, 1000, 10_000, 10)[0]?.skipped).toBe(true);
+    expect(upcomingJobs(jobs, 1000, 10_000, 1).map((j) => j.id)).toEqual(['skipped']);
   });
 });
 
@@ -119,5 +126,55 @@ describe('countTunersInUse', () => {
 
   it('is zero when nothing is live or recording', () => {
     expect(countTunersInUse([{ key: '6-file-1089-192.168.30.8', text: '' }], [])).toBe(0);
+  });
+});
+
+describe('parseDvrJobStatuses', () => {
+  it('reads a failed job from GET /dvr/jobs', () => {
+    const [job] = parseDvrJobStatuses([
+      {
+        ID: '1794424758-ch2',
+        Name: 'Beyond the Gates',
+        Channels: ['2'],
+        Channel: '',
+        Failed: true,
+        Error: 'could not start stream on channels=[2]: connect: connection refused',
+        FileID: '1346',
+        Time: 1794423600,
+        Duration: 3600,
+        Airing: { Title: 'Beyond the Gates', Channel: '2' },
+      },
+    ]);
+    expect(job).toEqual({
+      id: '1794424758-ch2',
+      title: 'Beyond the Gates',
+      channel: '2',
+      failed: true,
+      error: 'could not start stream on channels=[2]: connect: connection refused',
+      fileId: '1346',
+      endsAt: (1794423600 + 3600) * 1000,
+      ruleId: null,
+    });
+  });
+
+  it('reads the series pass that scheduled a job', () => {
+    const [pass, oneTime] = parseDvrJobStatuses([
+      { ID: '1794510000-1', Name: 'General Hospital', RuleID: '1', Skipped: true },
+      { ID: '1794424758-ch2', Name: 'Beyond the Gates', RuleID: '' },
+    ]);
+    expect(pass?.ruleId).toBe('1');
+    expect(oneTime?.ruleId).toBeNull();
+  });
+});
+
+describe('tidyDvrError', () => {
+  it('keeps the useful last clause and drops the stream URL', () => {
+    expect(
+      tidyDvrError(
+        'could not start stream on channels=[2]: M3U: Get "http://192.168.30.241:9191/proxy/ts/stream/b39c?output_profile=4": dial tcp 192.168.30.241:9191: connect: connection refused'
+      )
+    ).toBe("couldn't start the stream (connection refused)");
+    expect(tidyDvrError('disk full')).toBe('disk full');
+    expect(tidyDvrError(null)).toBeNull();
   });
 });

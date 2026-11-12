@@ -1,11 +1,22 @@
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { CalendarClock, CircleDot, ExternalLink, HardDrive, Square, X } from 'lucide-react';
+import {
+  CalendarClock,
+  CircleArrowUp,
+  CircleDot,
+  ExternalLink,
+  HardDrive,
+  SkipForward,
+  Square,
+  Undo2,
+  X,
+} from 'lucide-react';
 import type {
   ChannelsDvrDiskUsage,
   ChannelsDvrRecordingEntry,
   ChannelsDvrTunerUsage,
   ChannelsDvrUpcomingEntry,
+  Server,
 } from '@tracearr/shared';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -19,9 +30,10 @@ import {
 } from '@/components/ui/dialog';
 import { Progress } from '@/components/ui/progress';
 import { useAuth } from '@/hooks/useAuth';
-import { useCancelRecording, useStopRecording } from '@/hooks/queries';
+import { useCancelRecording, useSkipRecording, useStopRecording } from '@/hooks/queries';
 import { imageProxyUrl } from '@/lib/api';
 import { formatBytes } from '@/lib/formatters';
+import { cn } from '@/lib/utils';
 
 interface RecordingNowSectionProps {
   /** Panel title: the Channels DVR server's name as entered in Tracearr */
@@ -34,6 +46,8 @@ interface RecordingNowSectionProps {
   tuners?: ChannelsDvrTunerUsage[];
   /** Recording disk space on each Channels DVR server */
   disks?: ChannelsDvrDiskUsage[];
+  /** Channels DVR servers with a newer release on the track they follow */
+  updates?: ChannelsDvrUpdate[];
   /** Server id -> the address to open the Channels DVR web UI at */
   linkBases?: Record<string, string>;
   /** Show which server each recording is on */
@@ -253,13 +267,103 @@ function TunerPill({ usage, showServer }: { usage: ChannelsDvrTunerUsage; showSe
   );
 }
 
-/** Matches the disk-space alert's default: amber below 10% free. */
-const DISK_LOW_FRACTION = 0.1;
+/**
+ * "186.6 GB free", amber when space is low. Binary units, as Channels shows them. Low means
+ * below the highest enabled disk alert's percentage for this server, or 10% with none.
+ */
+/** A Channels DVR server with a newer release waiting. */
+export interface ChannelsDvrUpdate {
+  serverId: string;
+  serverName: string;
+  installed: string;
+  latest: string;
+}
 
-/** "186.6 GB free", amber when space is low. Binary units, as Channels shows them. */
+/** Both versions are three or four dotted numbers; a missing part reads as zero. */
+function isNewerVersion(latest: string, installed: string): boolean {
+  const a = latest.split('.').map(Number);
+  const b = installed.split('.').map(Number);
+  for (let i = 0; i < 4; i++) {
+    const na = a[i] ?? 0;
+    const nb = b[i] ?? 0;
+    if (na !== nb) return na > nb;
+  }
+  return false;
+}
+
+/**
+ * The Channels DVR servers the update checker found a newer release for. Each server's
+ * `latestVersion` is already the newest on the track it follows (stable or pre-release).
+ */
+export function channelsUpdatesFor(servers: Server[]): ChannelsDvrUpdate[] {
+  return servers.flatMap((server) =>
+    server.type === 'channels_dvr' &&
+    server.version &&
+    server.latestVersion &&
+    isNewerVersion(server.latestVersion, server.version)
+      ? [
+          {
+            serverId: server.id,
+            serverName: server.name,
+            installed: server.version,
+            latest: server.latestVersion,
+          },
+        ]
+      : []
+  );
+}
+
+/** Shown only while an update is waiting; opens the Channels DVR web UI, where it's installed. */
+function UpdatePill({
+  update,
+  showServer,
+  linkBase,
+}: {
+  update: ChannelsDvrUpdate;
+  showServer: boolean;
+  linkBase?: string;
+}) {
+  const { t } = useTranslation('pages');
+  const label = showServer
+    ? t('dashboard.recording.updateOnServer', {
+        defaultValue: '{{server}}: update available',
+        server: update.serverName,
+      })
+    : t('dashboard.recording.update', { defaultValue: 'Update available' });
+  const hint = t('dashboard.recording.updateHint', {
+    defaultValue: '{{latest}} is available (running {{installed}})',
+    latest: update.latest,
+    installed: update.installed,
+  });
+  const className =
+    'bg-primary/15 text-primary inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium';
+  const content = (
+    <>
+      <CircleArrowUp className="h-3 w-3" aria-hidden="true" />
+      {label}
+    </>
+  );
+  return linkBase ? (
+    <a
+      href={linkBase.replace(/\/+$/, '')}
+      target="_blank"
+      rel="noopener noreferrer"
+      className={cn(className, 'hover:bg-primary/25')}
+      title={hint}
+      data-testid="dvr-update"
+    >
+      {content}
+    </a>
+  ) : (
+    <span className={className} title={hint} data-testid="dvr-update">
+      {content}
+    </span>
+  );
+}
+
 function DiskPill({ usage, showServer }: { usage: ChannelsDvrDiskUsage; showServer: boolean }) {
   const { t } = useTranslation('pages');
-  const low = usage.freeBytes / usage.totalBytes < DISK_LOW_FRACTION;
+  const low = (usage.freeBytes / usage.totalBytes) * 100 < usage.warnPercent;
   const free = formatBytes(usage.freeBytes);
   return (
     <span
@@ -347,6 +451,53 @@ function CancelRecordingButton({ job }: { job: ChannelsDvrUpcomingEntry }) {
   );
 }
 
+/**
+ * Admin/owner only, for airings a series pass scheduled: skip this one (the pass records the
+ * rest), or unskip it. No confirmation, since it's undone with the same button.
+ */
+function SkipRecordingButton({ job }: { job: ChannelsDvrUpcomingEntry }) {
+  const { t } = useTranslation('pages');
+  const { user } = useAuth();
+  const skip = useSkipRecording();
+  if (user?.role !== 'admin' && user?.role !== 'owner') return null;
+
+  const toggle = () =>
+    skip.mutate({ serverId: job.serverId, jobId: job.jobId, skipped: !job.skipped });
+
+  if (job.skipped) {
+    return (
+      <Button
+        variant="ghost"
+        size="sm"
+        className="text-muted-foreground h-6 shrink-0 gap-1 px-2 text-xs"
+        title={t('dashboard.recording.unskipHint', {
+          defaultValue: 'Record this airing after all',
+        })}
+        disabled={skip.isPending}
+        onClick={toggle}
+      >
+        <Undo2 className="h-3.5 w-3.5" aria-hidden="true" />
+        {t('dashboard.recording.unskip', { defaultValue: 'Unskip' })}
+      </Button>
+    );
+  }
+  return (
+    <Button
+      variant="ghost"
+      size="icon"
+      className="text-muted-foreground h-6 w-6 shrink-0"
+      title={t('dashboard.recording.skipHint', {
+        defaultValue: 'Skip this airing. The series pass keeps recording the rest.',
+      })}
+      aria-label={t('dashboard.recording.skip', { defaultValue: 'Skip this episode' })}
+      disabled={skip.isPending}
+      onClick={toggle}
+    >
+      <SkipForward className="h-3.5 w-3.5" />
+    </Button>
+  );
+}
+
 function UpcomingRow({
   job,
   now,
@@ -383,12 +534,26 @@ function UpcomingRow({
         })
     : null;
 
+  // A skipped airing stays listed, dimmed, so it can be unskipped; the button stays full strength.
+  const dim = job.skipped ? 'opacity-50' : undefined;
+
   return (
     <li className="flex items-center gap-3 px-3 py-2">
-      <span className="text-muted-foreground w-28 shrink-0 text-xs font-medium tabular-nums">
+      <span
+        className={cn(
+          'text-muted-foreground w-28 shrink-0 text-xs font-medium tabular-nums',
+          job.skipped && 'line-through',
+          dim
+        )}
+      >
         <StartTime iso={job.startsAt} now={now} />
       </span>
-      <div className="bg-muted flex h-8 w-12 shrink-0 items-center justify-center overflow-hidden rounded">
+      <div
+        className={cn(
+          'bg-muted flex h-8 w-12 shrink-0 items-center justify-center overflow-hidden rounded',
+          dim
+        )}
+      >
         {job.thumbPath ? (
           <img
             src={imageProxyUrl(job.serverId, job.thumbPath, 96, 64)}
@@ -400,7 +565,7 @@ function UpcomingRow({
           <CalendarClock className="text-muted-foreground h-4 w-4" aria-hidden="true" />
         )}
       </div>
-      <div className="min-w-0 flex-1">
+      <div className={cn('min-w-0 flex-1', dim)}>
         {showUrl ? (
           <a
             href={showUrl}
@@ -423,12 +588,23 @@ function UpcomingRow({
           </p>
         )}
         <p className="text-muted-foreground truncate text-xs">
-          {[episode, job.episodeTitle, channel, showServer ? job.serverName : null]
+          {[
+            job.skipped ? t('dashboard.recording.skipped', { defaultValue: 'Skipped' }) : null,
+            episode,
+            job.episodeTitle,
+            channel,
+            showServer ? job.serverName : null,
+          ]
             .filter(Boolean)
             .join(' · ')}
         </p>
       </div>
-      <CancelRecordingButton job={job} />
+      {/* A pass airing is skipped (the pass keeps going); a one-time recording is cancelled. */}
+      {job.fromPass || job.skipped ? (
+        <SkipRecordingButton job={job} />
+      ) : (
+        <CancelRecordingButton job={job} />
+      )}
     </li>
   );
 }
@@ -445,6 +621,7 @@ export function RecordingNowSection({
   upcoming = [],
   tuners = [],
   disks = [],
+  updates = [],
   linkBases = {},
   showServer = false,
 }: RecordingNowSectionProps) {
@@ -467,6 +644,14 @@ export function RecordingNowSection({
             ))}
             {disks.map((usage) => (
               <DiskPill key={usage.serverId} usage={usage} showServer={showServer} />
+            ))}
+            {updates.map((update) => (
+              <UpdatePill
+                key={update.serverId}
+                update={update}
+                showServer={showServer}
+                linkBase={linkBases[update.serverId]}
+              />
             ))}
           </CardTitle>
         </CardHeader>

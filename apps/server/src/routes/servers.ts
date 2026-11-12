@@ -127,6 +127,7 @@ export const serverRoutes: FastifyPluginAsync = async (app) => {
         color: servers.color,
         version: servers.version,
         latestVersion: servers.latestVersion,
+        updateTrack: servers.updateTrack,
         historicalAt: servers.historicalAt,
         allowMemberLogin: servers.allowMemberLogin,
         createdAt: servers.createdAt,
@@ -357,6 +358,7 @@ export const serverRoutes: FastifyPluginAsync = async (app) => {
       publicUrl: newPublicUrl,
       apiKey: newApiKey,
       allowMemberLogin: newAllowMemberLogin,
+      updateTrack: newUpdateTrack,
     } = body.data;
     const newUrl = bodyUrl !== undefined ? bodyUrl.replace(/\/$/, '') : undefined;
     const authUser = request.user;
@@ -408,6 +410,10 @@ export const serverRoutes: FastifyPluginAsync = async (app) => {
       return reply.badRequest('Plex servers sign in through plex.tv and have no API key to change');
     }
 
+    if (newUpdateTrack !== undefined && server.type !== 'channels_dvr') {
+      return reply.badRequest('Only Channels DVR servers have an update track');
+    }
+
     const same = <T>(next: T | undefined, current: T): boolean =>
       next === undefined || next === current;
     if (
@@ -419,6 +425,7 @@ export const serverRoutes: FastifyPluginAsync = async (app) => {
       same(newIgnoreAnonymousStreams, server.ignoreAnonymousStreams) &&
       same(newApiKey, server.token) &&
       same(newAllowMemberLogin, server.allowMemberLogin) &&
+      same(newUpdateTrack, server.updateTrack) &&
       // Off again is how a revoke that failed gets retried.
       newAllowMemberLogin !== false
     ) {
@@ -432,6 +439,7 @@ export const serverRoutes: FastifyPluginAsync = async (app) => {
         dispatcharrAuthMode:
           server.type === 'dispatcharr' ? getDispatcharrAuthMode(server.token) : undefined,
         ignoreAnonymousStreams: server.ignoreAnonymousStreams,
+        updateTrack: server.updateTrack,
         historicalAt: server.historicalAt,
         allowMemberLogin: server.allowMemberLogin,
         createdAt: server.createdAt,
@@ -530,6 +538,7 @@ export const serverRoutes: FastifyPluginAsync = async (app) => {
       publicUrl?: string | null;
       machineIdentifier?: string;
       allowMemberLogin?: boolean;
+      updateTrack?: 'auto' | 'stable' | 'prerelease';
       updatedAt: Date;
     } = { updatedAt: new Date() };
     if (backfilledIdentity !== undefined) updatePayload.machineIdentifier = backfilledIdentity;
@@ -543,6 +552,7 @@ export const serverRoutes: FastifyPluginAsync = async (app) => {
     if (newPublicUrl !== undefined) updatePayload.publicUrl = newPublicUrl;
     if (newApiKey !== undefined) updatePayload.token = newApiKey;
     if (newAllowMemberLogin !== undefined) updatePayload.allowMemberLogin = newAllowMemberLogin;
+    if (newUpdateTrack !== undefined) updatePayload.updateTrack = newUpdateTrack;
 
     const updated = await db
       .update(servers)
@@ -556,6 +566,7 @@ export const serverRoutes: FastifyPluginAsync = async (app) => {
         token: servers.token,
         publicUrl: servers.publicUrl,
         ignoreAnonymousStreams: servers.ignoreAnonymousStreams,
+        updateTrack: servers.updateTrack,
         color: servers.color,
         historicalAt: servers.historicalAt,
         allowMemberLogin: servers.allowMemberLogin,

@@ -457,6 +457,43 @@ describe('Channels DVR recordings and live progress', () => {
     expect(schedule.disk).toEqual({ freeBytes: 200396926976, totalBytes: 315923169280 });
   });
 
+  it('marks queued airings a series pass scheduled, and keeps skipped ones', async () => {
+    vi.mocked(fetchJson).mockImplementation((async (url: string) => {
+      if (url.endsWith('/dvr')) return { activity: {} };
+      if (url.endsWith('/api/v1/jobs'))
+        return [
+          {
+            id: '1794510000-1',
+            name: 'General Hospital',
+            start_time: Date.now() / 1000 + 3600,
+            end_time: Date.now() / 1000 + 7200,
+            channels: ['1'],
+            skipped: true,
+          },
+          {
+            id: '1794513600-ch2',
+            name: 'Late Movie',
+            start_time: Date.now() / 1000 + 7200,
+            end_time: Date.now() / 1000 + 9000,
+            channels: ['2'],
+          },
+        ];
+      if (url.endsWith('/dvr/jobs'))
+        return [
+          { ID: '1794510000-1', Name: 'General Hospital', RuleID: '1', Skipped: true },
+          { ID: '1794513600-ch2', Name: 'Late Movie', RuleID: '' },
+        ];
+      if (url.includes('/guide')) return guide;
+      return [];
+    }) as never);
+
+    const schedule = await client().getSchedule();
+    expect(schedule.upcoming.map((u) => [u.jobId, u.fromPass, u.skipped])).toEqual([
+      ['1794510000-1', true, true],
+      ['1794513600-ch2', false, false],
+    ]);
+  });
+
   it('still lists recordings when the job list and tuner count are unavailable', async () => {
     vi.mocked(fetchJson).mockImplementation((async (url: string) => {
       if (url.endsWith('/dvr'))
@@ -477,5 +514,45 @@ describe('Channels DVR recordings and live progress', () => {
     vi.mocked(fetchJson).mockImplementation((async (url: string) =>
       url.endsWith('/dvr') ? { activity: {} } : []) as never);
     expect(await client().getRecordings()).toEqual([]);
+  });
+});
+
+describe('ChannelsDvrClient.setRecordingSkipped', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('skips and unskips with the same requests as the web UI', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response('{}', { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await client().setRecordingSkipped('1794510000-1', true);
+    await client().setRecordingSkipped('1794510000-1', false);
+
+    expect(fetchMock.mock.calls.map(([url, init]) => [url, (init as RequestInit).method])).toEqual([
+      [`${BASE}/dvr/jobs/1794510000-1/skip`, 'PUT'],
+      [`${BASE}/dvr/jobs/1794510000-1/unskip`, 'PUT'],
+    ]);
+  });
+
+  it('rejects a bad job id and reports a refusal', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('', { status: 404 })));
+    await expect(client().setRecordingSkipped('../settings', true)).rejects.toThrow(/job id/);
+    await expect(client().setRecordingSkipped('1794510000-1', true)).rejects.toThrow(/HTTP 404/);
+  });
+});
+
+describe('ChannelsDvrClient.getSoftwareVersion', () => {
+  it('reads the build from GET /status, which carries it (GET /dvr does not)', async () => {
+    vi.mocked(fetchJson).mockImplementation((async (url: string) =>
+      url.endsWith('/status')
+        ? { version: '2026.11.11.2228', arch: 'x86_64', booted: true }
+        : { activity: {} }) as never);
+
+    await expect(client().getSoftwareVersion()).resolves.toBe('2026.11.11.2228');
+    expect(fetchJson).toHaveBeenCalledWith(`${BASE}/status`, expect.anything());
+  });
+
+  it('reads as unknown when the server cannot be reached', async () => {
+    vi.mocked(fetchJson).mockRejectedValue(new Error('offline'));
+    await expect(client().getSoftwareVersion()).resolves.toBeNull();
   });
 });

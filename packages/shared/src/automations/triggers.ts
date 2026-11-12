@@ -89,6 +89,22 @@ const NEWSLETTER_VARS = [
   'newsletter.error',
 ] as const;
 
+/** A Channels DVR recording an alert is about. */
+const RECORDING_VARS = [
+  ...SERVER_VARS,
+  'recording.title',
+  'recording.channel',
+  'recording.error',
+] as const;
+/** Channels DVR recording space; sizes in binary units, as Channels shows them. */
+const DISK_VARS = [
+  ...SERVER_VARS,
+  'disk.free',
+  'disk.total',
+  'disk.freePercent',
+  'disk.threshold',
+] as const;
+
 /** What a trigger is about, and what the list filters on. */
 export const TRIGGER_GROUPS = [
   'sessions',
@@ -171,6 +187,11 @@ export const TRIGGERS = {
     group: 'updates',
     variables: ['installedVersion', 'latestVersion', 'releaseUrl'],
   },
+  'dvr.recording_failed': { context: 'server', group: 'servers', variables: RECORDING_VARS },
+  'dvr.recording_resumed': { context: 'server', group: 'servers', variables: RECORDING_VARS },
+  'dvr.recording_glitch': { context: 'server', group: 'servers', variables: RECORDING_VARS },
+  'dvr.disk_low': { context: 'server', group: 'servers', variables: DISK_VARS },
+  'dvr.disk_ok': { context: 'server', group: 'servers', variables: DISK_VARS },
   'newsletter.sent': { context: 'install', group: 'notifications', variables: NEWSLETTER_VARS },
   'newsletter.failed': { context: 'install', group: 'notifications', variables: NEWSLETTER_VARS },
 } as const satisfies Record<
@@ -200,6 +221,11 @@ export const TRIGGER_INTRODUCED_IN: Partial<Record<TriggerType, string>> = {
   'newsletter.failed': '2.3.0',
   'account.media_downloaded': '3.0.0',
   'session.watched': '3.1.4',
+  'dvr.recording_failed': '3.1.7',
+  'dvr.recording_resumed': '3.1.7',
+  'dvr.recording_glitch': '3.1.7',
+  'dvr.disk_low': '3.1.7',
+  'dvr.disk_ok': '3.1.7',
 };
 export const TRIGGER_TYPES = Object.keys(TRIGGERS) as TriggerType[];
 
@@ -209,11 +235,19 @@ export const NOTIFICATION_ONLY_TRIGGERS = [
   'account.trust_changed',
 ] as const satisfies readonly TriggerType[];
 
-type ParamlessTriggerType = Exclude<TriggerType, 'session.held_for' | 'account.inactive_for'>;
+/** Triggers whose node carries params, each validated by its own branch of the schema. */
+const PARAM_TRIGGER_TYPES = [
+  'session.held_for',
+  'account.inactive_for',
+  'dvr.disk_low',
+  'dvr.disk_ok',
+] as const satisfies readonly TriggerType[];
+
+type ParamlessTriggerType = Exclude<TriggerType, (typeof PARAM_TRIGGER_TYPES)[number]>;
 
 const PARAMLESS_TRIGGER_TYPES = TRIGGER_TYPES.filter(
   (type): type is ParamlessTriggerType =>
-    type !== 'session.held_for' && type !== 'account.inactive_for'
+    !(PARAM_TRIGGER_TYPES as readonly TriggerType[]).includes(type)
 );
 
 // z.uuid() rather than schemas.ts's uuidSchema: schemas.ts re-exports this directory's
@@ -228,6 +262,13 @@ export const inactiveForParamsSchema = z.strictObject({
   days: z.number().int().min(1).max(3650),
 });
 
+/** A disk alert's threshold: free space for recordings, as a percentage of the disk. */
+export const diskThresholdParamsSchema = z.strictObject({
+  percent: z.number().int().min(1).max(90),
+});
+/** The threshold a disk alert starts at, and the dashboard's when no alert sets one. */
+export const DEFAULT_DISK_ALERT_PERCENT = 10;
+
 export const triggerNodeSchema = z.discriminatedUnion('type', [
   z.strictObject({ ...nodeBase, type: z.enum(PARAMLESS_TRIGGER_TYPES) }),
   z.strictObject({ ...nodeBase, type: z.literal('session.held_for'), params: heldForParamsSchema }),
@@ -235,6 +276,16 @@ export const triggerNodeSchema = z.discriminatedUnion('type', [
     ...nodeBase,
     type: z.literal('account.inactive_for'),
     params: inactiveForParamsSchema,
+  }),
+  z.strictObject({
+    ...nodeBase,
+    type: z.literal('dvr.disk_low'),
+    params: diskThresholdParamsSchema,
+  }),
+  z.strictObject({
+    ...nodeBase,
+    type: z.literal('dvr.disk_ok'),
+    params: diskThresholdParamsSchema,
   }),
 ]);
 export type TriggerNode = z.infer<typeof triggerNodeSchema>;

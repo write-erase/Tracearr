@@ -7,6 +7,7 @@ export type {
   // Server
   ServerType,
   DispatcharrAuthMode,
+  ServerUpdateTrack,
   Server,
   ServerLocationEntry,
   ServerLocationsResponse,
@@ -439,6 +440,8 @@ export {
   triggerNodeSchema,
   heldForParamsSchema,
   inactiveForParamsSchema,
+  diskThresholdParamsSchema,
+  DEFAULT_DISK_ALERT_PERCENT,
   conditionGroupSchema,
   automationDefinitionSchema,
   createAutomationSchema,

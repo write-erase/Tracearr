@@ -127,6 +127,7 @@ export const SLOT_KINDS = {
   userId: ['person'],
   minutes: ['duration', 'number'],
   days: ['duration', 'number'],
+  percent: ['number'],
   window_hours: ['duration', 'number'],
   enabled: ['boolean'],
   exclude_same_device: ['boolean'],
@@ -208,8 +209,10 @@ const templateConditionsSchema = automationConditionsSchema.extend({
 });
 type TemplateConditions = z.infer<typeof templateConditionsSchema>;
 
-// The trigger union's members in declaration order: paramless, session.held_for, account.inactive_for.
-const [paramlessTrigger, heldForTrigger, inactiveForTrigger] = triggerNodeSchema.options;
+// The trigger union's members in declaration order: paramless, session.held_for, account.inactive_for,
+// then the fork's dvr.disk_low and dvr.disk_ok.
+const [paramlessTrigger, heldForTrigger, inactiveForTrigger, diskLowTrigger, diskOkTrigger] =
+  triggerNodeSchema.options;
 const triggerEnabledSlot = slot(paramlessTrigger.shape.enabled);
 
 const templateTriggerNodeSchema = z.discriminatedUnion('type', [
@@ -224,6 +227,18 @@ const templateTriggerNodeSchema = z.discriminatedUnion('type', [
     enabled: triggerEnabledSlot,
     params: inactiveForTrigger.shape.params.extend({
       days: slot(inactiveForTrigger.shape.params.shape.days),
+    }),
+  }),
+  diskLowTrigger.extend({
+    enabled: triggerEnabledSlot,
+    params: diskLowTrigger.shape.params.extend({
+      percent: slot(diskLowTrigger.shape.params.shape.percent),
+    }),
+  }),
+  diskOkTrigger.extend({
+    enabled: triggerEnabledSlot,
+    params: diskOkTrigger.shape.params.extend({
+      percent: slot(diskOkTrigger.shape.params.shape.percent),
     }),
   }),
 ]);

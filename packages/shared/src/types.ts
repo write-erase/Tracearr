@@ -45,6 +45,8 @@ export const isActive = (role: UserRole): boolean => canLogin(role);
 // Server types
 export type ServerType = 'plex' | 'jellyfin' | 'emby' | 'dispatcharr' | 'channels_dvr';
 export type DispatcharrAuthMode = 'token' | 'credentials';
+/** Which Channels DVR releases the update checker follows. */
+export type ServerUpdateTrack = 'auto' | 'stable' | 'prerelease';
 
 export interface Server {
   id: string;
@@ -62,6 +64,8 @@ export interface Server {
   /** What the server reports running, and the newest release the update checker saw. */
   version?: string | null;
   latestVersion?: string | null;
+  /** Channels DVR only: which releases the update checker follows */
+  updateTrack?: ServerUpdateTrack;
   /** When Tracearr stopped contacting this server. Null, or absent on older payloads, while it is live. */
   historicalAt?: string | null;
   allowMemberLogin?: boolean;
@@ -1778,7 +1782,8 @@ export type NotificationEventType =
   | 'media_upgraded'
   | 'new_device'
   | 'trust_score_changed'
-  | 'newsletter_send';
+  | 'newsletter_send'
+  | 'dvr_alert';
 
 // Notification preferences (per-device settings)
 export interface NotificationPreferences {
@@ -3163,6 +3168,10 @@ export interface ChannelsDvrUpcomingEntry {
   endsAt: string;
   /** Artwork path on the Channels DVR server (programme image or channel logo) */
   thumbPath: string | null;
+  /** Skipped in Channels: it won't record unless unskipped */
+  skipped: boolean;
+  /** Scheduled by a series pass, so it can be skipped; otherwise it can only be cancelled */
+  fromPass: boolean;
 }
 
 /** Tuners busy on one Channels DVR server: one per channel being watched live or recorded. */
@@ -3179,6 +3188,8 @@ export interface ChannelsDvrDiskUsage {
   serverName: string;
   freeBytes: number;
   totalBytes: number;
+  /** Below this percentage free the dashboard warns: the highest enabled disk alert's, else 10 */
+  warnPercent: number;
 }
 
 /** GET /sessions/recordings */

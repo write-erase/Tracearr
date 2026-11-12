@@ -22,6 +22,8 @@ import { dispatch } from './dispatcher.js';
 import { matchesTrigger } from './evaluate.js';
 import type {
   AccountNewDeviceEvent,
+  DvrDiskState,
+  DvrRecordingSubject,
   EvaluationInputs,
   EvaluationServer,
   EvaluationServerUser,
@@ -425,5 +427,52 @@ export async function dispatchNewsletterSend(fields: NewsletterSendPayload): Pro
     const rules = await listeningRules(trigger);
     if (!rules) return;
     await dispatch({ type: trigger, at: new Date(), ...fields }, installInputs(rules));
+  });
+}
+
+/**
+ * The disk thresholds (percent) any enabled disk alert on this server watches, per trigger.
+ * Empty when nothing listens, so the monitor can skip the state it would otherwise keep.
+ */
+export async function dvrDiskThresholds(serverId: string): Promise<number[]> {
+  const thresholds = new Set<number>();
+  for (const trigger of ['dvr.disk_low', 'dvr.disk_ok'] as const) {
+    const rules = await serverListeningRules(trigger, serverId);
+    for (const rule of rules ?? []) {
+      for (const node of rule.triggers) {
+        if (node.enabled && node.type === trigger) thresholds.add(node.params.percent);
+      }
+    }
+  }
+  return [...thresholds];
+}
+
+/** A Channels DVR recording failed, resumed after failing, or picked up a glitch. */
+export async function dispatchDvrRecording(
+  type: 'dvr.recording_failed' | 'dvr.recording_resumed' | 'dvr.recording_glitch',
+  server: EvaluationServer,
+  recording: DvrRecordingSubject
+): Promise<void> {
+  await guarded(type, async () => {
+    const rules = await serverListeningRules(type, server.id);
+    if (!rules) return;
+    const { inputs } = await serverContextFor(server, rules);
+    await dispatch({ type, at: new Date(), server, recording }, inputs);
+  });
+}
+
+/** Recording space crossed one or more alert thresholds, downwards (low) or back up (ok). */
+export async function dispatchDvrDisk(
+  type: 'dvr.disk_low' | 'dvr.disk_ok',
+  server: EvaluationServer,
+  disk: DvrDiskState,
+  crossed: number[]
+): Promise<void> {
+  if (crossed.length === 0) return;
+  await guarded(type, async () => {
+    const rules = await serverListeningRules(type, server.id);
+    if (!rules) return;
+    const { inputs } = await serverContextFor(server, rules);
+    await dispatch({ type, at: new Date(), server, disk, crossed }, inputs);
   });
 }

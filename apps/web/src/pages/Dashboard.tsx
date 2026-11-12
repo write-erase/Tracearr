@@ -11,7 +11,10 @@ import { ServerResourceCharts } from '@/components/charts/ServerResourceCharts';
 import { ServerBandwidthChart } from '@/components/charts/BandwidthChart';
 import { ErrorState } from '@/components/library/ErrorState';
 import { NowPlayingSection } from '@/components/dashboard/NowPlayingSection';
-import { RecordingNowSection } from '@/components/dashboard/RecordingNowSection';
+import {
+  RecordingNowSection,
+  channelsUpdatesFor,
+} from '@/components/dashboard/RecordingNowSection';
 import { SectionHeading } from '@/components/dashboard/SectionHeading';
 import { PersonalDashboard } from '@/components/dashboard/PersonalDashboard';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
@@ -38,6 +41,14 @@ function ServerDashboard({ actions }: { actions?: ReactNode }) {
   const channelsLinkBases = useMemo(
     () => Object.fromEntries(channelsServers.map((s) => [s.id, serverLinkBase(s)])),
     [channelsServers]
+  );
+  // The versions the server list already carries: a newer Channels DVR release shows as a pill,
+  // to owners and admins only, since it links into the Channels DVR web UI where it's installed.
+  const { user } = useAuth();
+  const canManageServers = user?.role === 'owner' || user?.role === 'admin';
+  const channelsUpdates = useMemo(
+    () => (canManageServers ? channelsUpdatesFor(channelsServers) : []),
+    [canManageServers, channelsServers]
   );
   const { data: schedule } = useChannelsRecordings(channelsServerIds.length > 0);
   const dvr = useMemo(() => {
@@ -271,6 +282,7 @@ function ServerDashboard({ actions }: { actions?: ReactNode }) {
         upcoming={dvr?.upcoming}
         tuners={dvr?.tuners}
         disks={dvr?.disks}
+        updates={channelsUpdates}
         linkBases={channelsLinkBases}
         showServer={channelsServerIds.length > 1}
       />

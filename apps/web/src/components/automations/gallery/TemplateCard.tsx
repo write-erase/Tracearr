@@ -1,4 +1,4 @@
-import type { ReactElement, ReactNode } from 'react';
+import { Fragment, type ReactElement, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ChevronRight, ShieldCheck } from 'lucide-react';
 import { Item, ItemContent, ItemDescription, ItemMedia, ItemTitle } from '@/components/ui/item';
@@ -16,12 +16,16 @@ import type { AutomationTemplate } from '@/lib/api';
 /** A card names no ids of its own: every value it shows is a default or a placeholder. */
 const NO_REFS: DescribeRefs = {};
 
-/** The clause an input wrote, marked as the reader's own wherever the clauses are lifted. */
-const SLOT = 'text-foreground bg-primary/10 rounded-sm px-0.5';
+/**
+ * The clause an input wrote, marked as the reader's own wherever the clauses are lifted. The tint
+ * reaches a pixel past the text and a matching negative margin takes it back, so the words sit
+ * where they would unmarked and the space between two clauses reads as one space, not two.
+ */
+const SLOT = 'text-foreground bg-primary/10 rounded-sm -mx-px px-px';
 
 /** The clause the focused field wrote, lifted out of the rest of the sentence. */
 const HIGHLIGHT =
-  'text-foreground bg-primary/15 decoration-primary rounded-sm px-0.5 underline decoration-1 underline-offset-2';
+  'text-foreground bg-primary/15 decoration-primary rounded-sm -mx-px px-px underline decoration-1 underline-offset-2';
 
 interface TemplateSentenceProps {
   fragments: readonly DescribeFragment[];
@@ -45,18 +49,21 @@ export function TemplateSentence({
         const key = `${fragment.nodeId ?? 'text'}:${index}`;
         const lit = highlightKey != null && (fragment.inputKeys?.includes(highlightKey) ?? false);
         const owned = clauses === true && (fragment.inputKeys?.length ?? 0) > 0;
+        // The space between clauses sits outside the span, so a tinted clause doesn't end in a
+        // tinted gap that looks like a double space next to the following clause.
         return (
-          <span
-            key={key}
-            className={cn(
-              clauses && fragment.nodeId !== null && 'text-foreground',
-              owned && SLOT,
-              lit && HIGHLIGHT,
-              className
-            )}
-          >
-            {fragment.text}{' '}
-          </span>
+          <Fragment key={key}>
+            <span
+              className={cn(
+                clauses && fragment.nodeId !== null && 'text-foreground',
+                owned && SLOT,
+                lit && HIGHLIGHT,
+                className
+              )}
+            >
+              {fragment.text}
+            </span>{' '}
+          </Fragment>
         );
       })}
     </>

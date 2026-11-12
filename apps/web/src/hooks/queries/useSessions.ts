@@ -106,6 +106,46 @@ export function useCancelRecording() {
   });
 }
 
+/**
+ * Skip one airing a Channels DVR series pass scheduled, or undo that. The pass keeps going, and
+ * a skipped airing stays in Coming Up so it can be unskipped.
+ */
+export function useSkipRecording() {
+  const { t } = useTranslation('pages');
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      serverId,
+      jobId,
+      skipped,
+    }: {
+      serverId: string;
+      jobId: string;
+      skipped: boolean;
+    }) => api.sessions.setRecordingSkipped(serverId, jobId, skipped),
+    onSuccess: (_data, { skipped }) => {
+      void queryClient.invalidateQueries({ queryKey: ['sessions', 'recordings'] });
+      toast.success(
+        skipped
+          ? t('dashboard.recording.skippedToast', {
+              defaultValue: 'Skipped. The series pass will record the rest.',
+            })
+          : t('dashboard.recording.unskippedToast', { defaultValue: 'It will record again.' })
+      );
+    },
+    onError: (error: Error, { skipped }) => {
+      toast.error(
+        skipped
+          ? t('dashboard.recording.skipFailed', { defaultValue: 'Could not skip the recording' })
+          : t('dashboard.recording.unskipFailed', {
+              defaultValue: 'Could not unskip the recording',
+            }),
+        { description: error.message }
+      );
+    },
+  });
+}
+
 export function useSession(id: string, startedAt?: Date | string) {
   return useQuery({
     queryKey: ['sessions', 'detail', id],

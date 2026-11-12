@@ -129,6 +129,7 @@ export function textFor(payload: NotificationPayload): TextMessage {
     case 'new_device':
     case 'trust_score_changed':
     case 'newsletter_send':
+    case 'dvr_alert':
       return ownText(payload);
   }
 }

@@ -32,6 +32,7 @@ export const NOTIFICATION_EVENT_TYPES = [
   'new_device',
   'trust_score_changed',
   'newsletter_send',
+  'dvr_alert',
 ] as const satisfies readonly NotificationEventType[];
 
 /** What a destination may subscribe to on its own; every other event reaches it through an automation. */

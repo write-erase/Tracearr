@@ -44,7 +44,10 @@ _Channels DVR_
 - Library browsing for TV shows, movies and imported videos, with file sizes and links to open them in Channels DVR,
 - The same episode on Channels DVR and another server shows as one item,
 - Stop a stream on a device on your local network from the dashboard,
-- A Channels DVR card on the dashboard: recordings in progress with exact times and a Stop button, recordings coming up in the next 24 hours (with cancel), tuners in use and free disk space,
+- A Channels DVR card on the dashboard: recordings in progress with exact times and a Stop button, recordings coming up in the next 24 hours, tuners in use and free disk space,
+- Skip one episode of a series pass from Coming Up (and unskip it), or cancel a one-time recording,
+- Alerts for a failed recording, a recording that resumes, a recording that loses its stream for a moment, and the DVR disk running low (at a percentage you choose, which also sets when the disk pill turns amber),
+- Update checks for Channels DVR, following stable releases or pre-releases, with an "Update available" pill on the dashboard,
 - Viewers show the device maker's logo (Apple, Amazon, Google, Android); the Channels Mac app shows as a Mac.
 
 **Channels DVR Integration:**
@@ -59,8 +62,9 @@ Channels DVR does not provide individual user accounts, so Tracearr identifies v
 - Importing past watch history is not supported. Sessions Tracearr observes are still recorded in History.
 - Streams can only be stopped when the playback device is on your local network and reachable from the Tracearr server (Tracearr calls the Channels app on the device at port 57000). Remote streams and the Channels web player cannot be stopped, and the optional termination message is not shown.
 - The web player does not say which browser it runs in, and its pause state is detected about 20 seconds late.
-- Cancelling a queued recording removes it from the Channels DVR schedule. A recording created by a series pass may be scheduled again by the pass.
-- Session and schedule detection rely on Channels DVR's undocumented endpoints (`/dvr`, `/api/v1/jobs`, `/devices`), so changes to them may affect compatibility.
+- Recording alerts are checked once a minute, so an alert can arrive up to a minute after the event.
+- The disk alert and the disk pill measure free space on the whole drive Channels records to, including anything else stored there.
+- Session, schedule and alert detection rely on Channels DVR's undocumented endpoints (`/dvr`, `/dvr/jobs`, `/api/v1/jobs`, `/devices`, `/status`), so changes to them may affect compatibility.
 
 **Docker images:**
 
@@ -77,30 +81,7 @@ Development images, built from the `dev` branch (AMD64 and ARM64):
 
 Dispatcharr-only images from the fork this one builds on are published by d4rk-4lchemy as `ghcr.io/d4rk-4lchemy/distracearr` (and `darkalchemy2137/distracearr`); they do not include Channels DVR support.
 
-Example `docker-compose.yml` for the **supervised** image:
-```yaml
-tracearr:
-  image: ghcr.io/write-erase/tracearr:supervised-latest
-  container_name: tracearr
-  ports:
-    - 3000:3000
-  environment:
-    - TZ=Etc/UTC
-    - LOG_LEVEL=info
-  volumes:
-    - /docker/tracearr/postgres:/data/postgres
-    - /docker/tracearr/redis:/data/redis
-    - /docker/tracearr/data:/data/tracearr
-  restart: unless-stopped
-  healthcheck:
-    test: ["CMD", "curl", "-f", "http://127.0.0.1:3000/health"]
-    interval: 30s
-    timeout: 10s
-    start_period: 60s
-    retries: 3
-```
-
-For the **standalone** image, use `ghcr.io/write-erase/tracearr:latest` in the [Docker Compose examples](https://github.com/write-erase/Tracearr/tree/baseline/docker/examples) in place of the official image.
+To deploy, use one of the images above in place of the official image in the [Docker Compose examples](https://github.com/write-erase/Tracearr/tree/baseline/docker/examples).
 
 **Building your own image:**
 

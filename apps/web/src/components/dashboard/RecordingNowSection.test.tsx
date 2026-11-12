@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import type { ChannelsDvrTunerUsage, ChannelsDvrUpcomingEntry } from '@tracearr/shared';
-import { RecordingNowSection } from './RecordingNowSection';
+import type { Server } from '@tracearr/shared';
+import { RecordingNowSection, channelsUpdatesFor } from './RecordingNowSection';
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
@@ -13,7 +14,10 @@ vi.mock('@/hooks/useAuth', () => ({ useAuth: () => ({ user: { role: 'owner' } })
 vi.mock('@/hooks/queries', () => ({
   useStopRecording: () => ({ mutate: vi.fn(), isPending: false }),
   useCancelRecording: () => ({ mutate: vi.fn(), isPending: false }),
+  useSkipRecording: () => ({ mutate: skipMutate, isPending: false }),
 }));
+
+const skipMutate = vi.fn();
 
 const NOW = new Date(2026, 10, 11, 12, 30);
 
@@ -32,6 +36,8 @@ function upcoming(overrides: Partial<ChannelsDvrUpcomingEntry> = {}): ChannelsDv
     startsAt: new Date(2026, 10, 11, 14, 0).toISOString(),
     endsAt: new Date(2026, 10, 11, 15, 0).toISOString(),
     thumbPath: null,
+    skipped: false,
+    fromPass: false,
     ...overrides,
   };
 }
@@ -98,9 +104,15 @@ describe('RecordingNowSection', () => {
     expect(screen.getByTestId('tuner-usage').className).toMatch(/amber/);
   });
 
-  it('shows free disk space in Channels units, amber when under 10% free', () => {
-    const disk = (freeBytes: number) => [
-      { serverId: 'cdvr', serverName: 'Channels', freeBytes, totalBytes: 315923169280 },
+  it('shows free disk space in Channels units, amber below the alert threshold', () => {
+    const disk = (freeBytes: number, warnPercent = 10) => [
+      {
+        serverId: 'cdvr',
+        serverName: 'Channels',
+        freeBytes,
+        totalBytes: 315923169280,
+        warnPercent,
+      },
     ];
     const { rerender } = render(<RecordingNowSection recordings={[]} disks={disk(200396926976)} />);
     const pill = screen.getByTestId('disk-usage');
@@ -108,6 +120,10 @@ describe('RecordingNowSection', () => {
     expect(pill.className).not.toMatch(/amber/);
 
     rerender(<RecordingNowSection recordings={[]} disks={disk(20_000_000_000)} />);
+    expect(screen.getByTestId('disk-usage').className).toMatch(/amber/);
+
+    // A disk alert set to 70% moves the warning up with it: 63% free is now low.
+    rerender(<RecordingNowSection recordings={[]} disks={disk(200396926976, 70)} />);
     expect(screen.getByTestId('disk-usage').className).toMatch(/amber/);
   });
 
@@ -129,6 +145,35 @@ describe('RecordingNowSection', () => {
     expect(screen.getByRole('button', { name: /dashboard\.recording\.cancel\b/ })).toBeTruthy();
   });
 
+  it('offers skip instead of cancel for an airing a series pass scheduled', () => {
+    skipMutate.mockClear();
+    render(<RecordingNowSection recordings={[]} upcoming={[upcoming({ fromPass: true })]} />);
+    expect(screen.queryByRole('button', { name: /dashboard\.recording\.cancel\b/ })).toBeNull();
+    screen.getByRole('button', { name: /dashboard\.recording\.skip\b/ }).click();
+    expect(skipMutate).toHaveBeenCalledWith({
+      serverId: 'cdvr',
+      jobId: '1794427200-ch1',
+      skipped: true,
+    });
+  });
+
+  it('keeps a skipped airing listed, marked skipped, with an unskip button', () => {
+    skipMutate.mockClear();
+    render(
+      <RecordingNowSection
+        recordings={[]}
+        upcoming={[upcoming({ fromPass: true, skipped: true })]}
+      />
+    );
+    expect(screen.getByText(/dashboard\.recording\.skipped\b/)).toBeTruthy();
+    screen.getByRole('button', { name: /dashboard\.recording\.unskip\b/ }).click();
+    expect(skipMutate).toHaveBeenCalledWith({
+      serverId: 'cdvr',
+      jobId: '1794427200-ch1',
+      skipped: false,
+    });
+  });
+
   it('caps the list and says how many more are queued', () => {
     const many = Array.from({ length: 7 }, (_, i) =>
       upcoming({ jobId: `job-${i}`, title: `Show ${i}` })
@@ -137,5 +182,51 @@ describe('RecordingNowSection', () => {
     expect(screen.getByText('Show 4')).toBeTruthy();
     expect(screen.queryByText('Show 5')).toBeNull();
     expect(screen.getByText(/dashboard\.recording\.moreComingUp.*"count":2/)).toBeTruthy();
+  });
+});
+
+describe('Channels DVR update pill', () => {
+  const server = (overrides: Partial<Server> = {}): Server => ({
+    id: 'cdvr',
+    name: 'Basement DVR',
+    type: 'channels_dvr',
+    url: 'http://192.168.30.241:8089',
+    version: '2026.11.11.2228',
+    latestVersion: '2026.11.12.0900',
+    createdAt: new Date(),
+    updatedAt: new Date(),
+    ...overrides,
+  });
+
+  it('lists Channels DVR servers with a newer release, and only those', () => {
+    expect(channelsUpdatesFor([server()])).toEqual([
+      {
+        serverId: 'cdvr',
+        serverName: 'Basement DVR',
+        installed: '2026.11.11.2228',
+        latest: '2026.11.12.0900',
+      },
+    ]);
+    expect(channelsUpdatesFor([server({ latestVersion: '2026.11.11.2228' })])).toEqual([]);
+    expect(channelsUpdatesFor([server({ latestVersion: null })])).toEqual([]);
+    expect(channelsUpdatesFor([server({ type: 'plex' })])).toEqual([]);
+  });
+
+  it('shows a pill that opens the Channels DVR web UI', () => {
+    render(
+      <RecordingNowSection
+        recordings={[]}
+        updates={channelsUpdatesFor([server()])}
+        linkBases={{ cdvr: 'http://192.168.30.241:8089/' }}
+      />
+    );
+    const pill = screen.getByTestId('dvr-update');
+    expect(pill.getAttribute('href')).toBe('http://192.168.30.241:8089');
+    expect(pill.getAttribute('title')).toMatch(/2026\.11\.12\.0900/);
+  });
+
+  it('shows no pill when nothing is waiting', () => {
+    render(<RecordingNowSection recordings={[]} updates={[]} />);
+    expect(screen.queryByTestId('dvr-update')).toBeNull();
   });
 });

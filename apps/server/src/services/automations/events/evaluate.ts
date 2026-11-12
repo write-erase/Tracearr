@@ -9,6 +9,11 @@ import type {
   AccountMediaDownloadedEvent,
   AccountNewDeviceEvent,
   AccountTrustChangedEvent,
+  DvrDiskLowEvent,
+  DvrDiskOkEvent,
+  DvrRecordingFailedEvent,
+  DvrRecordingGlitchEvent,
+  DvrRecordingResumedEvent,
   EvaluationInputs,
   MediaAddedEvent,
   MediaUpgradedEvent,
@@ -48,7 +53,15 @@ export type UserEvaluatingEvent =
 
 /** The events about a server and nobody on it. */
 export type ServerEvaluatingEvent =
-  ServerDownEvent | ServerUpEvent | PluginUpdateEvent | ServerUpdateEvent;
+  | ServerDownEvent
+  | ServerUpEvent
+  | PluginUpdateEvent
+  | ServerUpdateEvent
+  | DvrRecordingFailedEvent
+  | DvrRecordingResumedEvent
+  | DvrRecordingGlitchEvent
+  | DvrDiskLowEvent
+  | DvrDiskOkEvent;
 
 /** The events about one library item on a server. */
 export type MediaEvaluatingEvent = MediaAddedEvent | MediaUpgradedEvent;
@@ -102,6 +115,11 @@ export function paramsPass(node: TriggerNode, event: ContextEvaluatingEvent): bo
     if (event.type !== 'account.inactive_for') return false;
     const days = inactiveDays(event.serverUser.lastActivityAt, event.at);
     return days === null || days >= node.params.days;
+  }
+  // A disk event lists the thresholds that crossed; each automation fires at its own.
+  if (node.type === 'dvr.disk_low' || node.type === 'dvr.disk_ok') {
+    if (event.type !== node.type) return false;
+    return event.crossed.includes(node.params.percent);
   }
   return true;
 }

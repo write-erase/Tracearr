@@ -1,5 +1,89 @@
 # Tracearr Fork Information
 
+## November 12, 2026 — Channels DVR update check (stable or pre-release)
+
+Upstream's server update checker (`jobs/serverUpdateChecker.ts`, every 6 h) had no feed for
+Channels DVR (`latestVersionFor` returns null), so its version never got an "update available".
+
+- Installed version: `ChannelsDvrClient.getSoftwareVersion` now reads `GET /status`. It read
+  `GET /dvr`, which has no `version`, so Channels servers never had one stored (fixed here).
+- Schedule: Channels DVR servers are checked every hour (it ships pre-releases often), on their
+  own timer; the other server types stay on upstream's 6-hour sweep (`runServerUpdateCheck(scope)`).
+- Feeds: Channels' own updater files, `https://channels-dvr.s3.amazonaws.com/latest.json` (stable)
+  and `.../prerelease.json`, both `{"version":"2026.11.11.2228","host":...}`. Read once per run
+  (`latestChannelsVersions`). Tracearr never calls the server's `PUT /updater/check/...`: on
+  Channels that doesn't just check, it installs (it's how people move a server to pre-release).
+- Track per server: new `servers.update_track` column (`auto` | `stable` | `prerelease`, default
+  `auto`; fork migration 0006). `channelsTrackFor`: auto follows pre-release when the installed
+  build is newer than the newest stable one, else stable. A pre-release build that stable has
+  caught up with reads as stable, which is why the setting exists (Edit server > "Updates to watch
+  for", Channels DVR servers only; `PATCH /servers/:id` `updateTrack`, refused for other types).
+- `latestVersion` stores the newest on the server's track, so the server row's "update … available"
+  line and the existing `server.update_available` automation trigger work unchanged. Its release
+  link is the Channels releases page for stable and the pre-release notes thread for pre-release.
+- No Channels-specific automation: the shared "Media server update" template and trigger cover it.
+  Settings text and template keywords now name Channels DVR alongside Plex, Jellyfin and Emby.
+- Dashboard: an "Update available" pill on the Channels DVR card (next to tuners and disk), shown
+  only while one is waiting (`channelsUpdatesFor`, from the server list's versions), linking to the
+  server's web UI where it's installed; owners and admins only, since that UI usually has no login of its own.
+
+## November 12, 2026 — Skip a series-pass airing from Coming Up
+
+Coming Up (dashboard Channels DVR card) offers **Skip** on airings a series pass scheduled and
+**Cancel** on one-time recordings. Skipping keeps the pass; Channels records the rest.
+
+- Channels' web UI skips with `PUT /dvr/jobs/<id>/skip` and undoes it with `PUT /dvr/jobs/<id>/unskip`
+  (captured from DVR > Schedule; not in the published API docs). Both return the job.
+- Which jobs came from a pass: `RuleID` in `GET /dvr/jobs` (empty for one-time recordings).
+  `GET /api/v1/jobs`, which Coming Up reads, has no rule field, so `getSchedule` also reads
+  `/dvr/jobs` (`getPassJobIds`) and matches by id; if that fails every row falls back to Cancel.
+- `upcomingJobs` no longer drops skipped jobs: a skipped airing stays listed, dimmed and struck
+  through, marked "Skipped", with an **Unskip** button. Channels drops it after its time passes.
+- `POST /sessions/recordings/skip` `{ serverId, jobId, skipped }`, same permission as stop/cancel
+  (`terminateSessions`), owner/admin only in the UI. No confirmation dialog: it's undone in place.
+- Skip, unskip and stop clear the client's 15-second jobs cache so the card updates straight away.
+
+## November 12, 2026 — Channels DVR alerts
+
+Five automation triggers (server context, `servers` group, all notification-only), checked once a
+minute on the leader by `jobs/channelsDvrAlerts.ts`:
+
+- `dvr.recording_failed`: a job's `Failed` flag turns on in `GET /dvr/jobs`. Its `Error` is tidied
+  for people (`tidyDvrError`): the stream URL is dropped and the last clause kept, e.g. "couldn't
+  start the stream (connection refused)".
+- `dvr.recording_resumed`: a job we reported as failed shows up recording again in the activity
+  feed (Channels retries on its own). Channels leaves `Failed: true` on the job after it retries, so
+  the flag isn't used for this; `resumedJobs` remembers the resume, and a resumed job that stops
+  recording before its airing ends (`Time` + `Duration`) is reported as failed again.
+- `dvr.recording_glitch`: a recording in progress is marked `Corrupted` in `/dvr/files/<FileID>`,
+  which Channels does when the stream drops and it reconnects.
+- `dvr.disk_low` / `dvr.disk_ok` (param `percent`, 1–90): free space from `GET /dvr` crosses the
+  threshold, with a one-point margin before it counts as OK again. Each automation fires at its own
+  threshold: the monitor collects the enabled thresholds (`dvrDiskThresholds`), keeps per-threshold
+  state, and the event carries the thresholds that crossed (`paramsPass` checks the node's).
+
+Verified against a live failure test (Dispatcharr stream stopped: recording continued and the file
+turned `Corrupted`; Dispatcharr container stopped: job `Failed: true` with an error; restarted:
+Channels retried). State is in memory: recording state is learned silently on the first check after
+a start (no repeat of old failures), disk thresholds start OK (an alert made while space is already
+low fires at once, and a restart while space is low sends one more "almost full", kept on purpose
+as a reminder).
+
+All five send one notification type, `dvr_alert` (payload `DvrAlertPayload`, built by
+`PayloadBuilders.fromDvrAlert`); destinations render its own title and message, push as a text
+render. Template variables: `recording.title|channel|error`, `disk.free|total|freePercent|threshold`.
+Three built-in templates in the server-health group, all off until someone creates them:
+`channels-dvr-recording-failed` (failed + resumed), `channels-dvr-recording-glitch`,
+`channels-dvr-disk-space` (low + ok, "Warn below (% free)" input, default 10).
+
+Also fixed in upstream code: `TemplateSentence` (gallery `TemplateCard.tsx`) put the space after each
+clause inside the clause's span, so a tinted clause ended in a tinted space and read as a double
+space; the space now sits outside the span, and the clause padding (`px-0.5`) became `-mx-px px-px`
+so a tinted clause doesn't push its neighbours apart.
+
+The dashboard disk pill turns amber below the highest enabled `dvr.disk_low` threshold for that
+server (or an unscoped one), else 10% (`warnPercent` on `GET /sessions/recordings`).
+
 ## November 11, 2026 — Channels DVR: Coming Up, exact recording times, tuner usage
 
 The dashboard's Recording Now panel is now a bordered card, like the resource charts, shown

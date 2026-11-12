@@ -117,6 +117,11 @@ export const TRIGGER_KEYS = {
   'tracearr.update_available': 'tracearrUpdateAvailable',
   'newsletter.sent': 'newsletterSent',
   'newsletter.failed': 'newsletterFailed',
+  'dvr.recording_failed': 'dvrRecordingFailed',
+  'dvr.recording_resumed': 'dvrRecordingResumed',
+  'dvr.recording_glitch': 'dvrRecordingGlitch',
+  'dvr.disk_low': 'dvrDiskLow',
+  'dvr.disk_ok': 'dvrDiskOk',
 } as const satisfies Record<TriggerType, string>;
 
 /** Fields whose truth reads as a state, not as a comparison against `true`. */
@@ -195,6 +200,13 @@ function describeTrigger(ctx: Describe, trigger: DescribableTrigger): string {
   if (trigger.type === 'account.inactive_for') {
     const duration = durationText(ctx, trigger.params.days, 'days');
     return t('automations.describe.triggers.accountInactiveFor', { duration });
+  }
+
+  if (trigger.type === 'dvr.disk_low' || trigger.type === 'dvr.disk_ok') {
+    const percent = isPlaceholder(trigger.params.percent)
+      ? placeholderText(ctx, trigger.params.percent)
+      : String(trigger.params.percent);
+    return t(`automations.describe.triggers.${TRIGGER_KEYS[trigger.type]}`, { percent });
   }
 
   return t(`automations.describe.triggers.${TRIGGER_KEYS[trigger.type]}`);

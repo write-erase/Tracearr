@@ -23,6 +23,7 @@ import {
   type HistorySessionResponse,
   type HistoryAggregates,
   type ChannelsDvrScheduleResponse,
+  DEFAULT_DISK_ALERT_PERCENT,
 } from '@tracearr/shared';
 import { db } from '../../db/client.js';
 import { servers, sessions } from '../../db/schema.js';
@@ -37,6 +38,7 @@ import { hasServerAccess, resolveServerIds } from '../../utils/serverFiltering.j
 import { terminateSession } from '../../services/termination.js';
 import { getCacheService } from '../../services/cache.js';
 import { ChannelsDvrClient } from '../../services/mediaServer/channelsDvr/client.js';
+import { getActiveAutomations } from '../../jobs/poller/database.js';
 import {
   assertInScope,
   memberCacheSegment,
@@ -324,6 +326,21 @@ export const sessionRoutes: FastifyPluginAsync = async (app) => {
       .where(and(eq(servers.type, 'channels_dvr'), isNull(servers.historicalAt)));
 
     const visible = channelsServers.filter((server) => hasServerAccess(authUser, server.id));
+    // The disk pill warns where the highest enabled disk alert on that server would.
+    const diskAlerts = (await getActiveAutomations().catch(() => [])).flatMap((rule) =>
+      rule.triggers
+        .filter((node) => node.enabled && node.type === 'dvr.disk_low')
+        .map((node) => ({
+          serverId: rule.serverId ?? null,
+          percent: node.type === 'dvr.disk_low' ? node.params.percent : 0,
+        }))
+    );
+    const warnPercentFor = (serverId: string): number => {
+      const percents = diskAlerts
+        .filter((alert) => alert.serverId === null || alert.serverId === serverId)
+        .map((alert) => alert.percent);
+      return percents.length > 0 ? Math.max(...percents) : DEFAULT_DISK_ALERT_PERCENT;
+    };
     const perServer = await Promise.all(
       visible.map(async (server) => {
         try {
@@ -334,7 +351,9 @@ export const sessionRoutes: FastifyPluginAsync = async (app) => {
             recordings: schedule.recordings.map((recording) => ({ ...recording, ...tag })),
             upcoming: schedule.upcoming.map((job) => ({ ...job, ...tag })),
             tuners: schedule.tuners ? [{ ...schedule.tuners, ...tag }] : [],
-            disks: schedule.disk ? [{ ...schedule.disk, ...tag }] : [],
+            disks: schedule.disk
+              ? [{ ...schedule.disk, ...tag, warnPercent: warnPercentFor(server.id) }]
+              : [],
           };
         } catch (err) {
           app.log.debug({ serverId: server.id, err }, 'Channels DVR recordings unavailable');
@@ -387,6 +406,50 @@ export const sessionRoutes: FastifyPluginAsync = async (app) => {
     app.log.info(
       { serverId, jobId, userId: request.user.userId },
       'Stopped Channels DVR recording'
+    );
+    return { success: true };
+  });
+
+  /**
+   * POST /sessions/recordings/skip - skip one queued airing a series pass scheduled, or undo it
+   * Body: { serverId, jobId, skipped }. The pass keeps recording the rest. Same permission as
+   * stopping a recording.
+   */
+  app.post('/recordings/skip', terminateSessions, async (request, reply) => {
+    const body = request.body as
+      { serverId?: unknown; jobId?: unknown; skipped?: unknown } | undefined;
+    const serverId = typeof body?.serverId === 'string' ? body.serverId : '';
+    const jobId = typeof body?.jobId === 'string' ? body.jobId : '';
+    if (!serverId || !/^\d{9,11}-[\w.-]+$/.test(jobId) || typeof body?.skipped !== 'boolean') {
+      return reply.badRequest('serverId, a Channels DVR jobId and skipped are required');
+    }
+    const skipped = body.skipped;
+    if (!hasServerAccess(request.user, serverId)) {
+      return reply.forbidden('You do not have access to this server');
+    }
+    const [server] = await db
+      .select({ url: servers.url, type: servers.type, historicalAt: servers.historicalAt })
+      .from(servers)
+      .where(eq(servers.id, serverId))
+      .limit(1);
+    if (!server || server.type !== 'channels_dvr' || server.historicalAt) {
+      return reply.notFound('Channels DVR server not found');
+    }
+    try {
+      await new ChannelsDvrClient({ url: server.url, token: '' }).setRecordingSkipped(
+        jobId,
+        skipped
+      );
+    } catch (err) {
+      app.log.warn({ serverId, jobId, skipped, err }, 'Failed to skip Channels DVR recording');
+      return reply.code(502).send({
+        success: false,
+        error: err instanceof Error ? err.message : 'Failed to change the recording',
+      });
+    }
+    app.log.info(
+      { serverId, jobId, skipped, userId: request.user.userId },
+      skipped ? 'Skipped Channels DVR recording' : 'Unskipped Channels DVR recording'
     );
     return { success: true };
   });
