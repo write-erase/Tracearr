@@ -1,5 +1,21 @@
 # Tracearr Fork Information
 
+## November 12, 2026 — Skip a series-pass airing from Coming Up
+
+Coming Up (dashboard Channels DVR card) offers **Skip** on airings a series pass scheduled and
+**Cancel** on one-time recordings. Skipping keeps the pass; Channels records the rest.
+
+- Channels' web UI skips with `PUT /dvr/jobs/<id>/skip` and undoes it with `PUT /dvr/jobs/<id>/unskip`
+  (captured from DVR > Schedule; not in the published API docs). Both return the job.
+- Which jobs came from a pass: `RuleID` in `GET /dvr/jobs` (empty for one-time recordings).
+  `GET /api/v1/jobs`, which Coming Up reads, has no rule field, so `getSchedule` also reads
+  `/dvr/jobs` (`getPassJobIds`) and matches by id; if that fails every row falls back to Cancel.
+- `upcomingJobs` no longer drops skipped jobs: a skipped airing stays listed, dimmed and struck
+  through, marked "Skipped", with an **Unskip** button. Channels drops it after its time passes.
+- `POST /sessions/recordings/skip` `{ serverId, jobId, skipped }`, same permission as stop/cancel
+  (`terminateSessions`), owner/admin only in the UI. No confirmation dialog: it's undone in place.
+- Skip, unskip and stop clear the client's 15-second jobs cache so the card updates straight away.
+
 ## November 12, 2026 — Channels DVR alerts
 
 Five automation triggers (server context, `servers` group, all notification-only), checked once a

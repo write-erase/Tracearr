@@ -35,6 +35,7 @@ export {
   useChannelsRecordings,
   useStopRecording,
   useCancelRecording,
+  useSkipRecording,
   useOthersActive,
   useSession,
   useBulkDeleteSessions,

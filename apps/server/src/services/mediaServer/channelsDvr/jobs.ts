@@ -70,7 +70,10 @@ export function parseJobs(data: unknown): ChannelsDvrJob[] {
   return jobs;
 }
 
-/** Jobs that haven't started yet and will run, soonest first. */
+/**
+ * Jobs that haven't started yet, soonest first. Skipped ones stay in (marked by `skipped`) so
+ * the dashboard can show them and offer to unskip.
+ */
 export function upcomingJobs(
   jobs: ChannelsDvrJob[],
   nowSec: number,
@@ -78,7 +81,7 @@ export function upcomingJobs(
   limit: number
 ): ChannelsDvrJob[] {
   return jobs
-    .filter((job) => !job.skipped && job.startSec > nowSec && job.startSec <= nowSec + withinSec)
+    .filter((job) => job.startSec > nowSec && job.startSec <= nowSec + withinSec)
     .sort((a, b) => a.startSec - b.startSec)
     .slice(0, limit);
 }
@@ -143,6 +146,8 @@ export interface ChannelsDvrJobStatus {
   fileId: string | null;
   /** When the airing ends (ms since epoch), from `Time` + `Duration`; null when either is missing */
   endsAt: number | null;
+  /** The series pass (rule) that scheduled it; null for a one-time recording */
+  ruleId: string | null;
 }
 
 /** Parse `GET /dvr/jobs` (capitalised fields, unlike `/api/v1/jobs`). */
@@ -170,6 +175,7 @@ export function parseDvrJobStatuses(data: unknown): ChannelsDvrJobStatus[] {
         typeof job.Time === 'number' && typeof job.Duration === 'number'
           ? (job.Time + job.Duration) * 1000
           : null,
+      ruleId: str(job.RuleID) ?? (typeof job.RuleID === 'number' ? String(job.RuleID) : null),
     });
   }
   return jobs;

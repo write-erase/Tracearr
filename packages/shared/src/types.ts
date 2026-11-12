@@ -3164,6 +3164,10 @@ export interface ChannelsDvrUpcomingEntry {
   endsAt: string;
   /** Artwork path on the Channels DVR server (programme image or channel logo) */
   thumbPath: string | null;
+  /** Skipped in Channels: it won't record unless unskipped */
+  skipped: boolean;
+  /** Scheduled by a series pass, so it can be skipped; otherwise it can only be cancelled */
+  fromPass: boolean;
 }
 
 /** Tuners busy on one Channels DVR server: one per channel being watched live or recorded. */

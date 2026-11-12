@@ -143,6 +143,15 @@
       "cancelling": "Cancelling…",
       "cancelled": "Recording cancelled.",
       "cancelFailed": "Could not cancel the recording",
+      "skip": "Skip this episode",
+      "skipHint": "Skip this airing. The series pass keeps recording the rest.",
+      "unskip": "Unskip",
+      "unskipHint": "Record this airing after all",
+      "skipped": "Skipped",
+      "skippedToast": "Skipped. The series pass will record the rest.",
+      "unskippedToast": "It will record again.",
+      "skipFailed": "Could not skip the recording",
+      "unskipFailed": "Could not unskip the recording",
       "openInChannels": "Open the Channels DVR schedule"
     }
   },
