@@ -22,6 +22,7 @@ import type { MediaQuality } from '../automations/types.js';
 import type {
   MediaEventPayload,
   MediaUpgradedPayload,
+  DvrAlertPayload,
   NewDevicePayload,
   NewsletterSendPayload,
   NotificationEvent,
@@ -147,6 +148,29 @@ export interface NewsletterSendContext extends NewsletterSendPayload {
 }
 
 /**
+ * Context provided with a Channels DVR recording or disk alert
+ */
+export interface DvrAlertContext extends DvrAlertPayload {
+  type: 'dvr_alert';
+}
+
+/** Bytes in binary units with one decimal, as Channels DVR shows disk space ("186.6 GB"). */
+export function formatDvrBytes(bytes: number): string {
+  const units = ['B', 'KB', 'MB', 'GB', 'TB', 'PB'];
+  let value = bytes;
+  let unit = 0;
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024;
+    unit++;
+  }
+  return `${unit === 0 ? String(Math.round(value)) : value.toFixed(1)} ${units[unit]}`;
+}
+
+function dvrPercent(value: number | null): string {
+  return value === null ? '' : String(Math.round(value * 10) / 10);
+}
+
+/**
  * Union of all notification contexts
  */
 export type NotificationContext =
@@ -160,7 +184,8 @@ export type NotificationContext =
   | MediaUpgradedContext
   | NewDeviceContext
   | TrustChangedContext
-  | NewsletterSendContext;
+  | NewsletterSendContext
+  | DvrAlertContext;
 
 /**
  * Unified notification payload for all agents
@@ -358,6 +383,46 @@ export const PayloadBuilders = {
       ...copy,
       timestamp: new Date().toISOString(),
       context: { type: 'newsletter_send', ...ctx },
+    };
+  },
+
+  fromDvrAlert(ctx: DvrAlertPayload): NotificationPayload {
+    const recording = ctx.recordingTitle ?? 'A recording';
+    const channel = ctx.channel ? ` on channel ${ctx.channel}` : '';
+    const free = ctx.freeBytes === null ? '' : formatDvrBytes(ctx.freeBytes);
+    const total = ctx.totalBytes === null ? '' : formatDvrBytes(ctx.totalBytes);
+    const copy = {
+      recording_failed: {
+        title: 'Recording failed',
+        message: `${recording}${channel} failed on ${ctx.serverName}${ctx.error ? `: ${ctx.error}` : ''}`,
+        severity: 'high' as const,
+      },
+      recording_resumed: {
+        title: 'Recording resumed',
+        message: `${recording}${channel} is recording again on ${ctx.serverName}`,
+        severity: 'low' as const,
+      },
+      recording_glitch: {
+        title: 'Recording interrupted',
+        message: `${recording}${channel} on ${ctx.serverName} lost its stream for a moment; the recording may have a gap`,
+        severity: 'warning' as const,
+      },
+      disk_low: {
+        title: 'DVR disk almost full',
+        message: `${ctx.serverName} has ${free} free of ${total} for recordings (${dvrPercent(ctx.freePercent)}%)`,
+        severity: 'high' as const,
+      },
+      disk_ok: {
+        title: 'DVR disk space OK',
+        message: `${ctx.serverName} is back to ${free} free of ${total} for recordings (${dvrPercent(ctx.freePercent)}%)`,
+        severity: 'low' as const,
+      },
+    }[ctx.kind];
+    return {
+      event: 'dvr_alert',
+      ...copy,
+      timestamp: new Date().toISOString(),
+      context: { type: 'dvr_alert', ...ctx },
     };
   },
 
@@ -571,6 +636,20 @@ function variablesOf(event: NotificationEvent): Record<string, string> {
         'trust.reason': t.reason ?? '',
       };
     }
+    case 'dvr_alert': {
+      const d = event.payload;
+      return {
+        'server.name': d.serverName,
+        'server.type': d.serverType,
+        'recording.title': d.recordingTitle ?? '',
+        'recording.channel': d.channel ?? '',
+        'recording.error': d.error ?? '',
+        'disk.free': d.freeBytes === null ? '' : formatDvrBytes(d.freeBytes),
+        'disk.total': d.totalBytes === null ? '' : formatDvrBytes(d.totalBytes),
+        'disk.freePercent': dvrPercent(d.freePercent),
+        'disk.threshold': d.thresholdPercent === null ? '' : String(d.thresholdPercent),
+      };
+    }
     case 'newsletter_send': {
       const n = event.payload;
       return {
@@ -639,6 +718,8 @@ export function toNotificationPayload(
         return PayloadBuilders.fromTrustScoreChanged(event.payload);
       case 'newsletter_send':
         return PayloadBuilders.fromNewsletterSend(event.payload);
+      case 'dvr_alert':
+        return PayloadBuilders.fromDvrAlert(event.payload);
     }
   })();
   if (source.kind !== 'automation') return base;

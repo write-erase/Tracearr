@@ -1,0 +1,59 @@
+{
+  "schemaVersion": 1,
+  "slug": "channels-dvr-recording-failed",
+  "name": "Channels DVR recording failed",
+  "description": "Tell a destination when a Channels DVR recording fails, and when it starts recording again.",
+  "group": "server_health",
+  "kind": "notification",
+  "minServerVersion": "3.1.7",
+  "inputs": [
+    {
+      "key": "server",
+      "kind": "server",
+      "label": "Channels DVR server",
+      "required": false
+    },
+    {
+      "key": "to",
+      "kind": "destinations",
+      "label": "Send to",
+      "required": true
+    }
+  ],
+  "definition": {
+    "kind": "notification",
+    "triggers": [
+      {
+        "id": "5c1d7a0e-2b4f-4c8e-9d3a-000000001701",
+        "type": "dvr.recording_failed",
+        "enabled": true
+      },
+      {
+        "id": "5c1d7a0e-2b4f-4c8e-9d3a-000000001702",
+        "type": "dvr.recording_resumed",
+        "enabled": true
+      }
+    ],
+    "conditions": {
+      "groups": []
+    },
+    "actions": {
+      "actions": [
+        {
+          "id": "5c1d7a0e-2b4f-4c8e-9d3a-000000001799",
+          "type": "send",
+          "enabled": true,
+          "to": {
+            "$input": "to"
+          }
+        }
+      ]
+    },
+    "scope": {
+      "serverId": {
+        "$input": "server"
+      }
+    }
+  },
+  "fingerprint": "4bd97196cbf329eb9f2126115c259cf35cc540f752affedc79e8b248fbcf41db"
+}

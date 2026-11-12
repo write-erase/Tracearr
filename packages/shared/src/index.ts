@@ -439,6 +439,8 @@ export {
   triggerNodeSchema,
   heldForParamsSchema,
   inactiveForParamsSchema,
+  diskThresholdParamsSchema,
+  DEFAULT_DISK_ALERT_PERCENT,
   conditionGroupSchema,
   automationDefinitionSchema,
   createAutomationSchema,

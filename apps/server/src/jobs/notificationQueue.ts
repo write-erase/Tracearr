@@ -242,6 +242,12 @@ function dedupeKey(
       tail = `${event.type}-${event.payload.sendId}-${automation}${bucket}`;
       break;
     }
+    case 'dvr_alert': {
+      // Per kind and recording: a failure and a disk warning on one server are separate sends.
+      const subject = event.payload.jobId ?? String(event.payload.thresholdPercent ?? '');
+      tail = `${event.type}-${event.payload.serverId}-${event.payload.kind}-${subject}-${automation}${bucket}`;
+      break;
+    }
     default: {
       // The tracearr release is about the install, not a server.
       const serverId = 'serverId' in event.payload ? event.payload.serverId : 'install';

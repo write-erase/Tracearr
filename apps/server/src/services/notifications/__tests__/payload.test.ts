@@ -724,6 +724,23 @@ describe('variables per trigger', () => {
         historyUrl: null,
       },
     },
+    dvr_alert: {
+      type: 'dvr_alert',
+      payload: {
+        serverId: 'server-1',
+        serverName: 'Basement',
+        serverType: 'channels_dvr',
+        kind: 'recording_failed',
+        jobId: 'job-1',
+        recordingTitle: 'Jeopardy!',
+        channel: '7.1',
+        error: "couldn't start the stream",
+        freeBytes: 200_000_000_000,
+        totalBytes: 1_000_000_000_000,
+        freePercent: 20,
+        thresholdPercent: 10,
+      },
+    },
   };
   const eventsFor: Record<TriggerType, string[]> = {
     'session.started': ['session_started', 'violation'],
@@ -746,6 +763,11 @@ describe('variables per trigger', () => {
     'tracearr.update_available': ['tracearr_update_available'],
     'newsletter.sent': ['newsletter_send'],
     'newsletter.failed': ['newsletter_send'],
+    'dvr.recording_failed': ['dvr_alert'],
+    'dvr.recording_resumed': ['dvr_alert'],
+    'dvr.recording_glitch': ['dvr_alert'],
+    'dvr.disk_low': ['dvr_alert'],
+    'dvr.disk_ok': ['dvr_alert'],
   };
 
   for (const [trigger, names] of Object.entries(eventsFor) as [TriggerType, string[]][]) {

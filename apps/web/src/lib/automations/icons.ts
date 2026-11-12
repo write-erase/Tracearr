@@ -8,8 +8,10 @@ import { TRIGGERS, type ActionType, type ConditionField, type TriggerType } from
 import {
   ArrowUpFromLine,
   Bell,
+  CircleDot,
   Clock,
   Globe,
+  HardDrive,
   Library,
   Mail,
   MapPin,
@@ -79,6 +81,11 @@ const TRIGGER_ICONS: Partial<Record<TriggerType, LucideIcon>> = {
   'account.inactive_for': UserRound,
   'account.new_device': Smartphone,
   'account.trust_changed': Shield,
+  'dvr.recording_failed': CircleDot,
+  'dvr.recording_resumed': CircleDot,
+  'dvr.recording_glitch': CircleDot,
+  'dvr.disk_low': HardDrive,
+  'dvr.disk_ok': HardDrive,
 };
 
 function iconForTrigger(type: TriggerType): LucideIcon {

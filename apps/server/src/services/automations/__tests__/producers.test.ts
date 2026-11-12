@@ -151,7 +151,10 @@ function automation(
   };
 }
 
-type ParamlessTrigger = Exclude<TriggerNode['type'], 'session.held_for' | 'account.inactive_for'>;
+type ParamlessTrigger = Exclude<
+  TriggerNode['type'],
+  'session.held_for' | 'account.inactive_for' | 'dvr.disk_low' | 'dvr.disk_ok'
+>;
 
 const node = (type: ParamlessTrigger): TriggerNode => ({ id: `${type}-node`, type, enabled: true });
 

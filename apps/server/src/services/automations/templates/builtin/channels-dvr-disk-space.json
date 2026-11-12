@@ -1,0 +1,79 @@
+{
+  "schemaVersion": 1,
+  "slug": "channels-dvr-disk-space",
+  "name": "Channels DVR disk almost full",
+  "description": "Tell a destination when free space on the disk Channels DVR records to drops below the percentage you choose, and when it recovers.",
+  "group": "server_health",
+  "kind": "notification",
+  "minServerVersion": "3.1.7",
+  "inputs": [
+    {
+      "key": "percent",
+      "kind": "number",
+      "label": "Warn below (% free)",
+      "required": false,
+      "default": 10,
+      "min": 1,
+      "max": 90,
+      "unit": "%"
+    },
+    {
+      "key": "server",
+      "kind": "server",
+      "label": "Channels DVR server",
+      "required": false
+    },
+    {
+      "key": "to",
+      "kind": "destinations",
+      "label": "Send to",
+      "required": true
+    }
+  ],
+  "definition": {
+    "kind": "notification",
+    "triggers": [
+      {
+        "id": "5c1d7a0e-2b4f-4c8e-9d3a-000000001921",
+        "type": "dvr.disk_low",
+        "enabled": true,
+        "params": {
+          "percent": {
+            "$input": "percent"
+          }
+        }
+      },
+      {
+        "id": "5c1d7a0e-2b4f-4c8e-9d3a-000000001922",
+        "type": "dvr.disk_ok",
+        "enabled": true,
+        "params": {
+          "percent": {
+            "$input": "percent"
+          }
+        }
+      }
+    ],
+    "conditions": {
+      "groups": []
+    },
+    "actions": {
+      "actions": [
+        {
+          "id": "5c1d7a0e-2b4f-4c8e-9d3a-000000001999",
+          "type": "send",
+          "enabled": true,
+          "to": {
+            "$input": "to"
+          }
+        }
+      ]
+    },
+    "scope": {
+      "serverId": {
+        "$input": "server"
+      }
+    }
+  },
+  "fingerprint": "ff88e53643f0746e0ac90befaf221018b04cd92e6dd09af3bc6d06852bc41993"
+}

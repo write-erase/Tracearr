@@ -32,6 +32,7 @@ const TEXT_RENDERED_EVENTS: ReadonlySet<NotificationEvent['type']> = new Set([
   'media_added',
   'media_upgraded',
   'newsletter_send',
+  'dvr_alert',
 ]);
 
 const LIBRARY_EVENTS: ReadonlySet<NotificationEvent['type']> = new Set([
@@ -112,6 +113,7 @@ export const pushType: DestinationType<Record<string, never>, PushRendered> = {
       case 'media_added':
       case 'media_upgraded':
       case 'newsletter_send':
+      case 'dvr_alert':
         return; // an automation routes these as a text render; a system source has nowhere to go
     }
   },

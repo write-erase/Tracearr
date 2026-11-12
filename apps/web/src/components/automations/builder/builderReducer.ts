@@ -6,6 +6,7 @@
 import type { Dispatch } from 'react';
 import {
   contextOf,
+  DEFAULT_DISK_ALERT_PERCENT,
   fieldsAvailableFor,
   type Action,
   type ActionType,
@@ -55,6 +56,7 @@ export interface TriggerParamPatch {
   minutes?: number;
   measure?: 'current' | 'total';
   days?: number;
+  percent?: number;
 }
 
 /** Where a new action lands when it belongs to one side of an `if`. */
@@ -89,12 +91,14 @@ export type BuilderDispatch = Dispatch<BuilderAction>;
 
 const HELD_FOR_DEFAULTS = { minutes: 30, measure: 'current' } as const;
 const INACTIVE_FOR_DEFAULTS = { days: 30 } as const;
+const DISK_ALERT_DEFAULTS = { percent: DEFAULT_DISK_ALERT_PERCENT } as const;
 
 /** The bounds `heldForParamsSchema` and `inactiveForParamsSchema` enforce, for the steppers
  * that offer them and the message that names them when a typed value lands outside. */
 export const TRIGGER_PARAM_BOUNDS = {
   minutes: { min: 1, max: 1440 },
   days: { min: 1, max: 3650 },
+  percent: { min: 1, max: 90 },
 } as const;
 
 /** Every node in builder state is stamped, so a row can address the optional id. */
@@ -194,6 +198,9 @@ function newTrigger(triggerType: TriggerType): TriggerNode {
   if (triggerType === 'account.inactive_for') {
     return { ...node, type: triggerType, params: { ...INACTIVE_FOR_DEFAULTS } };
   }
+  if (triggerType === 'dvr.disk_low' || triggerType === 'dvr.disk_ok') {
+    return { ...node, type: triggerType, params: { ...DISK_ALERT_DEFAULTS } };
+  }
   return { ...node, type: triggerType };
 }
 
@@ -240,6 +247,9 @@ function withParams(trigger: TriggerNode, patch: TriggerParamPatch): TriggerNode
   }
   if (trigger.type === 'account.inactive_for') {
     return { ...trigger, params: { days: patch.days ?? trigger.params.days } };
+  }
+  if (trigger.type === 'dvr.disk_low' || trigger.type === 'dvr.disk_ok') {
+    return { ...trigger, params: { percent: patch.percent ?? trigger.params.percent } };
   }
   return trigger;
 }

@@ -285,6 +285,55 @@ function nativeEventFor(context: EvaluationContext): NotificationEvent | null {
           releaseUrl: trigger.releaseUrl,
         },
       };
+    case 'dvr.recording_failed':
+    case 'dvr.recording_resumed':
+    case 'dvr.recording_glitch':
+      return {
+        type: 'dvr_alert',
+        payload: {
+          serverId: trigger.server.id,
+          serverName: trigger.server.name,
+          serverType: trigger.server.type,
+          kind:
+            trigger.type === 'dvr.recording_failed'
+              ? 'recording_failed'
+              : trigger.type === 'dvr.recording_resumed'
+                ? 'recording_resumed'
+                : 'recording_glitch',
+          jobId: trigger.recording.jobId,
+          recordingTitle: trigger.recording.title,
+          channel: trigger.recording.channel,
+          error: trigger.recording.error,
+          freeBytes: null,
+          totalBytes: null,
+          freePercent: null,
+          thresholdPercent: null,
+        },
+      };
+    case 'dvr.disk_low':
+    case 'dvr.disk_ok':
+      return {
+        type: 'dvr_alert',
+        payload: {
+          serverId: trigger.server.id,
+          serverName: trigger.server.name,
+          serverType: trigger.server.type,
+          kind: trigger.type === 'dvr.disk_low' ? 'disk_low' : 'disk_ok',
+          jobId: null,
+          recordingTitle: null,
+          channel: null,
+          error: null,
+          freeBytes: trigger.disk.freeBytes,
+          totalBytes: trigger.disk.totalBytes,
+          freePercent: trigger.disk.freePercent,
+          // The automation's own threshold; several can cross at one check.
+          thresholdPercent:
+            context.triggerNode?.type === 'dvr.disk_low' ||
+            context.triggerNode?.type === 'dvr.disk_ok'
+              ? context.triggerNode.params.percent
+              : (trigger.crossed[0] ?? null),
+        },
+      };
     case 'tracearr.update_available':
       return {
         type: 'tracearr_update_available',

@@ -31,10 +31,12 @@ import { describeChannelsClient } from './macClient.js';
 import {
   countTunersInUse,
   parseDisk,
+  parseDvrJobStatuses,
   parseJobs,
   parseTunerTotal,
   upcomingJobs,
   type ChannelsDvrJob,
+  type ChannelsDvrJobStatus,
 } from './jobs.js';
 import type { ChannelsDvrActivityEntry } from './parser.js';
 
@@ -115,6 +117,16 @@ export interface ChannelsDvrUpcomingRecording {
   startsAt: string;
   endsAt: string;
   thumbPath: string | null;
+}
+
+/** What the alert monitor reads each minute. */
+export interface ChannelsDvrAlertSnapshot {
+  jobs: ChannelsDvrJobStatus[];
+  /** Job ids recording right now, from the activity feed */
+  recordingJobIds: string[];
+  /** File ids of recordings in progress that Channels marks corrupted (a stream gap) */
+  corruptedFileIds: string[];
+  disk: { freeBytes: number; totalBytes: number } | null;
 }
 
 /** Everything the dashboard's DVR panel shows, read in one pass. */
@@ -828,6 +840,50 @@ export class ChannelsDvrClient implements IMediaServerClient {
           channelLogoPath(recording.channelNumber),
       };
     });
+  }
+
+  /**
+   * The alert monitor's view: every job with its failure state, which are recording now,
+   * which of those Channels has marked corrupted (it does this when the stream drops and
+   * it reconnects), and disk space. Read fresh each time, bypassing the dashboard caches.
+   */
+  async getAlertSnapshot(): Promise<ChannelsDvrAlertSnapshot> {
+    const [status, jobsData] = await Promise.all([
+      this.getDvrStatus(),
+      fetchJson<unknown>(`${this.baseUrl}/dvr/jobs`, {
+        headers: { Accept: 'application/json' },
+        service: 'channels-dvr',
+        timeout: 10000,
+      }),
+    ]);
+    const jobs = parseDvrJobStatuses(jobsData);
+    const recordingJobIds = parseDvrActivity(status)
+      .map((entry) => parseRecordingActivity(entry)?.jobId)
+      .filter((id): id is string => !!id);
+
+    const corruptedFileIds: string[] = [];
+    await Promise.all(
+      jobs
+        .filter((job) => job.fileId && recordingJobIds.includes(job.id))
+        .map(async (job) => {
+          try {
+            const file = await fetchJson<unknown>(
+              `${this.baseUrl}/dvr/files/${encodeURIComponent(job.fileId!)}`,
+              { headers: { Accept: 'application/json' }, service: 'channels-dvr', timeout: 10000 }
+            );
+            if (
+              file &&
+              typeof file === 'object' &&
+              (file as { Corrupted?: unknown }).Corrupted === true
+            ) {
+              corruptedFileIds.push(job.fileId!);
+            }
+          } catch {
+            // A file Channels can't describe right now is checked again next minute.
+          }
+        })
+    );
+    return { jobs, recordingJobIds, corruptedFileIds, disk: parseDisk(status) };
   }
 
   /**
