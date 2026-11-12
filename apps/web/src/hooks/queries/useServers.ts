@@ -6,6 +6,7 @@ import {
   liveStatsRetentionSeconds,
   type Server,
   type ServerLocationEntry,
+  type ServerUpdateTrack,
   type ServerResourceDataPoint,
   type ServerBandwidthDataPoint,
 } from '@tracearr/shared';
@@ -84,6 +85,7 @@ export function useUpdateServer({ silent = false }: { silent?: boolean } = {}) {
       publicUrl,
       apiKey,
       allowMemberLogin,
+      updateTrack,
     }: {
       id: string;
       name?: string;
@@ -97,6 +99,7 @@ export function useUpdateServer({ silent = false }: { silent?: boolean } = {}) {
       publicUrl?: string | null;
       apiKey?: string;
       allowMemberLogin?: boolean;
+      updateTrack?: ServerUpdateTrack;
     }) =>
       api.servers.update(id, {
         name,
@@ -110,6 +113,7 @@ export function useUpdateServer({ silent = false }: { silent?: boolean } = {}) {
         publicUrl,
         apiKey,
         allowMemberLogin,
+        updateTrack,
       }),
     onSuccess: () => {
       const refreshed = Promise.all([

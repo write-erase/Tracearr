@@ -119,7 +119,7 @@
       "plugin": "Realtime plugin",
       "pluginDesc": "Check for new releases of the Tracearr plugin your Jellyfin and Emby servers stream events through.",
       "server": "Media servers",
-      "serverDesc": "Compare what each Plex, Jellyfin and Emby server runs with the newest release its makers publish."
+      "serverDesc": "Compare what each Plex, Jellyfin, Emby and Channels DVR server runs with the newest release its makers publish."
     },
     "imageCache": {
       "title": "Poster cache",
@@ -280,6 +280,13 @@
         "title": "Unlink {{username}}?",
         "body": "Its plays move back to a person of their own. Tracearr signs you out everywhere except this browser and your paired phones."
       }
+    },
+    "updateTrack": {
+      "label": "Updates to watch for",
+      "auto": "Automatic",
+      "stable": "Stable releases",
+      "prerelease": "Pre-releases",
+      "hint": "Automatic follows pre-releases when this server runs one, and stable releases otherwise."
     }
   },
   "mobile": {

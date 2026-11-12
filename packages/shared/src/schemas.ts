@@ -275,6 +275,7 @@ export const updateServerSchema = z
     publicUrl: publicUrlSchema.optional(),
     apiKey: z.string().trim().min(1).optional(),
     allowMemberLogin: z.boolean().optional(),
+    updateTrack: z.enum(['auto', 'stable', 'prerelease']).optional(),
   })
   .superRefine((data, ctx) => {
     const hasToken = data.token !== undefined;
@@ -311,12 +312,13 @@ export const updateServerSchema = z
       data.publicUrl === undefined &&
       data.apiKey === undefined &&
       data.ignoreAnonymousStreams === undefined &&
-      data.allowMemberLogin === undefined
+      data.allowMemberLogin === undefined &&
+      data.updateTrack === undefined
     ) {
       ctx.addIssue({
         code: 'custom',
         message:
-          'At least one of name, url, color, publicUrl, apiKey, token, username, password, ignoreAnonymousStreams, or allowMemberLogin is required',
+          'At least one of name, url, color, publicUrl, apiKey, token, username, password, ignoreAnonymousStreams, allowMemberLogin, or updateTrack is required',
       });
     }
   });

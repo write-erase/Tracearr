@@ -7,6 +7,7 @@ export type {
   // Server
   ServerType,
   DispatcharrAuthMode,
+  ServerUpdateTrack,
   Server,
   ServerLocationEntry,
   ServerLocationsResponse,

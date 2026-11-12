@@ -16,6 +16,20 @@ const GITHUB_LATEST: Record<'jellyfin' | 'emby', string> = {
   emby: 'https://api.github.com/repos/MediaBrowser/Emby.Releases/releases/latest',
 };
 
+/**
+ * Channels DVR's own update feeds, the ones its updater reads: `latest.json` is the stable
+ * release, `prerelease.json` the newest pre-release. Both are `{"version":"2026.11.11.2228",...}`.
+ * Tracearr never asks a server to check for updates itself: on Channels that installs them.
+ */
+const CHANNELS_FEEDS = {
+  stable: 'https://channels-dvr.s3.amazonaws.com/latest.json',
+  prerelease: 'https://channels-dvr.s3.amazonaws.com/prerelease.json',
+} as const;
+
+/** Release notes for Channels DVR pre-releases (stable ones use SERVER_RELEASE_PAGES). */
+export const CHANNELS_PRERELEASE_NOTES =
+  'https://community.getchannels.com/t/dvr-pre-release-notes/28832';
+
 /** Where a nudge sends the reader; the feeds carry per-release links, these outlive them. */
 export const SERVER_RELEASE_PAGES: Record<ServerType, string> = {
   plex: 'https://plex.tv/media-server-downloads',
@@ -79,6 +93,56 @@ async function latestGithubVersion(type: 'jellyfin' | 'emby'): Promise<string | 
   return typeof release.tag_name === 'string'
     ? normalizeServerVersion(type, release.tag_name)
     : null;
+}
+
+export interface ChannelsLatestVersions {
+  stable: string | null;
+  prerelease: string | null;
+}
+
+async function channelsFeedVersion(url: string): Promise<string | null> {
+  const feed = await fetchJson<{ version?: unknown }>(url, {
+    timeout: FEED_TIMEOUT_MS,
+    service: 'channels-dvr',
+  });
+  return typeof feed.version === 'string'
+    ? normalizeServerVersion('channels_dvr', feed.version)
+    : null;
+}
+
+/** Both Channels DVR feeds; either can be null when its read fails. */
+export async function latestChannelsVersions(): Promise<ChannelsLatestVersions> {
+  const read = (url: string) =>
+    channelsFeedVersion(url).catch((error: unknown) => {
+      logger.warn('Channels DVR version lookup failed', { url, error });
+      return null;
+    });
+  const [stable, prerelease] = await Promise.all([
+    read(CHANNELS_FEEDS.stable),
+    read(CHANNELS_FEEDS.prerelease),
+  ]);
+  return { stable, prerelease };
+}
+
+/**
+ * Which Channels DVR track a server follows. 'auto' reads pre-release when the installed build
+ * is newer than the newest stable one (only a pre-release can be), otherwise stable. A build
+ * equal to stable reads as stable: pick 'prerelease' to keep following pre-releases then.
+ */
+export function channelsTrackFor(
+  setting: 'auto' | 'stable' | 'prerelease',
+  installed: string | null,
+  latest: ChannelsLatestVersions
+): 'stable' | 'prerelease' {
+  if (setting !== 'auto') return setting;
+  if (
+    installed &&
+    latest.stable &&
+    isNewerServerVersion('channels_dvr', installed, latest.stable)
+  ) {
+    return 'prerelease';
+  }
+  return 'stable';
 }
 
 /** The newest release the vendor publishes, normalized. Any failure reads as "unknown". */

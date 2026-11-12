@@ -8,7 +8,9 @@ vi.mock('../logger.js', () => ({
 import { fetchJson } from '../http.js';
 import {
   SERVER_RELEASE_PAGES,
+  channelsTrackFor,
   isNewerServerVersion,
+  latestChannelsVersions,
   latestVersionFor,
   normalizeServerVersion,
 } from '../serverVersions.js';
@@ -151,5 +153,65 @@ describe('latestVersionFor', () => {
     expect(SERVER_RELEASE_PAGES.plex).toContain('plex.tv');
     expect(SERVER_RELEASE_PAGES.jellyfin).toContain('jellyfin');
     expect(SERVER_RELEASE_PAGES.emby).toContain('Emby');
+  });
+});
+
+// Channels DVR's feeds as they read on 2026-11-12.
+const CHANNELS = { stable: '2026.10.24.0621', prerelease: '2026.11.11.2228' };
+
+describe('latestChannelsVersions', () => {
+  beforeEach(() => mockFetchJson.mockReset());
+
+  // The stable feed is requested first, then the pre-release one.
+  it('reads the stable and pre-release feeds', async () => {
+    mockFetchJson
+      .mockResolvedValueOnce({
+        version: '2026.10.24.0621',
+        host: 'https://cdn.channelsdvr.net/dvr',
+      })
+      .mockResolvedValueOnce({
+        version: '2026.11.11.2228',
+        host: 'https://cdn.channelsdvr.net/dvr',
+      });
+
+    await expect(latestChannelsVersions()).resolves.toEqual(CHANNELS);
+    expect(mockFetchJson).toHaveBeenNthCalledWith(
+      1,
+      'https://channels-dvr.s3.amazonaws.com/latest.json',
+      expect.objectContaining({ timeout: 10_000 })
+    );
+    expect(mockFetchJson).toHaveBeenNthCalledWith(
+      2,
+      'https://channels-dvr.s3.amazonaws.com/prerelease.json',
+      expect.objectContaining({ timeout: 10_000 })
+    );
+  });
+
+  it('keeps one feed when the other fails', async () => {
+    mockFetchJson
+      .mockResolvedValueOnce({ version: '2026.10.24.0621' })
+      .mockRejectedValueOnce(new Error('network'));
+
+    await expect(latestChannelsVersions()).resolves.toEqual({
+      stable: '2026.10.24.0621',
+      prerelease: null,
+    });
+  });
+});
+
+describe('channelsTrackFor', () => {
+  it('follows pre-releases on auto when the build is newer than stable', () => {
+    expect(channelsTrackFor('auto', '2026.11.11.2228', CHANNELS)).toBe('prerelease');
+  });
+
+  it('follows stable on auto when the build is stable or older', () => {
+    expect(channelsTrackFor('auto', '2026.10.24.0621', CHANNELS)).toBe('stable');
+    expect(channelsTrackFor('auto', '2026.09.30.0100', CHANNELS)).toBe('stable');
+    expect(channelsTrackFor('auto', null, CHANNELS)).toBe('stable');
+  });
+
+  it('goes by the setting when one is chosen', () => {
+    expect(channelsTrackFor('prerelease', '2026.10.24.0621', CHANNELS)).toBe('prerelease');
+    expect(channelsTrackFor('stable', '2026.11.11.2228', CHANNELS)).toBe('stable');
   });
 });

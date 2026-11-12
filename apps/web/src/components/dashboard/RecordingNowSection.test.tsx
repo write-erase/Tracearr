@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import type { ChannelsDvrTunerUsage, ChannelsDvrUpcomingEntry } from '@tracearr/shared';
-import { RecordingNowSection } from './RecordingNowSection';
+import type { Server } from '@tracearr/shared';
+import { RecordingNowSection, channelsUpdatesFor } from './RecordingNowSection';
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
@@ -181,5 +182,51 @@ describe('RecordingNowSection', () => {
     expect(screen.getByText('Show 4')).toBeTruthy();
     expect(screen.queryByText('Show 5')).toBeNull();
     expect(screen.getByText(/dashboard\.recording\.moreComingUp.*"count":2/)).toBeTruthy();
+  });
+});
+
+describe('Channels DVR update pill', () => {
+  const server = (overrides: Partial<Server> = {}): Server => ({
+    id: 'cdvr',
+    name: 'Basement DVR',
+    type: 'channels_dvr',
+    url: 'http://192.168.30.241:8089',
+    version: '2026.11.11.2228',
+    latestVersion: '2026.11.12.0900',
+    createdAt: new Date(),
+    updatedAt: new Date(),
+    ...overrides,
+  });
+
+  it('lists Channels DVR servers with a newer release, and only those', () => {
+    expect(channelsUpdatesFor([server()])).toEqual([
+      {
+        serverId: 'cdvr',
+        serverName: 'Basement DVR',
+        installed: '2026.11.11.2228',
+        latest: '2026.11.12.0900',
+      },
+    ]);
+    expect(channelsUpdatesFor([server({ latestVersion: '2026.11.11.2228' })])).toEqual([]);
+    expect(channelsUpdatesFor([server({ latestVersion: null })])).toEqual([]);
+    expect(channelsUpdatesFor([server({ type: 'plex' })])).toEqual([]);
+  });
+
+  it('shows a pill that opens the Channels DVR web UI', () => {
+    render(
+      <RecordingNowSection
+        recordings={[]}
+        updates={channelsUpdatesFor([server()])}
+        linkBases={{ cdvr: 'http://192.168.30.241:8089/' }}
+      />
+    );
+    const pill = screen.getByTestId('dvr-update');
+    expect(pill.getAttribute('href')).toBe('http://192.168.30.241:8089');
+    expect(pill.getAttribute('title')).toMatch(/2026\.11\.12\.0900/);
+  });
+
+  it('shows no pill when nothing is waiting', () => {
+    render(<RecordingNowSection recordings={[]} updates={[]} />);
+    expect(screen.queryByTestId('dvr-update')).toBeNull();
   });
 });

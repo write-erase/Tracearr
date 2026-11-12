@@ -1,5 +1,32 @@
 # Tracearr Fork Information
 
+## November 12, 2026 — Channels DVR update check (stable or pre-release)
+
+Upstream's server update checker (`jobs/serverUpdateChecker.ts`, every 6 h) had no feed for
+Channels DVR (`latestVersionFor` returns null), so its version never got an "update available".
+
+- Installed version: `ChannelsDvrClient.getSoftwareVersion` now reads `GET /status`. It read
+  `GET /dvr`, which has no `version`, so Channels servers never had one stored (fixed here).
+- Schedule: Channels DVR servers are checked every hour (it ships pre-releases often), on their
+  own timer; the other server types stay on upstream's 6-hour sweep (`runServerUpdateCheck(scope)`).
+- Feeds: Channels' own updater files, `https://channels-dvr.s3.amazonaws.com/latest.json` (stable)
+  and `.../prerelease.json`, both `{"version":"2026.11.11.2228","host":...}`. Read once per run
+  (`latestChannelsVersions`). Tracearr never calls the server's `PUT /updater/check/...`: on
+  Channels that doesn't just check, it installs (it's how people move a server to pre-release).
+- Track per server: new `servers.update_track` column (`auto` | `stable` | `prerelease`, default
+  `auto`; fork migration 0006). `channelsTrackFor`: auto follows pre-release when the installed
+  build is newer than the newest stable one, else stable. A pre-release build that stable has
+  caught up with reads as stable, which is why the setting exists (Edit server > "Updates to watch
+  for", Channels DVR servers only; `PATCH /servers/:id` `updateTrack`, refused for other types).
+- `latestVersion` stores the newest on the server's track, so the server row's "update … available"
+  line and the existing `server.update_available` automation trigger work unchanged. Its release
+  link is the Channels releases page for stable and the pre-release notes thread for pre-release.
+- No Channels-specific automation: the shared "Media server update" template and trigger cover it.
+  Settings text and template keywords now name Channels DVR alongside Plex, Jellyfin and Emby.
+- Dashboard: an "Update available" pill on the Channels DVR card (next to tuners and disk), shown
+  only while one is waiting (`channelsUpdatesFor`, from the server list's versions), linking to the
+  server's web UI where it's installed; owners and admins only, since that UI usually has no login of its own.
+
 ## November 12, 2026 — Skip a series-pass airing from Coming Up
 
 Coming Up (dashboard Channels DVR card) offers **Skip** on airings a series pass scheduled and
