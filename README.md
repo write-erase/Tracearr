@@ -15,15 +15,18 @@
 
 **To remove Dispatcharr data:**
 
-`docker exec -it {distracearr_container_name} node apps/server/dist/scripts/purge-dispatcharr.js`
+`docker exec -it {tracearr_container_name} node apps/server/dist/scripts/purge-dispatcharr.js`
 
 **To remove Channels DVR data:**
 
-`docker exec -it {distracearr_container_name} node apps/server/dist/scripts/purge-channels-dvr.js`
+`docker exec -it {tracearr_container_name} node apps/server/dist/scripts/purge-channels-dvr.js`
 
 Add `-y` to either command to skip the confirmation prompt. If you used both integrations, run both commands.
 
 **What's New:**
+
+_Dispatcharr_
+
 - Support for Dispatcharr servers, with Login/Password (for WebSocket integration) or API Key auth,
 - Shows currently running Live TV streams, as well as VOD Movies or VOD Shows,
 - Allows you to discard streams from "Anonymous" user if you want,
@@ -31,70 +34,63 @@ Add `-y` to either command to skip the confirmation prompt. If you used both int
 - Live TV card is aligned to Dispatcharr needs, showing speed threshold, watchtime,
 - Stream details for Live TV shows bitrate, codecs and video resolution,
 - Support for Catch-Up (Timeshift) sessions, with small badge and custom card.
-- Support for Channels DVR servers, with automatic active session detection,
-- Tracks Live TV streams and playback of recorded movies and shows,
-- Identifies viewers by client device name or IP address,
-- Displays channel logos and recording artwork.
+
+_Channels DVR_
+
+- Support for Channels DVR servers, with automatic active session detection (no credentials needed),
+- Tracks Live TV, recordings and imported movies and shows, including playback in the Channels web player,
+- Real playback position and pause detection, read from the Channels app on the device when it is on your network,
+- Live TV progress and programme artwork from the guide,
+- Library browsing for TV shows, movies and imported videos, with file sizes and links to open them in Channels DVR,
+- The same episode on Channels DVR and another server shows as one item,
+- Stop a stream on a device on your local network from the dashboard,
+- A Channels DVR card on the dashboard: recordings in progress with exact times and a Stop button, recordings coming up in the next 24 hours (with cancel), tuners in use and free disk space,
+- Viewers show the device maker's logo (Apple, Amazon, Google, Android); the Channels Mac app shows as a Mac.
 
 **Channels DVR Integration:**
 
 Connect your Channels DVR server using its base URL and port `8089` (for example, `http://192.168.1.100:8089`). No authentication credentials are required.
 
-The integration monitors active sessions for Live TV and recorded content. Channels DVR does not provide individual user accounts, so Tracearr identifies viewers using their client device name or IP address.
+Channels DVR does not provide individual user accounts, so Tracearr identifies viewers by their client device name (or IP address). Two devices with the same name count as one viewer, so give each device its own name in Channels.
 
 **Current Limitations:**
+
 - Library browsing covers TV shows, movies and imported videos. Quality details (resolution, codecs, audio channels) are read from filename tags such as `[Bluray-720p][AC3 2.0][x264]`, so files without them show no quality info. File sizes come from Channels' `/dvr/files` list.
 - Importing past watch history is not supported. Sessions Tracearr observes are still recorded in History.
-- Sessions can only be terminated when the playback device is on your local network and reachable from the Tracearr server (Tracearr calls the Channels app on the device at port 57000). Remote sessions cannot be terminated, and the optional termination message is not shown.
-- Session detection relies on Channels DVR's undocumented `/dvr` activity endpoint, so compatibility may be affected by changes to that endpoint.
+- Streams can only be stopped when the playback device is on your local network and reachable from the Tracearr server (Tracearr calls the Channels app on the device at port 57000). Remote streams and the Channels web player cannot be stopped, and the optional termination message is not shown.
+- The web player does not say which browser it runs in, and its pause state is detected about 20 seconds late.
+- Cancelling a queued recording removes it from the Channels DVR schedule. A recording created by a series pass may be scheduled again by the pass.
+- Session and schedule detection rely on Channels DVR's undocumented endpoints (`/dvr`, `/api/v1/jobs`, `/devices`), so changes to them may affect compatibility.
 
-**Production Docker images:**
+**Docker images:**
 
-- `darkalchemy2137/distracearr:latest` or `ghcr.io/d4rk-4lchemy/distracearr:latest` - standalone Tracearr, so you also need to deploy `timescale` and `redis`
-- `darkalchemy2137/distracearr:supervised` or `ghcr.io/d4rk-4lchemy/distracearr:supervised` - supervised image
-- `ghcr.io/write-erase/tracearr:latest` - Standalone Tracearr image with Dispatcharr and Channels DVR support, so you also need to deploy `timescale` and `redis`.
-- `ghcr.io/write-erase/tracearr:supervised-latest` - Supervised Tracearr image with Dispatcharr and Channels DVR support.
+- `ghcr.io/write-erase/tracearr:latest` - standalone Tracearr with Dispatcharr and Channels DVR support, so you also need to deploy `timescale` and `redis`.
+- `ghcr.io/write-erase/tracearr:supervised-latest` - supervised Tracearr (database and Redis included) with Dispatcharr and Channels DVR support.
+- Pin a release with `ghcr.io/write-erase/tracearr:3.1.7-r2` or `ghcr.io/write-erase/tracearr:supervised-3.1.7-r2`.
 
-The write-erase/tracearr images above are builds from the `baseline` branch and are published for both AMD64 and ARM64.
+These are built from the `baseline` branch for each release and are published for both AMD64 and ARM64.
 
-**Development Docker images:**
+Development images, built from the `dev` branch (AMD64 and ARM64):
 
-- `ghcr.io/write-erase/tracearr:dev` - Standalone Tracearr image with Dispatcharr and Channels DVR support, so you also need to deploy `timescale` and `redis`.
-- `ghcr.io/write-erase/tracearr:supervised-dev` - Supervised Tracearr image with Dispatcharr and Channels DVR support.
+- `ghcr.io/write-erase/tracearr:dev` - standalone
+- `ghcr.io/write-erase/tracearr:supervised-dev` - supervised
 
-The write-erase/tracearr images above are builds from the `dev` branch and are published for both AMD64 and ARM64.
+Dispatcharr-only images from the fork this one builds on are published by d4rk-4lchemy as `ghcr.io/d4rk-4lchemy/distracearr` (and `darkalchemy2137/distracearr`); they do not include Channels DVR support.
 
-I tested it on **Supervised image**, so keep that in mind.
-You can also build your own Docker image.<br>
-Example docker build commands:
-
-The stream map basemap is generated during a local Docker build if
-`data/basemap.pmtiles` is missing. The first build downloads the pinned
-Protomaps extract (about 550 MB) and needs network access; run `pnpm basemap`
-beforehand if you want to reuse the archive across image builds.
-
-```bash
-# Regular Image
-docker build  -f docker/Dockerfile  -t distracearr-standalone  --build-arg APP_VERSION=2.4.0  --build-arg APP_TAG=2.4.0 --build-arg APP_UPSTREAM_VERSION=2.4.0 --build-arg APP_FORK_REVISION=1 --build-arg APP_FORK_VERSION=2.4.0-r1 --build-arg APP_COMMIT="$(git rev-parse --short HEAD)"  --build-arg APP_BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)" .
-
-# Supervised Image
-docker build  -f docker/Dockerfile.supervised  -t distracearr  --build-arg APP_VERSION=2.4.0  --build-arg APP_TAG=supervised-2.4.0 --build-arg APP_UPSTREAM_VERSION=2.4.0 --build-arg APP_FORK_REVISION=1 --build-arg APP_FORK_VERSION=2.4.0-r1 --build-arg APP_COMMIT="$(git rev-parse --short HEAD)"  --build-arg APP_BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)" .
-```
-
-Example `docker-compose.yml` for **Supervised** image:
+Example `docker-compose.yml` for the **supervised** image:
 ```yaml
 tracearr:
-  image: darkalchemy2137/distracearr:supervised
-  container_name: distracearr
+  image: ghcr.io/write-erase/tracearr:supervised-latest
+  container_name: tracearr
   ports:
     - 3000:3000
   environment:
-    - TZ=GMT
+    - TZ=Etc/UTC
     - LOG_LEVEL=info
   volumes:
-    - /docker/distracearr/postgres:/data/postgres
-    - /docker/distracearr/redis:/data/redis
-    - /docker/distracearr/data:/data/tracearr
+    - /docker/tracearr/postgres:/data/postgres
+    - /docker/tracearr/redis:/data/redis
+    - /docker/tracearr/data:/data/tracearr
   restart: unless-stopped
   healthcheck:
     test: ["CMD", "curl", "-f", "http://127.0.0.1:3000/health"]
@@ -102,6 +98,31 @@ tracearr:
     timeout: 10s
     start_period: 60s
     retries: 3
+```
+
+For the **standalone** image, use `ghcr.io/write-erase/tracearr:latest` in the [Docker Compose examples](https://github.com/write-erase/Tracearr/tree/baseline/docker/examples) in place of the official image.
+
+**Building your own image:**
+
+The stream map basemap is generated during a local Docker build if
+`data/basemap.pmtiles` is missing. The first build downloads the pinned
+Protomaps extract (about 550 MB) and needs network access; run `pnpm basemap`
+beforehand if you want to reuse the archive across image builds.
+
+```bash
+# Standalone image
+docker build -f docker/Dockerfile -t tracearr \
+  --build-arg APP_VERSION=3.1.7 --build-arg APP_TAG=v3.1.7-r2 \
+  --build-arg APP_UPSTREAM_VERSION=3.1.7 --build-arg APP_FORK_REVISION=2 --build-arg APP_FORK_VERSION=3.1.7-r2 \
+  --build-arg APP_FORK_REPO=write-erase/Tracearr --build-arg APP_IMAGE_REPO=ghcr.io/write-erase/tracearr \
+  --build-arg APP_COMMIT="$(git rev-parse --short HEAD)" --build-arg APP_BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)" .
+
+# Supervised image
+docker build -f docker/Dockerfile.supervised -t tracearr-supervised \
+  --build-arg APP_VERSION=3.1.7 --build-arg APP_TAG=supervised-3.1.7-r2 \
+  --build-arg APP_UPSTREAM_VERSION=3.1.7 --build-arg APP_FORK_REVISION=2 --build-arg APP_FORK_VERSION=3.1.7-r2 \
+  --build-arg APP_FORK_REPO=write-erase/Tracearr --build-arg APP_IMAGE_REPO=ghcr.io/write-erase/tracearr \
+  --build-arg APP_COMMIT="$(git rev-parse --short HEAD)" --build-arg APP_BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)" .
 ```
 
 ---
@@ -190,6 +211,8 @@ Tracearr handles all three. One install, one interface.
 | Plex support                   | ✅       | ❌        | ✅       |
 | Jellyfin support               | ❌       | ✅        | ✅       |
 | Emby support                   | ❌       | ✅        | ✅       |
+| Dispatcharr support            | ❌       | ❌        | ✅       |
+| Channels DVR support           | ❌       | ❌        | ✅       |
 | Multi-server dashboard         | ❌       | ❌        | ✅       |
 | Cross-server user identities   | ❌       | ❌        | ✅       |
 | Cross-server media catalog     | ❌       | ❌        | ✅       |
