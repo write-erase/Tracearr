@@ -1,5 +1,16 @@
 # Tracearr Fork Information
 
+## November 12, 2026 — Fork update check reads this fork's releases
+
+- `jobs/versionCheckQueue.ts` fetched fork releases from a hard-coded
+  `https://api.github.com/repos/d4rk-4lchemy/Tracearr/releases`, ignoring `APP_FORK_REPO`, so this
+  fork's images only ever saw d4rk's releases (newest `3.1.7-r1`) and never offered an update. The
+  URLs are now built from `getBuildInfo().forkRepo` (`write-erase/Tracearr` in this fork's images).
+- `UpdateDialog.tsx` showed `docker pull` commands for d4rk's `distracearr` images (GHCR and Docker
+  Hub). It now shows one GHCR command for `current.imageRepo` (`APP_IMAGE_REPO`).
+- Images released before this fix (r1, r2) still check d4rk's repo, so they won't be told about
+  r3; people on them need to update by hand once. From r3 on, update notices work.
+
 ## November 12, 2026 — Channels DVR update check (stable or pre-release)
 
 Upstream's server update checker (`jobs/serverUpdateChecker.ts`, every 6 h) had no feed for

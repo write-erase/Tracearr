@@ -63,7 +63,7 @@ vi.mock('../../services/automations/events/producers.js', () => ({
 const mockGetCurrentVersion = vi.fn().mockReturnValue('1.4.0');
 vi.mock('../../utils/buildInfo.js', () => ({
   getCurrentVersion: () => mockGetCurrentVersion(),
-  getBuildInfo: () => ({ forkVersion: '1.4.0-r1' }),
+  getBuildInfo: () => ({ forkVersion: '1.4.0-r1', forkRepo: 'write-erase/Tracearr' }),
   getCurrentTag: vi.fn(),
   getCurrentCommit: vi.fn(),
   getBuildDate: vi.fn(),
@@ -372,6 +372,10 @@ describe('processVersionCheck', () => {
       json: vi.fn().mockResolvedValue([mockRelease('v1.5.0-r1', true)]),
     });
     await processVersionCheck(makeJob(false));
+    // Fork releases come from the repo the image was built from, not d4rk-4lchemy's.
+    expect(mockFetch.mock.calls[1]?.[0]).toBe(
+      'https://api.github.com/repos/write-erase/Tracearr/releases?per_page=100'
+    );
     expect(sharedRedis.set).toHaveBeenCalledWith(
       expect.stringContaining('version:latest:upstream'),
       expect.any(String),
@@ -439,7 +443,7 @@ describe('processVersionCheck', () => {
       ok: true,
       status: 200,
       json: async () => {
-        if (url.includes('d4rk-4lchemy')) return [mockRelease('v1.5.0-r2', true)];
+        if (url.includes('write-erase/Tracearr')) return [mockRelease('v1.5.0-r2', true)];
         if (url.endsWith('/releases/latest')) return releases[1];
         if (url.includes('/releases?')) return releases;
         const version = url.split('/').at(-1);

@@ -14,7 +14,7 @@ function version(tag: string): VersionInfo {
     forkRevision: 2,
     forkVersion: '2.5.1-r2',
     tag: 'v2.5.1-r2',
-    releaseUrl: 'https://github.com/d4rk-4lchemy/Tracearr/releases/tag/v2.5.1-r2',
+    releaseUrl: 'https://github.com/write-erase/Tracearr/releases/tag/v2.5.1-r2',
     publishedAt: '2026-09-27T00:00:00Z',
     isPrerelease: false,
     releaseName: null,
@@ -29,8 +29,8 @@ function version(tag: string): VersionInfo {
       forkRevision: 1,
       forkVersion: '2.5.1-r1',
       forkReleaseTag: 'v2.5.1-r1',
-      forkRepo: 'd4rk-4lchemy/Tracearr',
-      imageRepo: 'ghcr.io/d4rk-4lchemy/distracearr',
+      forkRepo: 'write-erase/Tracearr',
+      imageRepo: 'ghcr.io/write-erase/tracearr',
       tag,
       commit: null,
       buildDate: null,
@@ -47,14 +47,12 @@ describe('UpdateDialog image commands', () => {
   it.each([
     ['v2.5.1-r1', 'latest'],
     ['supervised-2.5.1-r1', 'supervised'],
-  ])('shows both registries for %s', (currentTag, updateTag) => {
+  ])('shows the image this build came from for %s', (currentTag, updateTag) => {
     render(<UpdateDialog open onOpenChange={vi.fn()} version={version(currentTag)} />);
 
     expect(
-      screen.getByText(`docker pull ghcr.io/d4rk-4lchemy/distracearr:${updateTag}`)
+      screen.getByText(`docker pull ghcr.io/write-erase/tracearr:${updateTag}`)
     ).toBeInTheDocument();
-    expect(
-      screen.getByText(`docker pull darkalchemy2137/distracearr:${updateTag}`)
-    ).toBeInTheDocument();
+    expect(screen.queryByText(/distracearr/)).toBeNull();
   });
 });
