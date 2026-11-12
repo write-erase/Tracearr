@@ -1131,6 +1131,12 @@ class ApiClient {
         method: 'POST',
         body: JSON.stringify({ serverId, jobId }),
       }),
+    /** Skip one airing a Channels DVR series pass scheduled, or undo that */
+    setRecordingSkipped: (serverId: string, jobId: string, skipped: boolean) =>
+      this.request<{ success: boolean }>('/sessions/recordings/skip', {
+        method: 'POST',
+        body: JSON.stringify({ serverId, jobId, skipped }),
+      }),
     terminate: (id: string, reason?: string) =>
       this.request<{ success: boolean; terminationLogId: string; message: string }>(
         `/sessions/${id}/terminate`,

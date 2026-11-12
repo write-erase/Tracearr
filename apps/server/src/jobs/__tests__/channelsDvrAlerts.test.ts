@@ -19,6 +19,7 @@ const job = (overrides: Partial<ChannelsDvrJobStatus> = {}): ChannelsDvrJobStatu
   fileId: '1346',
   // Beyond the Gates, 13:00–14:00 CST on Nov 11, 2026.
   endsAt: (1794423600 + 3600) * 1000,
+  ruleId: null,
   ...overrides,
 });
 

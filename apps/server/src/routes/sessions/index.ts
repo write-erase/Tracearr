@@ -410,6 +410,50 @@ export const sessionRoutes: FastifyPluginAsync = async (app) => {
     return { success: true };
   });
 
+  /**
+   * POST /sessions/recordings/skip - skip one queued airing a series pass scheduled, or undo it
+   * Body: { serverId, jobId, skipped }. The pass keeps recording the rest. Same permission as
+   * stopping a recording.
+   */
+  app.post('/recordings/skip', terminateSessions, async (request, reply) => {
+    const body = request.body as
+      { serverId?: unknown; jobId?: unknown; skipped?: unknown } | undefined;
+    const serverId = typeof body?.serverId === 'string' ? body.serverId : '';
+    const jobId = typeof body?.jobId === 'string' ? body.jobId : '';
+    if (!serverId || !/^\d{9,11}-[\w.-]+$/.test(jobId) || typeof body?.skipped !== 'boolean') {
+      return reply.badRequest('serverId, a Channels DVR jobId and skipped are required');
+    }
+    const skipped = body.skipped;
+    if (!hasServerAccess(request.user, serverId)) {
+      return reply.forbidden('You do not have access to this server');
+    }
+    const [server] = await db
+      .select({ url: servers.url, type: servers.type, historicalAt: servers.historicalAt })
+      .from(servers)
+      .where(eq(servers.id, serverId))
+      .limit(1);
+    if (!server || server.type !== 'channels_dvr' || server.historicalAt) {
+      return reply.notFound('Channels DVR server not found');
+    }
+    try {
+      await new ChannelsDvrClient({ url: server.url, token: '' }).setRecordingSkipped(
+        jobId,
+        skipped
+      );
+    } catch (err) {
+      app.log.warn({ serverId, jobId, skipped, err }, 'Failed to skip Channels DVR recording');
+      return reply.code(502).send({
+        success: false,
+        error: err instanceof Error ? err.message : 'Failed to change the recording',
+      });
+    }
+    app.log.info(
+      { serverId, jobId, skipped, userId: request.user.userId },
+      skipped ? 'Skipped Channels DVR recording' : 'Unskipped Channels DVR recording'
+    );
+    return { success: true };
+  });
+
   app.get('/active', readSessions, async (request, _reply) => {
     const authUser = request.user;
 

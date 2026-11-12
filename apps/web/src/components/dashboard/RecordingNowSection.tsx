@@ -1,6 +1,15 @@
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { CalendarClock, CircleDot, ExternalLink, HardDrive, Square, X } from 'lucide-react';
+import {
+  CalendarClock,
+  CircleDot,
+  ExternalLink,
+  HardDrive,
+  SkipForward,
+  Square,
+  Undo2,
+  X,
+} from 'lucide-react';
 import type {
   ChannelsDvrDiskUsage,
   ChannelsDvrRecordingEntry,
@@ -19,9 +28,10 @@ import {
 } from '@/components/ui/dialog';
 import { Progress } from '@/components/ui/progress';
 import { useAuth } from '@/hooks/useAuth';
-import { useCancelRecording, useStopRecording } from '@/hooks/queries';
+import { useCancelRecording, useSkipRecording, useStopRecording } from '@/hooks/queries';
 import { imageProxyUrl } from '@/lib/api';
 import { formatBytes } from '@/lib/formatters';
+import { cn } from '@/lib/utils';
 
 interface RecordingNowSectionProps {
   /** Panel title: the Channels DVR server's name as entered in Tracearr */
@@ -347,6 +357,53 @@ function CancelRecordingButton({ job }: { job: ChannelsDvrUpcomingEntry }) {
   );
 }
 
+/**
+ * Admin/owner only, for airings a series pass scheduled: skip this one (the pass records the
+ * rest), or unskip it. No confirmation, since it's undone with the same button.
+ */
+function SkipRecordingButton({ job }: { job: ChannelsDvrUpcomingEntry }) {
+  const { t } = useTranslation('pages');
+  const { user } = useAuth();
+  const skip = useSkipRecording();
+  if (user?.role !== 'admin' && user?.role !== 'owner') return null;
+
+  const toggle = () =>
+    skip.mutate({ serverId: job.serverId, jobId: job.jobId, skipped: !job.skipped });
+
+  if (job.skipped) {
+    return (
+      <Button
+        variant="ghost"
+        size="sm"
+        className="text-muted-foreground h-6 shrink-0 gap-1 px-2 text-xs"
+        title={t('dashboard.recording.unskipHint', {
+          defaultValue: 'Record this airing after all',
+        })}
+        disabled={skip.isPending}
+        onClick={toggle}
+      >
+        <Undo2 className="h-3.5 w-3.5" aria-hidden="true" />
+        {t('dashboard.recording.unskip', { defaultValue: 'Unskip' })}
+      </Button>
+    );
+  }
+  return (
+    <Button
+      variant="ghost"
+      size="icon"
+      className="text-muted-foreground h-6 w-6 shrink-0"
+      title={t('dashboard.recording.skipHint', {
+        defaultValue: 'Skip this airing. The series pass keeps recording the rest.',
+      })}
+      aria-label={t('dashboard.recording.skip', { defaultValue: 'Skip this episode' })}
+      disabled={skip.isPending}
+      onClick={toggle}
+    >
+      <SkipForward className="h-3.5 w-3.5" />
+    </Button>
+  );
+}
+
 function UpcomingRow({
   job,
   now,
@@ -383,12 +440,26 @@ function UpcomingRow({
         })
     : null;
 
+  // A skipped airing stays listed, dimmed, so it can be unskipped; the button stays full strength.
+  const dim = job.skipped ? 'opacity-50' : undefined;
+
   return (
     <li className="flex items-center gap-3 px-3 py-2">
-      <span className="text-muted-foreground w-28 shrink-0 text-xs font-medium tabular-nums">
+      <span
+        className={cn(
+          'text-muted-foreground w-28 shrink-0 text-xs font-medium tabular-nums',
+          job.skipped && 'line-through',
+          dim
+        )}
+      >
         <StartTime iso={job.startsAt} now={now} />
       </span>
-      <div className="bg-muted flex h-8 w-12 shrink-0 items-center justify-center overflow-hidden rounded">
+      <div
+        className={cn(
+          'bg-muted flex h-8 w-12 shrink-0 items-center justify-center overflow-hidden rounded',
+          dim
+        )}
+      >
         {job.thumbPath ? (
           <img
             src={imageProxyUrl(job.serverId, job.thumbPath, 96, 64)}
@@ -400,7 +471,7 @@ function UpcomingRow({
           <CalendarClock className="text-muted-foreground h-4 w-4" aria-hidden="true" />
         )}
       </div>
-      <div className="min-w-0 flex-1">
+      <div className={cn('min-w-0 flex-1', dim)}>
         {showUrl ? (
           <a
             href={showUrl}
@@ -423,12 +494,23 @@ function UpcomingRow({
           </p>
         )}
         <p className="text-muted-foreground truncate text-xs">
-          {[episode, job.episodeTitle, channel, showServer ? job.serverName : null]
+          {[
+            job.skipped ? t('dashboard.recording.skipped', { defaultValue: 'Skipped' }) : null,
+            episode,
+            job.episodeTitle,
+            channel,
+            showServer ? job.serverName : null,
+          ]
             .filter(Boolean)
             .join(' · ')}
         </p>
       </div>
-      <CancelRecordingButton job={job} />
+      {/* A pass airing is skipped (the pass keeps going); a one-time recording is cancelled. */}
+      {job.fromPass || job.skipped ? (
+        <SkipRecordingButton job={job} />
+      ) : (
+        <CancelRecordingButton job={job} />
+      )}
     </li>
   );
 }

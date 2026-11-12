@@ -13,7 +13,10 @@ vi.mock('@/hooks/useAuth', () => ({ useAuth: () => ({ user: { role: 'owner' } })
 vi.mock('@/hooks/queries', () => ({
   useStopRecording: () => ({ mutate: vi.fn(), isPending: false }),
   useCancelRecording: () => ({ mutate: vi.fn(), isPending: false }),
+  useSkipRecording: () => ({ mutate: skipMutate, isPending: false }),
 }));
+
+const skipMutate = vi.fn();
 
 const NOW = new Date(2026, 10, 11, 12, 30);
 
@@ -32,6 +35,8 @@ function upcoming(overrides: Partial<ChannelsDvrUpcomingEntry> = {}): ChannelsDv
     startsAt: new Date(2026, 10, 11, 14, 0).toISOString(),
     endsAt: new Date(2026, 10, 11, 15, 0).toISOString(),
     thumbPath: null,
+    skipped: false,
+    fromPass: false,
     ...overrides,
   };
 }
@@ -137,6 +142,35 @@ describe('RecordingNowSection', () => {
   it('offers owners a cancel button on each queued recording', () => {
     render(<RecordingNowSection recordings={[]} upcoming={[upcoming()]} />);
     expect(screen.getByRole('button', { name: /dashboard\.recording\.cancel\b/ })).toBeTruthy();
+  });
+
+  it('offers skip instead of cancel for an airing a series pass scheduled', () => {
+    skipMutate.mockClear();
+    render(<RecordingNowSection recordings={[]} upcoming={[upcoming({ fromPass: true })]} />);
+    expect(screen.queryByRole('button', { name: /dashboard\.recording\.cancel\b/ })).toBeNull();
+    screen.getByRole('button', { name: /dashboard\.recording\.skip\b/ }).click();
+    expect(skipMutate).toHaveBeenCalledWith({
+      serverId: 'cdvr',
+      jobId: '1794427200-ch1',
+      skipped: true,
+    });
+  });
+
+  it('keeps a skipped airing listed, marked skipped, with an unskip button', () => {
+    skipMutate.mockClear();
+    render(
+      <RecordingNowSection
+        recordings={[]}
+        upcoming={[upcoming({ fromPass: true, skipped: true })]}
+      />
+    );
+    expect(screen.getByText(/dashboard\.recording\.skipped\b/)).toBeTruthy();
+    screen.getByRole('button', { name: /dashboard\.recording\.unskip\b/ }).click();
+    expect(skipMutate).toHaveBeenCalledWith({
+      serverId: 'cdvr',
+      jobId: '1794427200-ch1',
+      skipped: false,
+    });
   });
 
   it('caps the list and says how many more are queued', () => {
