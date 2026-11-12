@@ -106,6 +106,8 @@ function toAvailabilityEntry(r: AvailabilityRow): MediaAvailabilityEntry {
     libraryId: r.library_id,
     libraryName: r.library_name,
     ratingKey: r.rating_key,
+    itemType: r.item_type,
+    showRatingKey: r.show_rating_key ?? null,
     addedAt: new Date(r.added_at).toISOString(),
     removedAt: r.removed_at ? new Date(r.removed_at).toISOString() : null,
     videoResolution: r.video_resolution,

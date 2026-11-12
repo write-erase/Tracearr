@@ -107,7 +107,44 @@
     "vodPlays": "VOD Plays",
     "vodWatchTime": "VOD Watch Time",
     "tvSessions": "TV Sessions",
-    "tvWatchTime": "TV Watch Time"
+    "tvWatchTime": "TV Watch Time",
+    "recording": {
+      "panelTitle": "Channels DVR",
+      "title": "Recording Now",
+      "badge": "Recording",
+      "channel": "Channel {{number}}",
+      "channelNamed": "Channel {{number}} · {{name}}",
+      "until": "until {{time}}",
+      "minutesLeft_one": "{{count}} min left",
+      "minutesLeft_other": "{{count}} min left",
+      "stop": "Stop",
+      "stopTitle": "Stop recording?",
+      "stopConfirm": "Stop recording \"{{title}}\" now? What has been recorded so far stays in your Channels DVR library.",
+      "stopping": "Stopping…",
+      "stopped": "Recording stopped. What was recorded is kept in Channels DVR.",
+      "stopFailed": "Could not stop the recording",
+      "nothingRecording": "Nothing, absolutely nothing.",
+      "tuners": "{{inUse}} of {{total}} tuners in use",
+      "tunersOnServer": "{{server}}: {{inUse}} of {{total}} tuners in use",
+      "tunersHint": "One tuner per channel being watched live or recorded",
+      "comingUp": "Coming Up",
+      "comingUpCaption": "next 24 hours",
+      "tomorrow": "Tomorrow {{time}}",
+      "episode": "S{{season}} E{{episode}}",
+      "moreComingUp_one": "+{{count}} more in the next 24 hours",
+      "moreComingUp_other": "+{{count}} more in the next 24 hours",
+      "diskFree": "{{free}} free",
+      "diskFreeOnServer": "{{server}}: {{free}} free",
+      "diskHint": "{{free}} free of {{total}} for recordings",
+      "cancel": "Cancel recording",
+      "cancelTitle": "Cancel this recording?",
+      "cancelConfirm": "Cancel \"{{title}}\" at {{time}}? It will be removed from your Channels DVR schedule.",
+      "keep": "Keep it",
+      "cancelling": "Cancelling…",
+      "cancelled": "Recording cancelled.",
+      "cancelFailed": "Could not cancel the recording",
+      "openInChannels": "Open the Channels DVR schedule"
+    }
   },
   "yourStats": {
     "titles": "Titles",
@@ -2178,10 +2215,14 @@
   "terminateStream": {
     "title": "Terminate Stream",
     "stopMedia": "Stop \"{{mediaTitle}}\" for @{{username}}?",
+    "stopMediaOnDevice": "Stop \"{{mediaTitle}}\" on {{deviceName}}?",
     "messageLabel": "Message to user (optional)",
     "messagePlaceholder": "e.g., Please don't share your account",
     "messageHint": "This message will be shown to them during playback",
-    "terminating": "Terminating..."
+    "terminating": "Terminating...",
+    "remoteNotPossible": "Tracearr can only stop Channels DVR streams on devices within your local network.",
+    "pendingNotYet": "This stream can be stopped once it has been playing for 30 seconds.",
+    "webNotPossible": "Tracearr can't stop Channels DVR streams playing in a web browser."
   },
   "settings": {
     "plex": {

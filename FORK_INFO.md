@@ -1,5 +1,182 @@
 # Tracearr Fork Information
 
+## November 11, 2026 — Channels DVR: Coming Up, exact recording times, tuner usage
+
+The dashboard's Recording Now panel is now a bordered card, like the resource charts, shown
+whenever a Channels DVR server is selected (idle or not), and titled with the server's name as
+entered in Tracearr ("Channels DVR" when several are selected), with the tuner pill beside it
+and "Recording Now" and "Coming Up" as sub-headings. When nothing is recording it says so with a
+light joke. It now also shows:
+
+- **Coming Up**: recordings queued to start in the next 24 hours (time, show, episode, channel,
+  artwork), five at a time with "+N more". Read from `GET /api/v1/jobs`, which lists every queued
+  job with exact start and end times; finished jobs drop off it.
+- **Exact recording times**: a recording in progress takes its start and end from its job
+  (padding included) instead of the guide's current airing. The guide is still the fallback.
+- **Disk space**: "186.6 GB free" (binary units, as Channels shows them) from the `disk` block of
+  `GET /dvr`, amber below 10% free.
+- **Open in Channels**: a queued show's title links to the Channels DVR schedule page
+  (`/admin/dvr/jobs`). A show's own page only lists recordings already made, so it's empty for a
+  show that hasn't recorded yet.
+- **Cancel a queued recording** (owner/admin, with a confirmation): `DELETE /dvr/jobs/<id>`, the
+  request Stop already uses, which removes the job from the schedule.
+- **Tuner usage**: "2 of 5 tuners in use", amber when all are busy. The total is the sum of
+  `TunerCount` across `GET /devices`; in use is one per distinct channel being watched live or
+  recorded, since Channels shares a tuner between everyone on a channel.
+
+The job list is cached for 15 s and the tuner count for 5 min (`channelsDvr/jobs.ts`,
+`client.ts` `getSchedule`); if either request fails, recordings still show. `GET /sessions/recordings` returns
+`{ data, upcoming, tuners }` (was `{ data }`).
+
+## November 11, 2026 — Device icons for Channels DVR viewers
+
+Channels DVR "users" are devices with no picture, so their avatars showed initials ("LI", "WE").
+On the Now Playing card and in Session Details they now show the device maker's logo instead:
+Apple, Amazon (Fire TV), Google (Chromecast) or Android, the platforms Channels apps run on
+(`components/sessions/DeviceBrandIcon.tsx`, filled logos from Phosphor Icons, MIT). The web player
+gets a globe, because it doesn't say which browser it runs in. `components/sessions/DeviceTypeIcon.tsx`
+decides the kind of device for all servers and drives the card's small device badge, so the badge
+still tells an Apple TV from an iPhone. It checks TVs before phones, which fixes a bug in the old
+badge logic: "tvOS" contains "ios", so Apple TVs (Plex's too) got a phone icon. The Channels Mac app
+is the iPad app, and `/dvr/clients/info` lists it as an `iPad8,6` running iPadOS, usually named
+"iPad". Its `machine_id` gives it away: real iPhones, iPads and Apple TVs report a random (version 4)
+UUID, the Mac app a name-based (version 5) one. `channelsDvr/macClient.ts` reports those clients as
+device "Mac" on "macOS <version>", and names them "Mac" when the app only said "iPad".
+Other servers' avatars are unchanged.
+
+## November 11, 2026 — Channels DVR web player sessions
+
+The Channels web player (a browser) writes activity keys as `7-file1109-ip192.168.30.9`, where the
+apps write `6-file-1089-192.168.30.8`. `parseKey` only knew the dashed form, so browser playback was
+taken for live TV: raw title, no artwork, no duration. It now reads the compact `file<id>` form and
+the `ip` prefix, and marks such sessions as web player ones. Channels names a browser after whichever
+app last used its address (here "iPad"), so web player sessions are named "Web Browser (<address>)",
+shown as product "Channels Web" on platform "Web", never matched to a registered app in
+`/dvr/clients/info`, and never asked for status on :57000 (pause falls back to server-side detection).
+When the web player reaches the end of a file, Channels keeps listing it but drops the "at …"
+position. Such a file stream is now shown paused at its last known position, and the poller's
+time-since-first-seen fallback (`getChannelsDvrElapsedMs`) applies to live TV only, so a finished
+episode no longer counts up from 0 as if playing.
+
+Terminate is refused for them, on the card and in `services/termination.ts`: there is no app to
+send the stop to, and an app that once had the browser's address could be stopped instead. The X
+says "Tracearr can't stop Channels DVR streams playing in a web browser."
+
+## November 11, 2026 — Channels DVR links, episode matching, recordings and live progress
+
+**Open on server.** `buildMediaServerItemUrl` gains a `channels_dvr` case: shows open
+`/admin/shows/<id>` in the Channels DVR web UI, episodes open their show (the UI has no
+episode pages), anything else falls back to the server root. Availability entries now carry
+`itemType` and `showRatingKey` (from `library_items.media_type` / `grandparent_rating_key`)
+so the detail page can build those links.
+
+**Episode matching across servers.** Plex/Jellyfin/Emby key episodes by provider id
+(`episode:tvdb:…`); Channels DVR has none, so its episodes were keyed by show and number and
+never joined the other servers' rows (The Addams Family showed 67 + 55 episodes instead of
+34 + 30). Id-less episodes now resolve to the single episode row another server holds for the
+same canonical show, season and episode, when the titles agree or one side has none
+(`findEpisodesByShowNumber`). `reconcileIdlessServerEpisodes` merges existing duplicates on
+the next library sync that processes items. Both refuse ambiguous cases (more than one
+candidate, or differing titles), which protects shows numbered differently between servers.
+
+**Recording now.** `GET /sessions/recordings` reads "Recording ch2 for … until 4:30AM"
+activity lines (`parseRecordingActivity`) from each Channels DVR server the user can see,
+with programme times and artwork from the guide when its current airing is the programme
+being recorded (otherwise the job start, Channels' own "until" text and the channel logo).
+The dashboard shows them in a separate "Recording now" panel under Now Playing. Recordings
+never enter the session pipeline, history, stats or rules.
+
+**Stop a recording.** Admins and owners get a Stop button on each Recording Now card (with a
+confirmation). `POST /sessions/recordings/stop` sends `DELETE /dvr/jobs/<jobId>` to Channels
+DVR, the same call its web UI makes for DVR > Schedule > Stop; the job id comes from the
+activity key (`0-job-1794391200-ch2` -> `1794391200-ch2`). Verified live: the partial
+recording stays in the Channels DVR library.
+
+**Landscape artwork in Browse.** Shows that exist only on Channels DVR carry 16:9 TV-guide
+banners, which the portrait poster frame cropped hard ("KOCO 5 NEWS" -> "OCO 5 NEW").
+`PosterArt` now detects landscape images on load and shows them whole over a blurred copy of
+themselves; portrait posters are unchanged.
+
+**Live TV progress.** Live sessions take the current airing's start and length from the guide,
+so the card shows progress through the programme. Live TV is judged "watched" by time watched
+only (`checkWatchCompletion` gets no position for `live`), so tuning in near the end of a
+programme does not count as watching it.
+
+**Terminate while pending.** New sessions are pending (not yet saved) for 30 s; the Now Playing
+card now greys out Terminate during that window and explains why, instead of the request
+failing with "Session not found".
+
+## November 11, 2026 — Channels DVR playback position, pause and incremental sync
+
+**Position and progress.** Recording activity lines end with the playback position
+("at 40s", "at 4m15s", "at 1h2m3s"); the parser now reads it (`parseElapsed`) instead of
+discarding it, and the client derives `progressPercent` from the file duration. The poller
+prefers this reported position over `getChannelsDvrElapsedMs` (time since first seen), which
+is now only the fallback for live TV. This fixes the Now Playing counter restarting from 0
+on every poll and after a Tracearr restart. It also fixes a parser bug: the elapsed-time
+suffix was only stripped in the plain-seconds form, so past one minute the device name
+became "Living Room Apple TV at 4m15s" and created a new user per position.
+
+**Pause state.** Local devices are asked directly: `GET http://<device>:57000/api/status`
+(1 s timeout, in parallel) returns `playing`/`paused` and an exact `playback_time`, used only
+when its `now_playing` matches the session (season/episode/show, or movie title). Devices that
+do not answer are skipped for 60 s (`deviceStatus.ts`). Remote or unreachable devices fall back
+to server-side inference (`playbackState.ts`): Channels refreshes the activity position about
+every 10 s, so a recording is reported paused once its position has not moved for 20 s, and
+between refreshes a playing position is carried forward so it never steps backwards. Watched
+status needs no Channels-specific code: the poller's completion check now has real progress
+and duration, and paused time is excluded from watch time. Live TV still has no position.
+
+**Daily shows.** Daily recordings (news, talk) number seasons by year ("Season 2026,
+Episode 1111" / S2026E1111); the parser only accepted 3-digit seasons, so they were treated
+as movies with the raw activity text as title. Seasons now allow 4 digits and episodes 5.
+They also often have no episode title in `/dvr/files/<id>`; they are still treated as
+episodes and titled by the show name, and the Now Playing card omits an episode title that
+merely repeats the show ("News 9 @ 4a" / "S2026 E1111").
+
+**Incremental library sync (removed again).** Channels DVR cannot filter its library lists by
+date, so incremental sync still downloaded everything and, worse, could not notice deleted
+episodes (only full scans remove items). The Channels client therefore implements no
+`getLibraryItemsSince`/`getLibraryLeavesSince`: every Channels sync (12-hourly, on start, or
+manual) is a full scan, and deleted shows and episodes disappear on the next sync.
+
+Known limitation (upstream behaviour, all server types): new sessions are pending for 30 s
+before they are written to the database, so Terminate returns "Session not found" during that
+window.
+
+Validation: server typecheck and all Channels DVR test files pass; position, pause/resume via
+the device API, and the restart case were checked live on an Apple TV.
+
+## November 10, 2026 — Channels DVR termination and library
+
+**Termination.** Tracearr can now stop Channels DVR streams. Channels DVR has no
+"stop session" API, so the Tracearr server calls the Channels app on the playback
+device directly (`POST http://<device-ip>:57000/api/stop`), after a 2 s reachability
+probe of `/api/status`. Only sessions Tracearr classifies as local (and whose device
+IP is private) are attempted; remote sessions are refused with "Tracearr can only stop
+Channels DVR streams on devices within your local network." The check lives in
+`services/termination.ts` (`not_local` outcome) and is returned as a 400 by the web,
+mobile and public terminate routes. The web Now Playing card shows that message on
+click (and on hover) for remote Channels sessions instead of opening the dialog; for
+local ones the dialog names the device ("Stop … on Living Room Apple TV?", no `@`)
+and hides the message field, which Channels cannot display. The iPhone app's own
+terminate sheet still shows the message field and `@`, since that UI ships in the app.
+
+**Library.** `channels_dvr` now has `mediaLibrary: true`. The client exposes three
+fixed libraries — TV Shows (`/api/v1/shows` + `/api/v1/episodes` as leaves), Movies
+(`/api/v1/movies`) and Videos (`/api/v1/videos`) — mapped in
+`channelsDvr/library.ts`. Episode/movie ids are DVR file ids, matching session ids.
+Quality (resolution, video/audio codec, channels) is parsed from filename tags;
+file sizes come from one `GET /dvr/files` request per sync. `{imdb-…}`/`{tmdb-…}` path
+ids are applied to movies only, since for episodes they sit on the show folder. Each
+list is fetched once per sync (60 s cache). Shows match existing Plex/Emby rows by
+title and year. Movies and Videos were not verified against real data (empty on the
+test server).
+
+Validation: server typecheck, web typecheck, `termination.test.ts` (33) and
+`channelsDvr-library.test.ts` (13) pass; termination and library sync were checked
+live against a Channels DVR server.
+
 ## November 1, 2026 — Channels DVR (experimental)
 
 Adds a `channels_dvr` server type: sessions only, polled from the undocumented

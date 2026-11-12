@@ -189,9 +189,10 @@ export interface BuildActiveSessionInput {
 }
 
 /**
- * Channels DVR reports no playback position, so the parser emits 0 and the
- * web estimator would restart from 0 on every poll. Use time since the session
- * was first seen (minus paused time) as the position instead.
+ * Fallback position for Channels DVR live TV, which reports none: time
+ * since the session was first seen, minus paused time. Without it the web
+ * estimator would restart from 0 on every poll. Recordings report their real
+ * position ("at 4m15s"), which takes precedence wherever this is used.
  */
 export function getChannelsDvrElapsedMs(
   serverType: string,
@@ -250,15 +251,18 @@ export function buildActiveSession(input: BuildActiveSessionInput): ActiveSessio
 
     // Progress
     totalDurationMs: processed.totalDurationMs || null,
+    // The real position wins; Channels DVR live TV reports none, so it falls back to
+    // time since the session was first seen.
     progressMs:
-      getChannelsDvrElapsedMs(
-        server.type,
-        session.startedAt,
-        overrides?.pausedDurationMs !== undefined
-          ? overrides.pausedDurationMs
-          : session.pausedDurationMs
-      ) ||
       processed.progressMs ||
+      (processed.mediaType === 'live' &&
+        getChannelsDvrElapsedMs(
+          server.type,
+          session.startedAt,
+          overrides?.pausedDurationMs !== undefined
+            ? overrides.pausedDurationMs
+            : session.pausedDurationMs
+        )) ||
       null,
     progressUpdatedAt: new Date(),
 
@@ -331,8 +335,9 @@ export function buildActiveSession(input: BuildActiveSessionInput): ActiveSessio
     user,
     server: { id: server.id, name: server.name, type: server.type },
 
-    // Termination capability - Plex requires Session.id, some clients (like Plexamp) don't provide it
-    canTerminate: server.type === 'channels_dvr' ? false : server.type !== 'plex' || !!processed.plexSessionId,
+    // Termination capability - Plex requires Session.id, some clients (like Plexamp) don't provide it.
+    // Channels DVR shows the button for every session; remote ones are refused with a message on click.
+    canTerminate: server.type !== 'plex' || !!processed.plexSessionId,
   };
 }
 
@@ -390,8 +395,13 @@ export function buildPendingActiveSession(pendingData: PendingSessionData): Acti
     // Progress
     totalDurationMs: processed.totalDurationMs || null,
     progressMs:
-      getChannelsDvrElapsedMs(server.type, pendingData.startedAt, pendingData.pausedDurationMs) ||
       processed.progressMs ||
+      (processed.mediaType === 'live' &&
+        getChannelsDvrElapsedMs(
+          server.type,
+          pendingData.startedAt,
+          pendingData.pausedDurationMs
+        )) ||
       null,
 
     // Pause tracking
@@ -465,7 +475,7 @@ export function buildPendingActiveSession(pendingData: PendingSessionData): Acti
     server: { id: server.id, name: server.name, type: server.type },
 
     // Termination capability
-    canTerminate: server.type === 'channels_dvr' ? false : server.type !== 'plex' || !!processed.plexSessionId,
+    canTerminate: server.type !== 'plex' || !!processed.plexSessionId,
 
     // Unconfirmed; excludeUncountableSessions drops this from rule evaluation
     pending: true,
@@ -1224,7 +1234,8 @@ export async function stopSessionAtomic(input: SessionStopInput): Promise<Sessio
     : session.watched ||
       checkWatchCompletion(
         durationMs,
-        session.progressMs,
+        // Live TV: judged by time watched only (see processor.ts).
+        session.mediaType === 'live' ? null : session.progressMs,
         session.totalDurationMs,
         await getWatchedThreshold(session.mediaType)
       );

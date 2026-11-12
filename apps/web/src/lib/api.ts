@@ -1,4 +1,5 @@
 import type {
+  ChannelsDvrScheduleResponse,
   Server,
   ServerDownReason,
   UpdateUserAccessInput,
@@ -1122,6 +1123,14 @@ class ApiClient {
       this.request<SessionWithDetails>(
         `/sessions/${id}${startedAt ? `?startedAt=${new Date(startedAt).toISOString()}` : ''}`
       ),
+    /** Channels DVR recordings in progress and coming up, and tuner usage (not viewing sessions) */
+    recordings: () => this.request<ChannelsDvrScheduleResponse>('/sessions/recordings'),
+    /** Stop a Channels DVR recording in progress; the partial recording is kept */
+    stopRecording: (serverId: string, jobId: string) =>
+      this.request<{ success: boolean }>('/sessions/recordings/stop', {
+        method: 'POST',
+        body: JSON.stringify({ serverId, jobId }),
+      }),
     terminate: (id: string, reason?: string) =>
       this.request<{ success: boolean; terminationLogId: string; message: string }>(
         `/sessions/${id}/terminate`,

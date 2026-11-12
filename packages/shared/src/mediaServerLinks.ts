@@ -5,6 +5,9 @@
  * users) and needs machineIdentifier, Emby needs `#!` and a serverId or the
  * page 404s, Jellyfin needs a bare `#` and the item id alone.
  *
+ * Channels DVR (verified against the admin web UI) has show pages only: episodes
+ * open their show, and anything else falls back to the server root.
+ *
  * Null means a required identifier is missing; link to the server root.
  */
 
@@ -18,6 +21,10 @@ export interface MediaServerItemLinkInput {
   ratingKey: string;
   /** The media server's own id, not Tracearr's server row id. */
   machineIdentifier?: string | null;
+  /** Type of the item (show, episode, movie, ...). Channels DVR needs it. */
+  itemType?: string | null;
+  /** Episodes: the show's id on the same server. Channels DVR links episodes to their show. */
+  showRatingKey?: string | null;
 }
 
 const PLEX_APP_BASE = 'https://app.plex.tv/desktop';
@@ -31,6 +38,8 @@ export function buildMediaServerItemUrl({
   baseUrl,
   ratingKey,
   machineIdentifier,
+  itemType,
+  showRatingKey,
 }: MediaServerItemLinkInput): string | null {
   if (!ratingKey) return null;
 
@@ -50,6 +59,15 @@ export function buildMediaServerItemUrl({
       const root = trimTrailingSlash(baseUrl);
       if (!root) return null;
       return `${root}/web/index.html#/details?id=${encodeURIComponent(ratingKey)}`;
+    }
+    case 'channels_dvr': {
+      // The Channels DVR web UI has a page per show (/admin/shows/<id>) but none per
+      // episode, so episodes open their show. Movies and videos have no known page.
+      const root = trimTrailingSlash(baseUrl);
+      if (!root) return null;
+      const showId =
+        itemType === 'show' ? ratingKey : itemType === 'episode' ? showRatingKey : null;
+      return showId ? `${root}/admin/shows/${encodeURIComponent(showId)}` : null;
     }
     default:
       return null;

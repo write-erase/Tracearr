@@ -7,7 +7,7 @@
  */
 
 import type { FastifyPluginAsync } from 'fastify';
-import { sql } from 'drizzle-orm';
+import { and, eq, isNull, sql } from 'drizzle-orm';
 import {
   sessionQuerySchema,
   historyQuerySchema,
@@ -22,9 +22,10 @@ import {
   type ActiveSession,
   type HistorySessionResponse,
   type HistoryAggregates,
+  type ChannelsDvrScheduleResponse,
 } from '@tracearr/shared';
 import { db } from '../../db/client.js';
-import { sessions } from '../../db/schema.js';
+import { servers, sessions } from '../../db/schema.js';
 import {
   baseSessionConditions,
   historyMediaTypeDefault,
@@ -35,6 +36,7 @@ import {
 import { hasServerAccess, resolveServerIds } from '../../utils/serverFiltering.js';
 import { terminateSession } from '../../services/termination.js';
 import { getCacheService } from '../../services/cache.js';
+import { ChannelsDvrClient } from '../../services/mediaServer/channelsDvr/client.js';
 import {
   assertInScope,
   memberCacheSegment,
@@ -306,6 +308,89 @@ export const sessionRoutes: FastifyPluginAsync = async (app) => {
   /**
    * GET /sessions/active - Get currently active streams from cache
    */
+  /**
+   * GET /sessions/recordings - Channels DVR recordings in progress, recordings starting
+   * in the next day, and tuner usage
+   *
+   * Recordings are not viewing sessions: they are read live from each Channels DVR
+   * server the user can see and never enter the session pipeline, history or stats.
+   * A server that cannot be reached is skipped.
+   */
+  app.get('/recordings', readSessions, async (request): Promise<ChannelsDvrScheduleResponse> => {
+    const authUser = request.user;
+    const channelsServers = await db
+      .select({ id: servers.id, name: servers.name, url: servers.url })
+      .from(servers)
+      .where(and(eq(servers.type, 'channels_dvr'), isNull(servers.historicalAt)));
+
+    const visible = channelsServers.filter((server) => hasServerAccess(authUser, server.id));
+    const perServer = await Promise.all(
+      visible.map(async (server) => {
+        try {
+          const client = new ChannelsDvrClient({ url: server.url, token: '' });
+          const schedule = await client.getSchedule();
+          const tag = { serverId: server.id, serverName: server.name };
+          return {
+            recordings: schedule.recordings.map((recording) => ({ ...recording, ...tag })),
+            upcoming: schedule.upcoming.map((job) => ({ ...job, ...tag })),
+            tuners: schedule.tuners ? [{ ...schedule.tuners, ...tag }] : [],
+            disks: schedule.disk ? [{ ...schedule.disk, ...tag }] : [],
+          };
+        } catch (err) {
+          app.log.debug({ serverId: server.id, err }, 'Channels DVR recordings unavailable');
+          return { recordings: [], upcoming: [], tuners: [], disks: [] };
+        }
+      })
+    );
+    return {
+      data: perServer.flatMap((s) => s.recordings),
+      upcoming: perServer
+        .flatMap((s) => s.upcoming)
+        .sort((a, b) => a.startsAt.localeCompare(b.startsAt)),
+      tuners: perServer.flatMap((s) => s.tuners),
+      disks: perServer.flatMap((s) => s.disks),
+    };
+  });
+
+  /**
+   * POST /sessions/recordings/stop - stop a Channels DVR recording in progress
+   * Body: { serverId, jobId }. Same permission as terminating a stream. The partial
+   * recording stays in the Channels DVR library.
+   */
+  app.post('/recordings/stop', terminateSessions, async (request, reply) => {
+    const body = request.body as { serverId?: unknown; jobId?: unknown } | undefined;
+    const serverId = typeof body?.serverId === 'string' ? body.serverId : '';
+    const jobId = typeof body?.jobId === 'string' ? body.jobId : '';
+    if (!serverId || !/^\d{9,11}-[\w.-]+$/.test(jobId)) {
+      return reply.badRequest('serverId and a Channels DVR jobId are required');
+    }
+    if (!hasServerAccess(request.user, serverId)) {
+      return reply.forbidden('You do not have access to this server');
+    }
+    const [server] = await db
+      .select({ url: servers.url, type: servers.type, historicalAt: servers.historicalAt })
+      .from(servers)
+      .where(eq(servers.id, serverId))
+      .limit(1);
+    if (!server || server.type !== 'channels_dvr' || server.historicalAt) {
+      return reply.notFound('Channels DVR server not found');
+    }
+    try {
+      await new ChannelsDvrClient({ url: server.url, token: '' }).stopRecording(jobId);
+    } catch (err) {
+      app.log.warn({ serverId, jobId, err }, 'Failed to stop Channels DVR recording');
+      return reply.code(502).send({
+        success: false,
+        error: err instanceof Error ? err.message : 'Failed to stop the recording',
+      });
+    }
+    app.log.info(
+      { serverId, jobId, userId: request.user.userId },
+      'Stopped Channels DVR recording'
+    );
+    return { success: true };
+  });
+
   app.get('/active', readSessions, async (request, _reply) => {
     const authUser = request.user;
 
@@ -462,6 +547,13 @@ export const sessionRoutes: FastifyPluginAsync = async (app) => {
 
     if (result.outcome === 'server_historical') {
       return reply.conflict('Resume this server to end its streams');
+    }
+
+    if (result.outcome === 'not_local') {
+      return reply.badRequest(
+        result.error ??
+          'Tracearr can only stop Channels DVR streams on devices within your local network.'
+      );
     }
 
     if (!result.success) {

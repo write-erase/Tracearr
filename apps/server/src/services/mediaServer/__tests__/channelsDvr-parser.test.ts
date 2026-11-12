@@ -4,6 +4,8 @@ import {
   parseSessionsFromDvr,
   parseDvrActivity,
   parseWatchActivity,
+  parseElapsed,
+  parseRecordingActivity,
 } from '../channelsDvr/parser.js';
 
 // Shapes taken from public Channels community posts; the format is undocumented.
@@ -51,7 +53,11 @@ describe('Channels DVR parser', () => {
     );
 
     expect(session?.media.type).toBe('episode');
-    expect(session?.episode).toEqual({ showTitle: 'Home Improvement', seasonNumber: 6, episodeNumber: 24 });
+    expect(session?.episode).toEqual({
+      showTitle: 'Home Improvement',
+      seasonNumber: 6,
+      episodeNumber: 24,
+    });
     expect(session?.user.username).toBe('iPad');
     expect(session?.player.name).toBe('iPad');
   });
@@ -91,10 +97,12 @@ describe('Channels DVR parser', () => {
 
     expect(parsed?.clientName).toBe("Craig's Apple TV");
     expect(parsed?.videoDecision).toBe('copy');
-    const [session] = parseSessionsFromDvr(dvr({
-      '7-ch234-dANY-26688a6db1d2':
-        "Watching ch234 from Craig's Apple TV (Remux Starting: 15m19s @ 1.01x (60.53fps)): buf=0% drop=0%",
-    }));
+    const [session] = parseSessionsFromDvr(
+      dvr({
+        '7-ch234-dANY-26688a6db1d2':
+          "Watching ch234 from Craig's Apple TV (Remux Starting: 15m19s @ 1.01x (60.53fps)): buf=0% drop=0%",
+      })
+    );
     expect(session?.player.name).toBe("Craig's Apple TV");
     expect(session?.quality).toMatchObject({ isTranscode: false, videoDecision: 'copy' });
   });
@@ -133,14 +141,12 @@ describe('Channels DVR parser', () => {
     expect(s!.sessionKey).toBe('6-stream-M3U-DispatcharrHLS-210-192.168.30.8');
   });
 
-
   it('matches artwork independently when Channels DVR users watch different channels', () => {
     const sessions = parseSessionsFromDvr(
       dvr({
         '6-stream-M3U-DispatcharrHLS-210-192.168.30.8':
           'Watching ch210 NFL Game Pass 11 from Living Room Apple TV',
-        '6-stream-M3U-DispatcharrHLS-220-192.168.30.9':
-          'Watching ch220 ESPN from Bedroom Apple TV',
+        '6-stream-M3U-DispatcharrHLS-220-192.168.30.9': 'Watching ch220 ESPN from Bedroom Apple TV',
       })
     );
 
@@ -289,5 +295,132 @@ describe('Channels DVR parser', () => {
     );
     expect(s!.network.isLocal).toBe(false);
     expect(s!.media.type).toBe('movie');
+  });
+
+  describe('playback position', () => {
+    it.each([
+      ['40s', 40],
+      ['4m15s', 255],
+      ['1h2m3s', 3723],
+      ['1h', 3600],
+      ['12m', 720],
+      ['1.5s', 1.5],
+    ])('parses %s as %d seconds', (text, seconds) => {
+      expect(parseElapsed(text)).toBe(seconds);
+    });
+
+    it('rejects text that is not a duration', () => {
+      expect(parseElapsed('')).toBeUndefined();
+      expect(parseElapsed('home')).toBeUndefined();
+    });
+
+    it('reads the position and keeps the device name stable past one minute', () => {
+      const [early] = parseSessionsFromDvr(
+        dvr({
+          '6-file-1089-192.168.30.8':
+            'Watching M*A*S*H - Season 1, Episode 1 from Living Room Apple TV at 40s',
+        })
+      );
+      const [later] = parseSessionsFromDvr(
+        dvr({
+          '6-file-1089-192.168.30.8':
+            'Watching M*A*S*H - Season 1, Episode 1 from Living Room Apple TV at 4m15s',
+        })
+      );
+
+      expect(early?.playback.positionMs).toBe(40_000);
+      expect(later?.playback.positionMs).toBe(255_000);
+      expect(later?.user.username).toBe('Living Room Apple TV');
+      expect(later?.user.id).toBe(early?.user.id);
+    });
+
+    it('leaves live sessions at position 0', () => {
+      const [s] = parseSessionsFromDvr(
+        dvr({ '6-stream-M3U-mlbradiofeeds-1429-10.100.12.98': 'Watching ch1429 MLBTV.WSH on iPad' })
+      );
+      expect(s?.playback.positionMs).toBe(0);
+    });
+  });
+
+  it('titles an untitled daily episode by its show, not the raw activity text', () => {
+    const [s] = parseSessionsFromDvr(
+      dvr({
+        '6-file-1340-192.168.30.8':
+          'Watching News 9 @ 4a - Season 2026, Episode 1111 from Living Room Apple TV at 2m10s',
+      })
+    );
+    expect(s?.media.title).toBe('News 9 @ 4a');
+    expect(s?.episode).toEqual({
+      showTitle: 'News 9 @ 4a',
+      seasonNumber: 2026,
+      episodeNumber: 1111,
+    });
+    expect(s?.playback.positionMs).toBe(130_000);
+  });
+
+  describe('recordings in progress', () => {
+    it('parses channel, title, job start and end time', () => {
+      expect(
+        parseRecordingActivity({
+          key: '0-job-1794391200-ch2',
+          text: 'Recording ch2 for News 9 @ 4a until 4:30AM: buf=0% drop=0%',
+        })
+      ).toEqual({
+        key: '0-job-1794391200-ch2',
+        jobId: '1794391200-ch2',
+        channelNumber: '2',
+        title: 'News 9 @ 4a',
+        startedAt: new Date(1794391200 * 1000),
+        untilText: '4:30AM',
+      });
+    });
+
+    it('handles sub-channels and lines without an end time', () => {
+      const r = parseRecordingActivity({
+        key: '0-job-x-ch5.1',
+        text: 'Recording ch5.1 for The Price Is Right',
+      });
+      expect(r).toMatchObject({ channelNumber: '5.1', title: 'The Price Is Right' });
+      expect(r?.untilText).toBeUndefined();
+      expect(r?.startedAt).toBeUndefined();
+    });
+
+    it('ignores viewers and other activity', () => {
+      expect(
+        parseRecordingActivity({
+          key: '6-file-1089-192.168.30.8',
+          text: 'Watching M*A*S*H - Season 1, Episode 1 from Living Room Apple TV at 40s',
+        })
+      ).toBeNull();
+      expect(parseRecordingActivity({ key: 'x', text: 'Updating guide data' })).toBeNull();
+    });
+
+    it('never turns a recording into a viewing session', () => {
+      expect(
+        parseSessionsFromDvr(
+          dvr({
+            '0-job-1794391200-ch2': 'Recording ch2 for News 9 @ 4a until 4:30AM: buf=0% drop=0%',
+          })
+        )
+      ).toEqual([]);
+    });
+  });
+
+  it('reads the Channels web player key ("7-file1109-ip192.168.30.9")', () => {
+    const [s] = parseSessionsFromDvr(
+      dvr({
+        '7-file1109-ip192.168.30.9': 'Watching M*A*S*H - Season 1, Episode 21 from iPad at 25s',
+      })
+    );
+    expect(s?.media.type).toBe('episode');
+    expect(s?.mediaId).toBe('1109');
+    expect(s?.media.thumbPath).toBe('/dvr/files/1109/preview.jpg');
+    expect(s?.network.ipAddress).toBe('192.168.30.9');
+    expect(s?.episode).toEqual({ showTitle: 'M*A*S*H', seasonNumber: 1, episodeNumber: 21 });
+    expect(s?.playback.positionMs).toBe(25_000);
+    // Channels calls it "iPad" after the app that last had that address; it is a browser.
+    expect(s?.user.username).toBe('Web Browser (192.168.30.9)');
+    expect(s?.player.product).toBe('Channels Web');
+    expect(s?.player.platform).toBe('Web');
   });
 });

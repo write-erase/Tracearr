@@ -11,22 +11,45 @@ import { ServerResourceCharts } from '@/components/charts/ServerResourceCharts';
 import { ServerBandwidthChart } from '@/components/charts/BandwidthChart';
 import { ErrorState } from '@/components/library/ErrorState';
 import { NowPlayingSection } from '@/components/dashboard/NowPlayingSection';
+import { RecordingNowSection } from '@/components/dashboard/RecordingNowSection';
 import { SectionHeading } from '@/components/dashboard/SectionHeading';
 import { PersonalDashboard } from '@/components/dashboard/PersonalDashboard';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
-import { useDashboardStats, useActiveSessions } from '@/hooks/queries';
+import { useDashboardStats, useActiveSessions, useChannelsRecordings } from '@/hooks/queries';
 import { useServerLiveStats, useMultiServerLiveStats } from '@/hooks/queries/useServers';
 import { useAuth } from '@/hooks/useAuth';
 import { useServer } from '@/hooks/useServer';
 import { useServerColorMap } from '@/hooks/useServerColorMap';
 import { useSocket } from '@/hooks/useSocket';
-import { pickServerColor } from '@tracearr/shared';
+import { pickServerColor, serverLinkBase } from '@tracearr/shared';
 import { formatWatchTime } from '@/lib/dateFormat';
 import { cn } from '@/lib/utils';
 
 function ServerDashboard({ actions }: { actions?: ReactNode }) {
   const { t } = useTranslation(['pages', 'common']);
   const { selectedServerIds, selectedServers, isMultiServer, selectedServerId } = useServer();
+
+  // Channels DVR recordings in progress: only asked for when a Channels server is selected.
+  const channelsServers = useMemo(
+    () => selectedServers.filter((s) => s.type === 'channels_dvr' && !s.historicalAt),
+    [selectedServers]
+  );
+  const channelsServerIds = useMemo(() => channelsServers.map((s) => s.id), [channelsServers]);
+  const channelsLinkBases = useMemo(
+    () => Object.fromEntries(channelsServers.map((s) => [s.id, serverLinkBase(s)])),
+    [channelsServers]
+  );
+  const { data: schedule } = useChannelsRecordings(channelsServerIds.length > 0);
+  const dvr = useMemo(() => {
+    if (!schedule) return undefined;
+    const selected = (entry: { serverId: string }) => channelsServerIds.includes(entry.serverId);
+    return {
+      recordings: schedule.data.filter(selected),
+      upcoming: schedule.upcoming.filter(selected),
+      tuners: schedule.tuners.filter(selected),
+      disks: schedule.disks.filter(selected),
+    };
+  }, [schedule, channelsServerIds]);
   const { isConnected } = useSocket();
   const {
     data: stats,
@@ -241,6 +264,16 @@ function ServerDashboard({ actions }: { actions?: ReactNode }) {
       </section>
 
       <NowPlayingSection sessions={sortedSessions} />
+
+      <RecordingNowSection
+        title={channelsServers.length === 1 ? channelsServers[0]?.name : undefined}
+        recordings={dvr?.recordings}
+        upcoming={dvr?.upcoming}
+        tuners={dvr?.tuners}
+        disks={dvr?.disks}
+        linkBases={channelsLinkBases}
+        showServer={channelsServerIds.length > 1}
+      />
 
       {/* Stream Map - only show when there are active streams */}
       {hasActiveStreams && (

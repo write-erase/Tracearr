@@ -3126,6 +3126,70 @@ export interface MediaVersionEntry {
   fileSize: number | null;
 }
 
+/** A Channels DVR recording in progress (GET /sessions/recordings). Not a viewing session. */
+export interface ChannelsDvrRecordingEntry {
+  serverId: string;
+  serverName: string;
+  key: string;
+  /** Channels DVR job id, used to stop the recording; null when unknown */
+  jobId: string | null;
+  channelNumber: string;
+  channelTitle: string | null;
+  title: string;
+  /** ISO times; null when unknown */
+  startedAt: string | null;
+  endsAt: string | null;
+  /** End time as Channels wrote it ("4:30AM"), shown when endsAt is unknown */
+  untilText: string | null;
+  /** Artwork path on the Channels DVR server (programme image or channel logo) */
+  thumbPath: string | null;
+}
+
+/** A Channels DVR recording queued to start within the next day. */
+export interface ChannelsDvrUpcomingEntry {
+  serverId: string;
+  serverName: string;
+  jobId: string;
+  title: string;
+  /** The show's id in Channels (for XMLTV guides, its name), for /admin/shows/<id> */
+  showId: string | null;
+  episodeTitle: string | null;
+  seasonNumber: number | null;
+  episodeNumber: number | null;
+  channelNumber: string | null;
+  channelTitle: string | null;
+  /** ISO times */
+  startsAt: string;
+  endsAt: string;
+  /** Artwork path on the Channels DVR server (programme image or channel logo) */
+  thumbPath: string | null;
+}
+
+/** Tuners busy on one Channels DVR server: one per channel being watched live or recorded. */
+export interface ChannelsDvrTunerUsage {
+  serverId: string;
+  serverName: string;
+  inUse: number;
+  total: number;
+}
+
+/** Free disk space for recordings on one Channels DVR server. */
+export interface ChannelsDvrDiskUsage {
+  serverId: string;
+  serverName: string;
+  freeBytes: number;
+  totalBytes: number;
+}
+
+/** GET /sessions/recordings */
+export interface ChannelsDvrScheduleResponse {
+  /** Recordings in progress */
+  data: ChannelsDvrRecordingEntry[];
+  upcoming: ChannelsDvrUpcomingEntry[];
+  tuners: ChannelsDvrTunerUsage[];
+  disks: ChannelsDvrDiskUsage[];
+}
+
 export interface MediaAvailabilityEntry {
   serverId: string;
   serverType: string;
@@ -3133,6 +3197,10 @@ export interface MediaAvailabilityEntry {
   /** Library display name, null until that server's library sync has recorded it. */
   libraryName: string | null;
   ratingKey: string;
+  /** Type of this copy on its server (movie, show, episode, ...). */
+  itemType?: string;
+  /** Episodes: the show's id on the same server (used for servers that link shows only). */
+  showRatingKey?: string | null;
   addedAt: string;
   removedAt: string | null;
   videoResolution: string | null;

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Monitor, Smartphone, Tablet, Tv, Play, Pause, Server, Subtitles, X } from 'lucide-react';
+import { toast } from 'sonner';
+import { Play, Pause, Server, Subtitles, X } from 'lucide-react';
 import { getAvatarUrl } from '@/components/users/utils';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
@@ -21,6 +22,8 @@ import { useAuth } from '@/hooks/useAuth';
 import { useServer } from '@/hooks/useServer';
 import { ServerColorAccent } from '@/components/server';
 import { TerminateSessionDialog } from './TerminateSessionDialog';
+import { DeviceBrandIcon } from './DeviceBrandIcon';
+import { DeviceTypeIcon } from './DeviceTypeIcon';
 import { CatchupIcon } from './CatchupIcon';
 import { formatDispatcharrCatchupClock } from './useDispatcharrCatchupCardProgress';
 import { LocalBadge } from './LocalBadge';
@@ -50,9 +53,15 @@ function getCardMediaDisplay(session: ActiveSession): { title: string; subtitle:
       session.seasonNumber && session.episodeNumber
         ? `S${session.seasonNumber.toString().padStart(2, '0')} E${session.episodeNumber.toString().padStart(2, '0')}`
         : '';
+    // Untitled episodes (daily news, talk shows) carry the show name as their title;
+    // don't repeat it under the show name.
+    const episodeTitle =
+      session.mediaTitle && session.mediaTitle !== session.grandparentTitle
+        ? session.mediaTitle
+        : null;
     return {
       title: session.grandparentTitle,
-      subtitle: episodeInfo ? `${episodeInfo} · ${session.mediaTitle}` : session.mediaTitle,
+      subtitle: [episodeInfo, episodeTitle].filter(Boolean).join(' · ') || session.mediaTitle,
     };
   }
 
@@ -74,29 +83,14 @@ function getCardMediaDisplay(session: ActiveSession): { title: string; subtitle:
 
 // Get device icon based on platform/device info
 function DeviceIcon({ session, className }: { session: ActiveSession; className?: string }) {
-  const platform = session.platform?.toLowerCase() ?? '';
-  const device = session.device?.toLowerCase() ?? '';
-  const product = session.product?.toLowerCase() ?? '';
-
-  if (platform.includes('ios') || device.includes('iphone') || platform.includes('android')) {
-    return <Smartphone className={className} />;
-  }
-  if (device.includes('ipad') || platform.includes('tablet')) {
-    return <Tablet className={className} />;
-  }
-  if (
-    platform.includes('tv') ||
-    device.includes('tv') ||
-    product.includes('tv') ||
-    device.includes('roku') ||
-    device.includes('firestick') ||
-    device.includes('chromecast') ||
-    device.includes('apple tv') ||
-    device.includes('shield')
-  ) {
-    return <Tv className={className} />;
-  }
-  return <Monitor className={className} />;
+  return (
+    <DeviceTypeIcon
+      platform={session.platform}
+      device={session.device}
+      product={session.product}
+      className={className}
+    />
+  );
 }
 
 function PlaybackOverlay({ isPaused }: { isPaused: boolean }) {
@@ -134,6 +128,26 @@ export function NowPlayingCard({ session, onClick }: NowPlayingCardProps) {
   // Only admin/owner can terminate sessions, and session must support termination
   // (some Plex clients like Plexamp don't provide the required Session.id)
   const canTerminate = (user?.role === 'admin' || user?.role === 'owner') && session.canTerminate;
+
+  // Channels DVR stops playback by calling the Channels app on the device itself, which only
+  // works on the local network. Remote sessions get a message instead of the dialog.
+  const isChannelsDvr = session.server.type === 'channels_dvr';
+  // The Channels web player (a browser) cannot be stopped: there is no app to send the stop to.
+  const isChannelsWeb = isChannelsDvr && session.product === 'Channels Web';
+  const isRemoteChannels = isChannelsDvr && !session.isLocal;
+  // New streams are held as pending for their first 30 seconds before they are saved, and
+  // only saved sessions can be terminated ("Session not found" otherwise).
+  const isPending = session.pending === true;
+  const webNotPossible = t('pages:terminateStream.webNotPossible', {
+    defaultValue: "Tracearr can't stop Channels DVR streams playing in a web browser.",
+  });
+  const pendingNotYet = t('pages:terminateStream.pendingNotYet', {
+    defaultValue: 'This stream can be stopped once it has been playing for 30 seconds.',
+  });
+  const remoteNotPossible = t('pages:terminateStream.remoteNotPossible', {
+    defaultValue:
+      'Tracearr can only stop Channels DVR streams on devices within your local network.',
+  });
 
   // Use estimated progress for smooth updates between SSE/poll events
   const { estimatedProgressMs, progressPercent } = useEstimatedProgress(session);
@@ -228,7 +242,8 @@ export function NowPlayingCard({ session, onClick }: NowPlayingCardProps) {
                       // A separate alpha mask leaves these pixels too bright during hover scaling.
                       'block h-auto max-h-28 w-auto max-w-20 transition-[filter]',
                       isPaused ? 'brightness-50' : 'group-hover:brightness-50',
-                      (session.mediaType !== 'live' || session.server.type === 'channels_dvr') && 'rounded-lg'
+                      (session.mediaType !== 'live' || session.server.type === 'channels_dvr') &&
+                        'rounded-lg'
                     )}
                     loading="lazy"
                   />
@@ -254,7 +269,17 @@ export function NowPlayingCard({ session, onClick }: NowPlayingCardProps) {
                 <Avatar className="border-background h-7 w-7 shrink-0 border-2 shadow">
                   <AvatarImage src={avatarUrl} alt={session.user.username} />
                   <AvatarFallback className="text-xs">
-                    {session.user.username.slice(0, 2).toUpperCase()}
+                    {/* Channels DVR "users" are devices with no picture: show the device maker's logo */}
+                    {isChannelsDvr ? (
+                      <DeviceBrandIcon
+                        platform={session.platform}
+                        device={session.device}
+                        product={session.product}
+                        className="h-3.5 w-3.5"
+                      />
+                    ) : (
+                      session.user.username.slice(0, 2).toUpperCase()
+                    )}
                   </AvatarFallback>
                 </Avatar>
                 <span
@@ -317,12 +342,36 @@ export function NowPlayingCard({ session, onClick }: NowPlayingCardProps) {
                   <Button
                     variant="ghost"
                     size="icon"
-                    className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive h-6 w-6"
+                    className={cn(
+                      'text-muted-foreground hover:bg-destructive/10 hover:text-destructive h-6 w-6',
+                      isPending && 'cursor-not-allowed opacity-50 hover:bg-transparent'
+                    )}
+                    aria-disabled={isPending || undefined}
                     onClick={(e) => {
                       e.stopPropagation();
+                      if (isChannelsWeb) {
+                        toast.error(webNotPossible);
+                        return;
+                      }
+                      if (isRemoteChannels) {
+                        toast.error(remoteNotPossible);
+                        return;
+                      }
+                      if (isPending) {
+                        toast.info(pendingNotYet);
+                        return;
+                      }
                       setShowTerminateDialog(true);
                     }}
-                    title={t('pages:terminateStream.title')}
+                    title={
+                      isChannelsWeb
+                        ? webNotPossible
+                        : isRemoteChannels
+                          ? remoteNotPossible
+                          : isPending
+                            ? pendingNotYet
+                            : t('pages:terminateStream.title')
+                    }
                   >
                     <X className="h-4 w-4" />
                   </Button>
@@ -423,6 +472,8 @@ export function NowPlayingCard({ session, onClick }: NowPlayingCardProps) {
         sessionId={session.id}
         mediaTitle={title}
         username={session.user.username}
+        showMessageField={!isChannelsDvr}
+        targetIsDevice={isChannelsDvr}
       />
     </>
   );

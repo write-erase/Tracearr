@@ -14,6 +14,8 @@ import { toRuleSession } from './automations/events/contextAssembly.js';
 import { dispatchSessionStopped } from './automations/events/producers.js';
 import { clearDbWriteTracking } from '../jobs/poller/dbWriteThrottle.js';
 import { buildCompositeKey } from '../jobs/poller/stateTracker.js';
+import { isPrivateIP } from '../jobs/poller/utils.js';
+import { isLocalSession } from '../db/sessions/rules.js';
 
 // ============================================================================
 // Types
@@ -42,7 +44,19 @@ export interface TerminateSessionOptions {
   sessionStartedAt?: Date | string | null;
 }
 
-export type TerminationOutcome = 'terminated' | 'already_gone' | 'failed' | 'server_historical';
+export type TerminationOutcome =
+  | 'terminated'
+  | 'already_gone'
+  | 'failed'
+  | 'server_historical'
+  /** Channels DVR: only sessions on the local network can be stopped */
+  | 'not_local';
+
+export const REMOTE_STREAM_NOT_TERMINABLE =
+  'Tracearr can only stop Channels DVR streams on devices within your local network.';
+
+export const WEB_PLAYER_NOT_TERMINABLE =
+  "Tracearr can't stop Channels DVR streams playing in a web browser.";
 
 export interface TerminationResult {
   success: boolean;
@@ -133,6 +147,44 @@ export async function terminateSession(
     };
   }
 
+  // Channels DVR stops playback by calling the Channels app on the device itself, which
+  // only works on the local network. Refuse remote sessions up front.
+  // The Channels web player is a browser: there is no app on :57000 to stop it, and an app
+  // that once had its address might be stopped instead. Refuse before anything is sent.
+  if (session.server.type === 'channels_dvr' && session.product === 'Channels Web') {
+    const logEntries = await db
+      .insert(terminationLogs)
+      .values({ ...logBase, success: false, errorMessage: WEB_PLAYER_NOT_TERMINABLE })
+      .returning({ id: terminationLogs.id });
+    return {
+      success: false,
+      terminationLogId: logEntries[0]?.id ?? '',
+      error: WEB_PLAYER_NOT_TERMINABLE,
+      outcome: 'not_local',
+    };
+  }
+
+  if (
+    session.server.type === 'channels_dvr' &&
+    !(isLocalSession(session) && !!session.ipAddress && isPrivateIP(session.ipAddress))
+  ) {
+    const logEntries = await db
+      .insert(terminationLogs)
+      .values({
+        ...logBase,
+        success: false,
+        errorMessage: REMOTE_STREAM_NOT_TERMINABLE,
+      })
+      .returning({ id: terminationLogs.id });
+
+    return {
+      success: false,
+      terminationLogId: logEntries[0]?.id ?? '',
+      error: REMOTE_STREAM_NOT_TERMINABLE,
+      outcome: 'not_local',
+    };
+  }
+
   // Create media server client
   const client = createMediaServerClient({
     type: session.server.type,
@@ -144,12 +196,15 @@ export async function terminateSession(
   // Get the session ID for termination
   // For Plex: use plexSessionId (Session.id) which is different from sessionKey
   // For Jellyfin/Emby: use sessionKey directly
+  // For Channels DVR: the playback device's IP (the stop goes to the Channels app on it)
   const terminationSessionId =
     session.server.type === 'plex'
       ? session.plexSessionId
-      : session.server.type === 'dispatcharr' && session.dispatcharrPlaybackKind === 'catchup'
-        ? `catchup:${session.sessionKey.split(':')[1] ?? ''}`
-        : session.sessionKey;
+      : session.server.type === 'channels_dvr'
+        ? session.ipAddress
+        : session.server.type === 'dispatcharr' && session.dispatcharrPlaybackKind === 'catchup'
+          ? `catchup:${session.sessionKey.split(':')[1] ?? ''}`
+          : session.sessionKey;
 
   if (!terminationSessionId) {
     const logEntries = await db

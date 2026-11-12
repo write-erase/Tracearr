@@ -27,6 +27,9 @@ vi.mock('react-i18next', () => ({
 vi.mock('@/hooks/queries', () => ({
   useDashboardStats: vi.fn(),
   useActiveSessions: vi.fn(),
+  // No Channels DVR server in these tests, so the recordings panel never renders
+  useChannelsRecordings: vi.fn(() => ({ data: undefined })),
+  useStopRecording: vi.fn(() => ({ mutate: vi.fn(), isPending: false })),
 }));
 
 vi.mock('@/components/dashboard/PersonalDashboard', () => ({
