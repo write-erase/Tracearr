@@ -963,7 +963,18 @@
       "installedVersion": "Installed version",
       "latestVersion": "Latest version",
       "downloadUrl": "Download link",
-      "releaseUrl": "Release notes link"
+      "releaseUrl": "Release notes link",
+      "recording": {
+        "title": "Recording title",
+        "channel": "Channel",
+        "error": "Error"
+      },
+      "disk": {
+        "free": "Free space",
+        "total": "Disk size",
+        "freePercent": "Free space (%)",
+        "threshold": "Alert threshold (%)"
+      }
     },
     "actions": {
       "send": {
@@ -1302,6 +1313,15 @@
         "sampleTitle": "What this would do to that run",
         "sampleGone": "That session is no longer on record; nothing to check against.",
         "backToLive": "Back to what's playing now"
+      },
+      "diskLow": {
+        "prefix": "Free space on the Channels DVR disk drops below",
+        "percentLabel": "Percent free",
+        "unit": "%"
+      },
+      "diskOk": {
+        "prefix": "Free space on the Channels DVR disk is back above",
+        "unit": "%"
       }
     },
     "categories": {
@@ -1365,7 +1385,12 @@
         "serverUpdateAvailable": "a server update is available",
         "tracearrUpdateAvailable": "a Tracearr update is available",
         "newsletterSent": "a newsletter is sent",
-        "newsletterFailed": "a newsletter send fails"
+        "newsletterFailed": "a newsletter send fails",
+        "dvrRecordingFailed": "a Channels DVR recording fails",
+        "dvrRecordingResumed": "a failed Channels DVR recording resumes",
+        "dvrRecordingGlitch": "a Channels DVR recording loses its stream for a moment",
+        "dvrDiskLow": "free space on the DVR disk drops below {{percent}}%",
+        "dvrDiskOk": "free space on the DVR disk is back above {{percent}}%"
       },
       "operators": {
         "eq": "is",
@@ -2065,6 +2090,21 @@
         "name": "Trust score changed",
         "description": "Tell a destination when an account's trust score changes.",
         "keywords": "trust score reputation penalty adjusted notify discord email webhook"
+      },
+      "channels-dvr-recording-failed": {
+        "name": "Channels DVR recording failed",
+        "description": "Tell a destination when a Channels DVR recording fails, and when it starts recording again.",
+        "keywords": "channels dvr recording failed resumed error tuner notify discord"
+      },
+      "channels-dvr-recording-glitch": {
+        "name": "Channels DVR recording interrupted",
+        "description": "Tell a destination when a Channels DVR recording loses its stream for a moment and may have a gap.",
+        "keywords": "channels dvr recording glitch gap corrupted interrupted notify"
+      },
+      "channels-dvr-disk-space": {
+        "name": "Channels DVR disk almost full",
+        "description": "Tell a destination when free space on the disk Channels DVR records to drops below the percentage you choose, and when it recovers.",
+        "keywords": "channels dvr disk space storage full low notify discord"
       }
     },
     "title": "Automations",
@@ -2176,6 +2216,28 @@
         "newsletterFailed": {
           "description": "A newsletter reached nobody, or only part of its list.",
           "synonyms": "newsletter, digest, email, bounce, partial, error"
+        },
+        "dvrRecordingFailed": {
+          "description": "A Channels DVR recording failed, for example because the stream couldn't start. Channels may retry it.",
+          "synonyms": "channels dvr recording failed error tuner stream"
+        },
+        "dvrRecordingResumed": {
+          "description": "A Channels DVR recording that failed is recording again after Channels retried it.",
+          "synonyms": "channels dvr recording resumed retry recovered"
+        },
+        "dvrRecordingGlitch": {
+          "description": "The stream dropped during a Channels DVR recording and Channels reconnected, so the recording may have a gap.",
+          "synonyms": "channels dvr recording glitch gap corrupted interrupted dropout"
+        },
+        "dvrDiskLow": {
+          "label": "Channels DVR disk almost full",
+          "description": "Free space on the disk a Channels DVR server records to drops below the percentage you set.",
+          "synonyms": "channels dvr disk space storage full low"
+        },
+        "dvrDiskOk": {
+          "label": "Channels DVR disk space recovers",
+          "description": "Free space on the Channels DVR disk climbs back above the percentage you set.",
+          "synonyms": "channels dvr disk space storage recovered ok"
         }
       },
       "actions": {

@@ -446,6 +446,7 @@ export const NOTIFICATION_EVENTS = {
   MEDIA_UPGRADED: 'media_upgraded',
   NEW_DEVICE: 'new_device',
   TRUST_SCORE_CHANGED: 'trust_score_changed',
+  DVR_ALERT: 'dvr_alert',
 } as const;
 
 /** The 2:3 size a poster is cached at, for every row but artists and albums. */

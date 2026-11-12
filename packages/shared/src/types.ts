@@ -1778,7 +1778,8 @@ export type NotificationEventType =
   | 'media_upgraded'
   | 'new_device'
   | 'trust_score_changed'
-  | 'newsletter_send';
+  | 'newsletter_send'
+  | 'dvr_alert';
 
 // Notification preferences (per-device settings)
 export interface NotificationPreferences {
@@ -3179,6 +3180,8 @@ export interface ChannelsDvrDiskUsage {
   serverName: string;
   freeBytes: number;
   totalBytes: number;
+  /** Below this percentage free the dashboard warns: the highest enabled disk alert's, else 10 */
+  warnPercent: number;
 }
 
 /** GET /sessions/recordings */

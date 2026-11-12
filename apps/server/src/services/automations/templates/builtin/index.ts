@@ -14,6 +14,9 @@ import no4kTranscodes from './no-4k-transcodes.json' with { type: 'json' };
 import pausedTooLong from './paused-too-long.json' with { type: 'json' };
 import pluginUpdate from './plugin-update.json' with { type: 'json' };
 import serverDown from './server-down.json' with { type: 'json' };
+import channelsDvrRecordingFailed from './channels-dvr-recording-failed.json' with { type: 'json' };
+import channelsDvrRecordingGlitch from './channels-dvr-recording-glitch.json' with { type: 'json' };
+import channelsDvrDiskSpace from './channels-dvr-disk-space.json' with { type: 'json' };
 import serverUp from './server-up.json' with { type: 'json' };
 import serverUpdate from './server-update.json' with { type: 'json' };
 import simultaneousLocations from './simultaneous-locations.json' with { type: 'json' };
@@ -42,6 +45,9 @@ export const BUILTIN_ENVELOPES: TemplateEnvelope[] = [
   pluginUpdate,
   serverUpdate,
   tracearrUpdate,
+  channelsDvrRecordingFailed,
+  channelsDvrRecordingGlitch,
+  channelsDvrDiskSpace,
   concurrentStreams,
   impossibleTravel,
   simultaneousLocations,

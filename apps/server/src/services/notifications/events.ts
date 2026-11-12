@@ -103,6 +103,25 @@ export interface NewsletterSendPayload {
   historyUrl: string | null;
 }
 
+/** What a Channels DVR alert says; which fields are set follows the kind. */
+export interface DvrAlertPayload {
+  serverId: string;
+  serverName: string;
+  serverType: string;
+  kind: 'recording_failed' | 'recording_resumed' | 'recording_glitch' | 'disk_low' | 'disk_ok';
+  /** Recording alerts */
+  jobId: string | null;
+  recordingTitle: string | null;
+  channel: string | null;
+  error: string | null;
+  /** Disk alerts */
+  freeBytes: number | null;
+  totalBytes: number | null;
+  freePercent: number | null;
+  /** The alert threshold that crossed, in percent */
+  thresholdPercent: number | null;
+}
+
 export type NotificationEvent =
   | { type: 'violation'; payload: ViolationWithDetails }
   | { type: 'session_started'; payload: ActiveSession }
@@ -139,7 +158,8 @@ export type NotificationEvent =
   | { type: 'media_upgraded'; payload: MediaUpgradedPayload }
   | { type: 'new_device'; payload: NewDevicePayload }
   | { type: 'trust_score_changed'; payload: TrustChangedPayload }
-  | { type: 'newsletter_send'; payload: NewsletterSendPayload };
+  | { type: 'newsletter_send'; payload: NewsletterSendPayload }
+  | { type: 'dvr_alert'; payload: DvrAlertPayload };
 
 /** Producers keep their discriminators; rows and the UI use NotificationEventType names. */
 export const JOB_TYPE_TO_EVENT_TYPE: Record<NotificationEvent['type'], NotificationEventType> = {
@@ -156,6 +176,7 @@ export const JOB_TYPE_TO_EVENT_TYPE: Record<NotificationEvent['type'], Notificat
   new_device: 'new_device',
   trust_score_changed: 'trust_score_changed',
   newsletter_send: 'newsletter_send',
+  dvr_alert: 'dvr_alert',
 };
 
 export function eventTypeOf(event: NotificationEvent): NotificationEventType {

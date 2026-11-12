@@ -205,6 +205,59 @@ export interface ServerUpdateEvent extends BaseEvent {
   releaseUrl: string;
 }
 
+/** The Channels DVR recording an alert is about, as the DVR's job list names it. */
+export interface DvrRecordingSubject {
+  jobId: string;
+  title: string;
+  channel: string | null;
+  /** Why it failed, tidied for people; null when Channels gave no reason. */
+  error: string | null;
+}
+
+export interface DvrRecordingFailedEvent extends BaseEvent {
+  type: 'dvr.recording_failed';
+  server: EvaluationServer;
+  recording: DvrRecordingSubject;
+}
+
+export interface DvrRecordingResumedEvent extends BaseEvent {
+  type: 'dvr.recording_resumed';
+  server: EvaluationServer;
+  recording: DvrRecordingSubject;
+}
+
+export interface DvrRecordingGlitchEvent extends BaseEvent {
+  type: 'dvr.recording_glitch';
+  server: EvaluationServer;
+  recording: DvrRecordingSubject;
+}
+
+/** Recording space at one check, and the thresholds it just crossed. */
+export interface DvrDiskState {
+  freeBytes: number;
+  totalBytes: number;
+  freePercent: number;
+}
+
+/**
+ * A disk event names the thresholds (percent) that crossed at this check, so each
+ * automation fires once per crossing at its own threshold. The producer holds the
+ * per-threshold state, with a one-point margin before space counts as OK again.
+ */
+export interface DvrDiskLowEvent extends BaseEvent {
+  type: 'dvr.disk_low';
+  server: EvaluationServer;
+  disk: DvrDiskState;
+  crossed: number[];
+}
+
+export interface DvrDiskOkEvent extends BaseEvent {
+  type: 'dvr.disk_ok';
+  server: EvaluationServer;
+  disk: DvrDiskState;
+  crossed: number[];
+}
+
 export interface TracearrUpdateEvent extends BaseEvent {
   type: 'tracearr.update_available';
   current: string;
@@ -239,6 +292,11 @@ export type RuleEvent =
   | ServerUpEvent
   | PluginUpdateEvent
   | ServerUpdateEvent
+  | DvrRecordingFailedEvent
+  | DvrRecordingResumedEvent
+  | DvrRecordingGlitchEvent
+  | DvrDiskLowEvent
+  | DvrDiskOkEvent
   | TracearrUpdateEvent
   | NewsletterSentEvent
   | NewsletterFailedEvent;

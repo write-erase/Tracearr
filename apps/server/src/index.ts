@@ -131,6 +131,10 @@ import {
 } from './jobs/dispatcharrRealtimeProcessor.js';
 import { startPluginUpdateChecker, stopPluginUpdateChecker } from './jobs/pluginUpdateChecker.js';
 import { startServerUpdateChecker, stopServerUpdateChecker } from './jobs/serverUpdateChecker.js';
+import {
+  startChannelsDvrAlertMonitor,
+  stopChannelsDvrAlertMonitor,
+} from './jobs/channelsDvrAlerts.js';
 import { startLeaderLease, stopLeaderLease } from './services/leaderLease.js';
 import {
   initializeWebSocket,
@@ -684,6 +688,7 @@ async function buildApp() {
     stopPauseWakes();
     stopPluginUpdateChecker();
     stopServerUpdateChecker();
+    stopChannelsDvrAlertMonitor();
     await sseManager.stop();
     await stopLeaderLease();
     await tailscaleService.shutdown();
@@ -1483,6 +1488,7 @@ async function initializePostListen(app: FastifyInstance) {
       startDispatcharrRealtimeProcessor();
       startPluginUpdateChecker();
       startServerUpdateChecker();
+      startChannelsDvrAlertMonitor();
       await sseManager.start(); // Start SSE connections
       app.log.info('Real-time SSE connections started');
     } catch (err) {
@@ -1512,6 +1518,7 @@ async function initializePostListen(app: FastifyInstance) {
     stopPauseWakes();
     stopPluginUpdateChecker();
     stopServerUpdateChecker();
+    stopChannelsDvrAlertMonitor();
     await sseManager.stop();
   };
 

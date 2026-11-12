@@ -63,6 +63,9 @@ const TABLE: Array<[string, string, string]> = [
   ['plugin-update', 'server_health', 'notification'],
   ['server-update', 'server_health', 'notification'],
   ['tracearr-update', 'server_health', 'notification'],
+  ['channels-dvr-recording-failed', 'server_health', 'notification'],
+  ['channels-dvr-recording-glitch', 'server_health', 'notification'],
+  ['channels-dvr-disk-space', 'server_health', 'notification'],
   ['concurrent-streams', 'policies', 'policy'],
   ['impossible-travel', 'policies', 'policy'],
   ['simultaneous-locations', 'policies', 'policy'],
@@ -75,7 +78,7 @@ const TABLE: Array<[string, string, string]> = [
 ];
 
 describe('builtin template envelopes', () => {
-  it('bundles the twenty-three templates the design names, in its order', () => {
+  it("bundles the twenty-six templates (the design's plus the fork's three Channels DVR alerts), in order", () => {
     expect(BUILTIN_ENVELOPES.map((envelope) => envelope.slug)).toEqual(TABLE.map(([slug]) => slug));
   });
 

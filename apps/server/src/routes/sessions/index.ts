@@ -23,6 +23,7 @@ import {
   type HistorySessionResponse,
   type HistoryAggregates,
   type ChannelsDvrScheduleResponse,
+  DEFAULT_DISK_ALERT_PERCENT,
 } from '@tracearr/shared';
 import { db } from '../../db/client.js';
 import { servers, sessions } from '../../db/schema.js';
@@ -37,6 +38,7 @@ import { hasServerAccess, resolveServerIds } from '../../utils/serverFiltering.j
 import { terminateSession } from '../../services/termination.js';
 import { getCacheService } from '../../services/cache.js';
 import { ChannelsDvrClient } from '../../services/mediaServer/channelsDvr/client.js';
+import { getActiveAutomations } from '../../jobs/poller/database.js';
 import {
   assertInScope,
   memberCacheSegment,
@@ -324,6 +326,21 @@ export const sessionRoutes: FastifyPluginAsync = async (app) => {
       .where(and(eq(servers.type, 'channels_dvr'), isNull(servers.historicalAt)));
 
     const visible = channelsServers.filter((server) => hasServerAccess(authUser, server.id));
+    // The disk pill warns where the highest enabled disk alert on that server would.
+    const diskAlerts = (await getActiveAutomations().catch(() => [])).flatMap((rule) =>
+      rule.triggers
+        .filter((node) => node.enabled && node.type === 'dvr.disk_low')
+        .map((node) => ({
+          serverId: rule.serverId ?? null,
+          percent: node.type === 'dvr.disk_low' ? node.params.percent : 0,
+        }))
+    );
+    const warnPercentFor = (serverId: string): number => {
+      const percents = diskAlerts
+        .filter((alert) => alert.serverId === null || alert.serverId === serverId)
+        .map((alert) => alert.percent);
+      return percents.length > 0 ? Math.max(...percents) : DEFAULT_DISK_ALERT_PERCENT;
+    };
     const perServer = await Promise.all(
       visible.map(async (server) => {
         try {
@@ -334,7 +351,9 @@ export const sessionRoutes: FastifyPluginAsync = async (app) => {
             recordings: schedule.recordings.map((recording) => ({ ...recording, ...tag })),
             upcoming: schedule.upcoming.map((job) => ({ ...job, ...tag })),
             tuners: schedule.tuners ? [{ ...schedule.tuners, ...tag }] : [],
-            disks: schedule.disk ? [{ ...schedule.disk, ...tag }] : [],
+            disks: schedule.disk
+              ? [{ ...schedule.disk, ...tag, warnPercent: warnPercentFor(server.id) }]
+              : [],
           };
         } catch (err) {
           app.log.debug({ serverId: server.id, err }, 'Channels DVR recordings unavailable');

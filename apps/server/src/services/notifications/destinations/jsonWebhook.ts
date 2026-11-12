@@ -8,6 +8,7 @@ import { toNotificationPayload } from '../types.js';
 import { deliverFetch } from './fetch.js';
 import { getMediaDisplay, getPlaybackType, getUserDisplayName } from './sessionText.js';
 import type {
+  DvrAlertContext,
   MediaAddedContext,
   MediaUpgradedContext,
   NewDeviceContext,
@@ -205,6 +206,7 @@ function buildFlat(
     | NewDeviceContext
     | TrustChangedContext
     | NewsletterSendContext
+    | DvrAlertContext
 ): JsonWebhookBody {
   const { type, ...data } = ctx;
   return { event: type, timestamp: payload.timestamp, data };
@@ -240,6 +242,7 @@ function bodyOf(payload: NotificationPayload): JsonWebhookBody {
     case 'new_device':
     case 'trust_score_changed':
     case 'newsletter_send':
+    case 'dvr_alert':
       return buildFlat(payload, payload.context);
   }
 }

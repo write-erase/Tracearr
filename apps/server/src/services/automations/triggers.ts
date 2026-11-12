@@ -23,7 +23,10 @@ const PAUSE_FIELDS: ReadonlySet<ConditionField> = new Set([
 ]);
 
 const node = (
-  type: Exclude<TriggerType, 'session.held_for' | 'account.inactive_for'>
+  type: Exclude<
+    TriggerType,
+    'session.held_for' | 'account.inactive_for' | 'dvr.disk_low' | 'dvr.disk_ok'
+  >
 ): TriggerNode => ({ id: randomUUID(), type, enabled: true });
 
 const PAUSE_MEASURE: Partial<Record<ConditionField, 'current' | 'total'>> = {

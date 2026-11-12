@@ -74,6 +74,27 @@ function TriggerTitle({
     );
   }
 
+  if (trigger.type === 'dvr.disk_low' || trigger.type === 'dvr.disk_ok') {
+    const prefix = trigger.type === 'dvr.disk_low' ? 'diskLow' : 'diskOk';
+    return (
+      <>
+        {t(`automations.builder.${prefix}.prefix`)}
+        {/* The percent sign belongs to the number ("75%"), so it sits closer than the row gap. */}
+        <span className="inline-flex items-center gap-1">
+          <NumericInput
+            aria-label={t('automations.builder.diskLow.percentLabel')}
+            className="h-8 w-16"
+            value={trigger.params.percent}
+            min={TRIGGER_PARAM_BOUNDS.percent.min}
+            max={TRIGGER_PARAM_BOUNDS.percent.max}
+            onChange={(percent) => setParam({ percent })}
+          />
+          {t(`automations.builder.${prefix}.unit`)}
+        </span>
+      </>
+    );
+  }
+
   return <>{triggerLabel(t, trigger.type)}</>;
 }
 

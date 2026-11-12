@@ -98,9 +98,15 @@ describe('RecordingNowSection', () => {
     expect(screen.getByTestId('tuner-usage').className).toMatch(/amber/);
   });
 
-  it('shows free disk space in Channels units, amber when under 10% free', () => {
-    const disk = (freeBytes: number) => [
-      { serverId: 'cdvr', serverName: 'Channels', freeBytes, totalBytes: 315923169280 },
+  it('shows free disk space in Channels units, amber below the alert threshold', () => {
+    const disk = (freeBytes: number, warnPercent = 10) => [
+      {
+        serverId: 'cdvr',
+        serverName: 'Channels',
+        freeBytes,
+        totalBytes: 315923169280,
+        warnPercent,
+      },
     ];
     const { rerender } = render(<RecordingNowSection recordings={[]} disks={disk(200396926976)} />);
     const pill = screen.getByTestId('disk-usage');
@@ -108,6 +114,10 @@ describe('RecordingNowSection', () => {
     expect(pill.className).not.toMatch(/amber/);
 
     rerender(<RecordingNowSection recordings={[]} disks={disk(20_000_000_000)} />);
+    expect(screen.getByTestId('disk-usage').className).toMatch(/amber/);
+
+    // A disk alert set to 70% moves the warning up with it: 63% free is now low.
+    rerender(<RecordingNowSection recordings={[]} disks={disk(200396926976, 70)} />);
     expect(screen.getByTestId('disk-usage').className).toMatch(/amber/);
   });
 

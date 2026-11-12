@@ -1,5 +1,46 @@
 # Tracearr Fork Information
 
+## November 12, 2026 — Channels DVR alerts
+
+Five automation triggers (server context, `servers` group, all notification-only), checked once a
+minute on the leader by `jobs/channelsDvrAlerts.ts`:
+
+- `dvr.recording_failed`: a job's `Failed` flag turns on in `GET /dvr/jobs`. Its `Error` is tidied
+  for people (`tidyDvrError`): the stream URL is dropped and the last clause kept, e.g. "couldn't
+  start the stream (connection refused)".
+- `dvr.recording_resumed`: a job we reported as failed shows up recording again in the activity
+  feed (Channels retries on its own). Channels leaves `Failed: true` on the job after it retries, so
+  the flag isn't used for this; `resumedJobs` remembers the resume, and a resumed job that stops
+  recording before its airing ends (`Time` + `Duration`) is reported as failed again.
+- `dvr.recording_glitch`: a recording in progress is marked `Corrupted` in `/dvr/files/<FileID>`,
+  which Channels does when the stream drops and it reconnects.
+- `dvr.disk_low` / `dvr.disk_ok` (param `percent`, 1–90): free space from `GET /dvr` crosses the
+  threshold, with a one-point margin before it counts as OK again. Each automation fires at its own
+  threshold: the monitor collects the enabled thresholds (`dvrDiskThresholds`), keeps per-threshold
+  state, and the event carries the thresholds that crossed (`paramsPass` checks the node's).
+
+Verified against a live failure test (Dispatcharr stream stopped: recording continued and the file
+turned `Corrupted`; Dispatcharr container stopped: job `Failed: true` with an error; restarted:
+Channels retried). State is in memory: recording state is learned silently on the first check after
+a start (no repeat of old failures), disk thresholds start OK (an alert made while space is already
+low fires at once, and a restart while space is low sends one more "almost full", kept on purpose
+as a reminder).
+
+All five send one notification type, `dvr_alert` (payload `DvrAlertPayload`, built by
+`PayloadBuilders.fromDvrAlert`); destinations render its own title and message, push as a text
+render. Template variables: `recording.title|channel|error`, `disk.free|total|freePercent|threshold`.
+Three built-in templates in the server-health group, all off until someone creates them:
+`channels-dvr-recording-failed` (failed + resumed), `channels-dvr-recording-glitch`,
+`channels-dvr-disk-space` (low + ok, "Warn below (% free)" input, default 10).
+
+Also fixed in upstream code: `TemplateSentence` (gallery `TemplateCard.tsx`) put the space after each
+clause inside the clause's span, so a tinted clause ended in a tinted space and read as a double
+space; the space now sits outside the span, and the clause padding (`px-0.5`) became `-mx-px px-px`
+so a tinted clause doesn't push its neighbours apart.
+
+The dashboard disk pill turns amber below the highest enabled `dvr.disk_low` threshold for that
+server (or an unscoped one), else 10% (`warnPercent` on `GET /sessions/recordings`).
+
 ## November 11, 2026 — Channels DVR: Coming Up, exact recording times, tuner usage
 
 The dashboard's Recording Now panel is now a bordered card, like the resource charts, shown

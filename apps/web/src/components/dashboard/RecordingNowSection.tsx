@@ -253,13 +253,13 @@ function TunerPill({ usage, showServer }: { usage: ChannelsDvrTunerUsage; showSe
   );
 }
 
-/** Matches the disk-space alert's default: amber below 10% free. */
-const DISK_LOW_FRACTION = 0.1;
-
-/** "186.6 GB free", amber when space is low. Binary units, as Channels shows them. */
+/**
+ * "186.6 GB free", amber when space is low. Binary units, as Channels shows them. Low means
+ * below the highest enabled disk alert's percentage for this server, or 10% with none.
+ */
 function DiskPill({ usage, showServer }: { usage: ChannelsDvrDiskUsage; showServer: boolean }) {
   const { t } = useTranslation('pages');
-  const low = usage.freeBytes / usage.totalBytes < DISK_LOW_FRACTION;
+  const low = (usage.freeBytes / usage.totalBytes) * 100 < usage.warnPercent;
   const free = formatBytes(usage.freeBytes);
   return (
     <span

@@ -46,7 +46,12 @@ export const isKnownTrigger = (type: string): type is TriggerType => type in TRI
  * is that clause capitalised. The two that carry a threshold name themselves.
  */
 export function triggerLabel(t: Translate, type: TriggerType): string {
-  if (type === 'session.held_for' || type === 'account.inactive_for') {
+  if (
+    type === 'session.held_for' ||
+    type === 'account.inactive_for' ||
+    type === 'dvr.disk_low' ||
+    type === 'dvr.disk_ok'
+  ) {
     return t(`automations.catalog.triggers.${TRIGGER_KEYS[type]}.label`);
   }
   return capitalize(t(`automations.describe.triggers.${TRIGGER_KEYS[type]}`));

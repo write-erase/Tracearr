@@ -121,7 +121,8 @@ const ROUTED_EVENTS: NotificationEventType[] = NOTIFICATION_EVENT_TYPES.filter(
     e !== 'tracearr_update_available' &&
     e !== 'media_added' &&
     e !== 'media_upgraded' &&
-    e !== 'newsletter_send'
+    e !== 'newsletter_send' &&
+    e !== 'dvr_alert'
 );
 
 export function planDestinationsMigration(input: PlanInput): Plan {
