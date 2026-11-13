@@ -233,6 +233,13 @@ export interface DvrRecordingGlitchEvent extends BaseEvent {
   recording: DvrRecordingSubject;
 }
 
+/** A scheduled recording that should be recording by now and isn't. */
+export interface DvrRecordingMissedEvent extends BaseEvent {
+  type: 'dvr.recording_missed';
+  server: EvaluationServer;
+  recording: DvrRecordingSubject;
+}
+
 /** Recording space at one check, and the thresholds it just crossed. */
 export interface DvrDiskState {
   freeBytes: number;
@@ -303,6 +310,7 @@ export type RuleEvent =
   | DvrRecordingFailedEvent
   | DvrRecordingResumedEvent
   | DvrRecordingGlitchEvent
+  | DvrRecordingMissedEvent
   | DvrDiskLowEvent
   | DvrDiskOkEvent
   | DvrLineupChangedEvent

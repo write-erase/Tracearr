@@ -1,5 +1,20 @@
 # Tracearr Fork Information
 
+## November 13, 2026 — Channels DVR recording missed alert
+
+- New trigger `dvr.recording_missed` (server context, servers group, 3.1.7): a scheduled recording
+  that should be recording and isn't. Catches what the failed alert can't, such as no free tuner or
+  a source that never answered, when Channels doesn't flag the job as failed.
+- A job counts as missed when its airing started more than 2 minutes ago and hasn't ended, it isn't
+  skipped or flagged failed, it has no file and it isn't in the activity feed. It must look missed
+  on two checks in a row (a minute apart), so a recording that's slow to start, or one scheduled
+  mid-airing, isn't reported. Each job is reported once.
+- Jobs already missed on the first check after a start are learned silently, like failures.
+- `parseDvrJobStatuses` now also reads `startsAt` (from `Time`) and `skipped` (from `Skipped`).
+- `dvr_alert` kind `recording_missed`, severity high: "<title> on channel <n> should be recording on
+  <server> but hasn't started". Same `recording.*` variables as the other recording alerts.
+- Built-in template `channels-dvr-recording-missed`.
+
 ## November 13, 2026 — Channels DVR channel lineup alert
 
 - New trigger `dvr.lineup_changed` (server context, servers group, 3.1.7): channels added, removed,

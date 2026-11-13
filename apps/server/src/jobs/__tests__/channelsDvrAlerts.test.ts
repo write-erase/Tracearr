@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   diskCrossings,
   lineupDue,
+  looksMissed,
   recordingChanges,
   type ServerAlertState,
 } from '../channelsDvrAlerts.js';
@@ -12,6 +13,8 @@ const fresh = (): ServerAlertState => ({
   failedJobs: new Set(),
   resumedJobs: new Set(),
   corruptedFiles: new Set(),
+  missedCandidates: new Set(),
+  missedJobs: new Set(),
   diskLevels: new Map(),
   lineupCheckedAt: 0,
 });
@@ -24,7 +27,9 @@ const job = (overrides: Partial<ChannelsDvrJobStatus> = {}): ChannelsDvrJobStatu
   error: null,
   fileId: '1346',
   // Beyond the Gates, 13:00–14:00 CST on Nov 11, 2026.
+  startsAt: 1794423600 * 1000,
   endsAt: (1794423600 + 3600) * 1000,
+  skipped: false,
   ruleId: null,
   ...overrides,
 });
@@ -41,7 +46,7 @@ describe('recordingChanges', () => {
       recordingJobIds: [],
       corruptedFileIds: ['1346'],
     });
-    expect(changes).toEqual({ failed: [], resumed: [], glitched: [] });
+    expect(changes).toEqual({ failed: [], resumed: [], glitched: [], missed: [] });
     expect(state.failedJobs.has('1794424758-ch2')).toBe(true);
   });
 
@@ -75,7 +80,7 @@ describe('recordingChanges', () => {
       recordingJobIds: [],
       corruptedFileIds: [],
     });
-    expect(stillFailed).toEqual({ failed: [], resumed: [], glitched: [] });
+    expect(stillFailed).toEqual({ failed: [], resumed: [], glitched: [], missed: [] });
 
     // Channels keeps Failed on after it retries; recording again is what says it resumed.
     const resumed = recordingChanges(state, {
@@ -93,7 +98,7 @@ describe('recordingChanges', () => {
       { jobs: [job({ failed: true })], recordingJobIds: ['1794424758-ch2'], corruptedFileIds: [] },
       DURING
     );
-    expect(stillRecording).toEqual({ failed: [], resumed: [], glitched: [] });
+    expect(stillRecording).toEqual({ failed: [], resumed: [], glitched: [], missed: [] });
   });
 
   it('also counts a resume when Channels clears the flag', () => {
@@ -175,7 +180,7 @@ describe('recordingChanges', () => {
       { jobs: [failedJob], recordingJobIds: [], corruptedFileIds: [] },
       AFTER
     );
-    expect(finished).toEqual({ failed: [], resumed: [], glitched: [] });
+    expect(finished).toEqual({ failed: [], resumed: [], glitched: [], missed: [] });
   });
 
   it("doesn't report a failed job that was already recording again when Tracearr started", () => {
@@ -191,7 +196,7 @@ describe('recordingChanges', () => {
       { jobs: [failedJob], recordingJobIds: ['1794424758-ch2'], corruptedFileIds: [] },
       DURING
     );
-    expect(next).toEqual({ failed: [], resumed: [], glitched: [] });
+    expect(next).toEqual({ failed: [], resumed: [], glitched: [], missed: [] });
   });
 
   it('forgets a failed job that ended without resuming', () => {
@@ -203,7 +208,7 @@ describe('recordingChanges', () => {
       corruptedFileIds: [],
     });
     const gone = recordingChanges(state, { jobs: [], recordingJobIds: [], corruptedFileIds: [] });
-    expect(gone).toEqual({ failed: [], resumed: [], glitched: [] });
+    expect(gone).toEqual({ failed: [], resumed: [], glitched: [], missed: [] });
     expect(state.failedJobs.size).toBe(0);
   });
 });
@@ -247,5 +252,52 @@ describe('lineupDue', () => {
     state.lineupCheckedAt = now;
     expect(lineupDue(state, now + 29 * 60_000)).toBe(false);
     expect(lineupDue(state, now + 30 * 60_000)).toBe(true);
+  });
+});
+
+describe('missed recordings', () => {
+  const START = 1794423600 * 1000;
+  const scheduled = (overrides: Partial<ChannelsDvrJobStatus> = {}) =>
+    job({ fileId: null, ...overrides });
+  const check = (state: ServerAlertState, jobs: ChannelsDvrJobStatus[], now: number) =>
+    recordingChanges(state, { jobs, recordingJobIds: [], corruptedFileIds: [] }, now);
+
+  it('counts a recording as missed only after the grace period and before the airing ends', () => {
+    const none = new Set<string>();
+    expect(looksMissed(scheduled(), none, START + 60_000)).toBe(false);
+    expect(looksMissed(scheduled(), none, START + 3 * 60_000)).toBe(true);
+    expect(looksMissed(scheduled(), none, START + 3600 * 1000)).toBe(false);
+  });
+
+  it('leaves out recordings that are skipped, failed, recording or have a file', () => {
+    const now = START + 5 * 60_000;
+    const none = new Set<string>();
+    expect(looksMissed(scheduled({ skipped: true }), none, now)).toBe(false);
+    expect(looksMissed(scheduled({ failed: true }), none, now)).toBe(false);
+    expect(looksMissed(scheduled({ fileId: '1346' }), none, now)).toBe(false);
+    expect(looksMissed(scheduled(), new Set(['1794424758-ch2']), now)).toBe(false);
+  });
+
+  it('reports a missed recording once, on the second check that sees it', () => {
+    const state = fresh();
+    check(state, [], START);
+    expect(check(state, [scheduled()], START + 3 * 60_000).missed).toEqual([]);
+    expect(check(state, [scheduled()], START + 4 * 60_000).missed.map((j) => j.id)).toEqual([
+      '1794424758-ch2',
+    ]);
+    expect(check(state, [scheduled()], START + 5 * 60_000).missed).toEqual([]);
+  });
+
+  it("doesn't report a recording that starts between checks", () => {
+    const state = fresh();
+    check(state, [], START);
+    check(state, [scheduled()], START + 3 * 60_000);
+    expect(check(state, [scheduled({ fileId: '1346' })], START + 4 * 60_000).missed).toEqual([]);
+  });
+
+  it("doesn't report on the first check after a start", () => {
+    const state = fresh();
+    check(state, [scheduled()], START + 3 * 60_000);
+    expect(check(state, [scheduled()], START + 4 * 60_000).missed).toEqual([]);
   });
 });

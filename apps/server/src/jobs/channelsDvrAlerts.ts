@@ -6,6 +6,8 @@
  * - dvr.recording_resumed: a failed job is recording again (Channels retries on its own).
  * - dvr.recording_glitch: a recording in progress is marked corrupted (the stream dropped
  *   and Channels reconnected, leaving a gap).
+ * - dvr.recording_missed: a scheduled recording is past its start (plus a grace period),
+ *   isn't skipped or flagged failed, has no file and isn't recording, on two checks in a row.
  * - dvr.disk_low / dvr.disk_ok: free space crosses an enabled alert's threshold, with a
  *   one-point margin before it counts as OK again.
  * - dvr.lineup_changed: every 30 minutes, channels added, removed, renamed or moved in a
@@ -49,6 +51,8 @@ const CHECK_INTERVAL_MS = 60_000;
 const INITIAL_DELAY_MS = 20_000;
 /** Space must climb this many points above a threshold before it counts as OK again. */
 const DISK_RECOVERY_MARGIN = 1;
+/** How long after an airing starts a recording may take to begin before it counts as missed. */
+const MISSED_GRACE_MS = 2 * 60_000;
 /** Lineups change rarely, and /devices lists every channel, so they're read less often. */
 const LINEUP_INTERVAL_MS = 30 * 60_000;
 
@@ -64,6 +68,10 @@ export interface ServerAlertState {
    */
   resumedJobs: Set<string>;
   corruptedFiles: Set<string>;
+  /** Jobs that looked missed at the last check; reported if they still do at the next */
+  missedCandidates: Set<string>;
+  /** Jobs we've reported as missed */
+  missedJobs: Set<string>;
   diskLevels: Map<number, DiskLevel>;
   /** When the lineup was last read; 0 until the first read */
   lineupCheckedAt: number;
@@ -82,6 +90,8 @@ function stateFor(serverId: string): ServerAlertState {
     failedJobs: new Set(),
     resumedJobs: new Set(),
     corruptedFiles: new Set(),
+    missedCandidates: new Set(),
+    missedJobs: new Set(),
     diskLevels: new Map(),
     lineupCheckedAt: 0,
   }));
@@ -96,6 +106,7 @@ export function recordingChanges(
   failed: ChannelsDvrJobStatus[];
   resumed: ChannelsDvrJobStatus[];
   glitched: ChannelsDvrJobStatus[];
+  missed: ChannelsDvrJobStatus[];
 } {
   const byId = new Map(snapshot.jobs.map((job) => [job.id, job]));
   const failedNow = new Set(snapshot.jobs.filter((job) => job.failed).map((job) => job.id));
@@ -108,7 +119,11 @@ export function recordingChanges(
     // the moment it stops.
     state.resumedJobs = new Set([...failedNow].filter((id) => recording.has(id)));
     state.corruptedFiles = new Set(snapshot.corruptedFileIds);
-    return { failed: [], resumed: [], glitched: [] };
+    // Already missed when we start: it may have been reported before the restart.
+    state.missedJobs = new Set(
+      snapshot.jobs.filter((job) => looksMissed(job, recording, now)).map((job) => job.id)
+    );
+    return { failed: [], resumed: [], glitched: [], missed: [] };
   }
 
   // Failed: newly flagged, or flagged again after we saw it resume and it stopped recording before
@@ -156,7 +171,38 @@ export function recordingChanges(
     if (!liveFiles.has(fileId)) state.corruptedFiles.delete(fileId);
   }
 
-  return { failed, resumed, glitched };
+  // Missed: looked missed at the last check too, so a recording that's just slow to start, or
+  // one scheduled mid-airing that Channels is about to start, isn't reported.
+  const missed: ChannelsDvrJobStatus[] = [];
+  const candidates = new Set<string>();
+  for (const job of snapshot.jobs) {
+    if (!looksMissed(job, recording, now) || state.missedJobs.has(job.id)) continue;
+    if (state.missedCandidates.has(job.id)) {
+      missed.push(job);
+      state.missedJobs.add(job.id);
+    } else {
+      candidates.add(job.id);
+    }
+  }
+  state.missedCandidates = candidates;
+  for (const id of state.missedJobs) if (!byId.has(id)) state.missedJobs.delete(id);
+
+  return { failed, resumed, glitched, missed };
+}
+
+/**
+ * A job that should be recording and isn't: its airing started more than the grace period ago
+ * and hasn't ended, it isn't skipped or flagged failed (the failed alert covers that), it has
+ * no file yet and it isn't in the activity feed.
+ */
+export function looksMissed(
+  job: ChannelsDvrJobStatus,
+  recording: Set<string>,
+  now: number
+): boolean {
+  if (job.skipped || job.failed || job.fileId || recording.has(job.id)) return false;
+  if (job.startsAt === null || job.endsAt === null) return false;
+  return now >= job.startsAt + MISSED_GRACE_MS && now < job.endsAt;
 }
 
 /** Which thresholds crossed at this check, downwards and back up. */
@@ -200,7 +246,7 @@ async function checkServer(server: EvaluationServer & { url: string }): Promise<
     type: server.type,
   };
 
-  const { failed, resumed, glitched } = recordingChanges(state, snapshot);
+  const { failed, resumed, glitched, missed } = recordingChanges(state, snapshot);
   for (const job of failed) {
     logger.info(`${server.name}: recording failed: ${job.title}`);
     await dispatchDvrRecording('dvr.recording_failed', evaluationServer, subject(job));
@@ -212,6 +258,10 @@ async function checkServer(server: EvaluationServer & { url: string }): Promise<
   for (const job of glitched) {
     logger.info(`${server.name}: recording glitch: ${job.title}`);
     await dispatchDvrRecording('dvr.recording_glitch', evaluationServer, subject(job));
+  }
+  for (const job of missed) {
+    logger.info(`${server.name}: recording missed: ${job.title}`);
+    await dispatchDvrRecording('dvr.recording_missed', evaluationServer, subject(job));
   }
 
   await checkLineup(client, server, evaluationServer, state);

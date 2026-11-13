@@ -288,6 +288,7 @@ function nativeEventFor(context: EvaluationContext): NotificationEvent | null {
     case 'dvr.recording_failed':
     case 'dvr.recording_resumed':
     case 'dvr.recording_glitch':
+    case 'dvr.recording_missed':
       return {
         type: 'dvr_alert',
         payload: {
@@ -299,7 +300,9 @@ function nativeEventFor(context: EvaluationContext): NotificationEvent | null {
               ? 'recording_failed'
               : trigger.type === 'dvr.recording_resumed'
                 ? 'recording_resumed'
-                : 'recording_glitch',
+                : trigger.type === 'dvr.recording_glitch'
+                  ? 'recording_glitch'
+                  : 'recording_missed',
           jobId: trigger.recording.jobId,
           recordingTitle: trigger.recording.title,
           channel: trigger.recording.channel,

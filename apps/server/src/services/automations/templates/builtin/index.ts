@@ -16,6 +16,7 @@ import pluginUpdate from './plugin-update.json' with { type: 'json' };
 import serverDown from './server-down.json' with { type: 'json' };
 import channelsDvrRecordingFailed from './channels-dvr-recording-failed.json' with { type: 'json' };
 import channelsDvrRecordingGlitch from './channels-dvr-recording-glitch.json' with { type: 'json' };
+import channelsDvrRecordingMissed from './channels-dvr-recording-missed.json' with { type: 'json' };
 import channelsDvrDiskSpace from './channels-dvr-disk-space.json' with { type: 'json' };
 import channelsDvrLineupChanged from './channels-dvr-lineup-changed.json' with { type: 'json' };
 import serverUp from './server-up.json' with { type: 'json' };
@@ -48,6 +49,7 @@ export const BUILTIN_ENVELOPES: TemplateEnvelope[] = [
   tracearrUpdate,
   channelsDvrRecordingFailed,
   channelsDvrRecordingGlitch,
+  channelsDvrRecordingMissed,
   channelsDvrDiskSpace,
   channelsDvrLineupChanged,
   concurrentStreams,

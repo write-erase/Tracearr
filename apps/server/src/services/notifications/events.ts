@@ -113,6 +113,7 @@ export interface DvrAlertPayload {
     | 'recording_failed'
     | 'recording_resumed'
     | 'recording_glitch'
+    | 'recording_missed'
     | 'disk_low'
     | 'disk_ok'
     | 'lineup_changed';

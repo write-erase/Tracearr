@@ -120,6 +120,7 @@ export const TRIGGER_KEYS = {
   'dvr.recording_failed': 'dvrRecordingFailed',
   'dvr.recording_resumed': 'dvrRecordingResumed',
   'dvr.recording_glitch': 'dvrRecordingGlitch',
+  'dvr.recording_missed': 'dvrRecordingMissed',
   'dvr.disk_low': 'dvrDiskLow',
   'dvr.disk_ok': 'dvrDiskOk',
   'dvr.lineup_changed': 'dvrLineupChanged',

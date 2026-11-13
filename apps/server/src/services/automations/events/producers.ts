@@ -448,9 +448,13 @@ export async function dvrDiskThresholds(serverId: string): Promise<number[]> {
   return [...thresholds];
 }
 
-/** A Channels DVR recording failed, resumed after failing, or picked up a glitch. */
+/** A Channels DVR recording failed, resumed after failing, picked up a glitch, or never started. */
 export async function dispatchDvrRecording(
-  type: 'dvr.recording_failed' | 'dvr.recording_resumed' | 'dvr.recording_glitch',
+  type:
+    | 'dvr.recording_failed'
+    | 'dvr.recording_resumed'
+    | 'dvr.recording_glitch'
+    | 'dvr.recording_missed',
   server: EvaluationServer,
   recording: DvrRecordingSubject
 ): Promise<void> {

@@ -36,6 +36,9 @@ describe('Channels DVR alert notifications', () => {
       'Beyond the Gates on channel 2 is recording again on Channels DVR'
     );
     expect(render({ ...base, kind: 'recording_glitch' }).severity).toBe('warning');
+    expect(render({ ...base, kind: 'recording_missed' }).message).toBe(
+      "Beyond the Gates on channel 2 should be recording on Channels DVR but hasn't started"
+    );
   });
 
   it('words disk space in the units Channels shows', () => {

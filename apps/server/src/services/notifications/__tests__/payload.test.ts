@@ -778,6 +778,7 @@ describe('variables per trigger', () => {
     'dvr.recording_failed': ['dvr_alert'],
     'dvr.recording_resumed': ['dvr_alert'],
     'dvr.recording_glitch': ['dvr_alert'],
+    'dvr.recording_missed': ['dvr_alert'],
     'dvr.disk_low': ['dvr_alert'],
     'dvr.disk_ok': ['dvr_alert'],
     'dvr.lineup_changed': ['dvr_alert'],
