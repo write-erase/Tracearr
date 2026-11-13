@@ -67,6 +67,7 @@ const TRIGGER_PREFERENCE = {
   'dvr.recording_glitch': null,
   'dvr.disk_low': null,
   'dvr.disk_ok': null,
+  'dvr.lineup_changed': null,
 } as const satisfies Record<TriggerType, PushEventPreference | null>;
 
 type EventPreference = Exclude<PushEventPreference, 'onViolationDetected'>;

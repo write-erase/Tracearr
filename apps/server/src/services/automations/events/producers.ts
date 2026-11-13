@@ -36,6 +36,7 @@ import type { MediaQuality, MediaSubject } from '../types.js';
 import type { ViolationInsertResult } from '../../../jobs/poller/violations.js';
 import type { TrustMove } from '../../userService.js';
 import type { NewsletterSendPayload } from '../../notifications/events.js';
+import type { LineupSourceChange } from '../../mediaServer/channelsDvr/lineup.js';
 
 /** The active automations when one of them listens for the trigger, else null: no listener, no context read. */
 async function listeningRules(trigger: TriggerType): Promise<EngineAutomation[] | null> {
@@ -474,5 +475,20 @@ export async function dispatchDvrDisk(
     if (!rules) return;
     const { inputs } = await serverContextFor(server, rules);
     await dispatch({ type, at: new Date(), server, disk, crossed }, inputs);
+  });
+}
+
+/** A Channels DVR lineup changed: one event for every source that did. */
+export async function dispatchDvrLineup(
+  server: EvaluationServer,
+  changes: LineupSourceChange[]
+): Promise<void> {
+  if (changes.length === 0) return;
+  const type = 'dvr.lineup_changed';
+  await guarded(type, async () => {
+    const rules = await serverListeningRules(type, server.id);
+    if (!rules) return;
+    const { inputs } = await serverContextFor(server, rules);
+    await dispatch({ type, at: new Date(), server, changes }, inputs);
   });
 }

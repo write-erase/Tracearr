@@ -15,6 +15,7 @@ const base: DvrAlertPayload = {
   totalBytes: null,
   freePercent: null,
   thresholdPercent: null,
+  lineup: null,
 };
 
 const render = (payload: DvrAlertPayload) =>
@@ -67,6 +68,72 @@ describe('Channels DVR alert notifications', () => {
     );
     expect(out.title).toBe('Beyond the Gates failed');
     expect(out.message).toBe("ch 2: couldn't start the stream (connection refused)");
+  });
+
+  it('words a lineup change one line per source', () => {
+    const out = render({
+      ...base,
+      kind: 'lineup_changed',
+      jobId: null,
+      recordingTitle: null,
+      channel: null,
+      error: null,
+      lineup: [
+        {
+          source: 'Dispatcharr MPEG-TS',
+          status: 'changed',
+          channelCount: 209,
+          added: [
+            { number: '105', name: 'ESPN' },
+            { number: '106', name: 'ESPN2' },
+          ],
+          removed: [{ number: '210', name: 'CNN' }],
+          renamed: [{ number: '4', from: 'NBC', to: 'WDIV' }],
+          moved: [{ name: 'FOX', from: '2', to: '22' }],
+        },
+        {
+          source: 'HDHomeRun',
+          status: 'added',
+          channelCount: 1,
+          added: [],
+          removed: [],
+          renamed: [],
+          moved: [],
+        },
+      ],
+    });
+    expect(out.title).toBe('Channel lineup changed');
+    expect(out.severity).toBe('warning');
+    expect(out.message).toBe(
+      'Dispatcharr MPEG-TS on Channels DVR: 2 added (105 ESPN, 106 ESPN2), 1 removed (210 CNN), ' +
+        '1 renamed (4 NBC → WDIV), 1 moved (FOX 2 → 22)\n' +
+        'HDHomeRun on Channels DVR: new source with 1 channel'
+    );
+  });
+
+  it('shortens a long list of channels', () => {
+    const added = Array.from({ length: 8 }, (_, i) => ({
+      number: String(i + 1),
+      name: `Ch${i + 1}`,
+    }));
+    const out = render({
+      ...base,
+      kind: 'lineup_changed',
+      lineup: [
+        {
+          source: 'M3U',
+          status: 'changed',
+          channelCount: 8,
+          added,
+          removed: [],
+          renamed: [],
+          moved: [],
+        },
+      ],
+    });
+    expect(out.message).toBe(
+      'M3U on Channels DVR: 8 added (1 Ch1, 2 Ch2, 3 Ch3, 4 Ch4, 5 Ch5 and 3 more)'
+    );
   });
 
   it('formats bytes in binary units', () => {

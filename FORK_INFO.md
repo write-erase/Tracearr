@@ -1,5 +1,24 @@
 # Tracearr Fork Information
 
+## November 13, 2026 — Channels DVR channel lineup alert
+
+- New trigger `dvr.lineup_changed` (server context, servers group, 3.1.7): channels added, removed,
+  renamed (same number, new name) or moved (same name, new number) in a Channels DVR source's
+  lineup. Our own code, not mjitkop's Channels-DVR-Monitor-Channel-Lineups script.
+- `channelsDvr/lineup.ts` parses `GET /devices` per source (keyed by `DeviceID`, named by
+  `FriendlyName`, channels by `GuideNumber`/`GuideName`) and diffs two reads. Virtual Channels
+  (`VIRTUAL`) are left out. A whole source appearing or going away is reported with its channel
+  count, not channel by channel.
+- `jobs/channelsDvrAlerts.ts` reads the lineup on the first check after a start and then every 30
+  minutes. The last lineup is kept in Redis (`CHANNELS_DVR_LINEUP`), so restarts don't cause false
+  alerts and a change made while Tracearr was down is still reported. The first read is stored
+  silently; an empty read is ignored.
+- One `dvr_alert` (kind `lineup_changed`, severity warning) per check per server, one line per
+  source, lists capped at 5 names ("and N more"). Template variables: `lineup.summary|sources|
+  added|removed|renamed|moved`.
+- Built-in template `channels-dvr-lineup-changed`. Like the other templates, nothing runs until
+  someone makes an automation from it.
+
 ## November 12, 2026 — Point this fork's links and defaults at write-erase
 
 - User menu "GitHub" opens `write-erase/Tracearr` (was connor's repo). Sponsor still credits connor.

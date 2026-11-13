@@ -17,6 +17,7 @@ import serverDown from './server-down.json' with { type: 'json' };
 import channelsDvrRecordingFailed from './channels-dvr-recording-failed.json' with { type: 'json' };
 import channelsDvrRecordingGlitch from './channels-dvr-recording-glitch.json' with { type: 'json' };
 import channelsDvrDiskSpace from './channels-dvr-disk-space.json' with { type: 'json' };
+import channelsDvrLineupChanged from './channels-dvr-lineup-changed.json' with { type: 'json' };
 import serverUp from './server-up.json' with { type: 'json' };
 import serverUpdate from './server-update.json' with { type: 'json' };
 import simultaneousLocations from './simultaneous-locations.json' with { type: 'json' };
@@ -48,6 +49,7 @@ export const BUILTIN_ENVELOPES: TemplateEnvelope[] = [
   channelsDvrRecordingFailed,
   channelsDvrRecordingGlitch,
   channelsDvrDiskSpace,
+  channelsDvrLineupChanged,
   concurrentStreams,
   impossibleTravel,
   simultaneousLocations,

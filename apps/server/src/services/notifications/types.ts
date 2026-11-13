@@ -19,6 +19,7 @@ import type {
   NotificationPriority,
 } from '@tracearr/shared';
 import type { MediaQuality } from '../automations/types.js';
+import type { LineupSourceChange } from '../mediaServer/channelsDvr/lineup.js';
 import type {
   MediaEventPayload,
   MediaUpgradedPayload,
@@ -168,6 +169,63 @@ export function formatDvrBytes(bytes: number): string {
 
 function dvrPercent(value: number | null): string {
   return value === null ? '' : String(Math.round(value * 10) / 10);
+}
+
+/** How many channels a lineup alert names in one list before it says "and N more". */
+const LINEUP_LIST_LIMIT = 5;
+
+function lineupChannel(channel: { number: string; name: string }): string {
+  return channel.name ? `${channel.number} ${channel.name}` : channel.number;
+}
+
+function lineupList(items: string[], limit = LINEUP_LIST_LIMIT): string {
+  if (items.length <= limit) return items.join(', ');
+  return `${items.slice(0, limit).join(', ')} and ${items.length - limit} more`;
+}
+
+function channelCount(count: number): string {
+  return `${count} ${count === 1 ? 'channel' : 'channels'}`;
+}
+
+/** One line per source: "Dispatcharr on Den DVR: 2 added (105 ESPN, 106 ESPN2), 1 removed (210 CNN)". */
+export function describeLineupChanges(serverName: string, changes: LineupSourceChange[]): string {
+  return changes
+    .map((change) => {
+      const where = `${change.source} on ${serverName}`;
+      if (change.status === 'added')
+        return `${where}: new source with ${channelCount(change.channelCount)}`;
+      if (change.status === 'removed')
+        return `${where}: source removed (it had ${channelCount(change.channelCount)})`;
+      const parts: string[] = [];
+      if (change.added.length)
+        parts.push(`${change.added.length} added (${lineupList(change.added.map(lineupChannel))})`);
+      if (change.removed.length)
+        parts.push(
+          `${change.removed.length} removed (${lineupList(change.removed.map(lineupChannel))})`
+        );
+      if (change.renamed.length)
+        parts.push(
+          `${change.renamed.length} renamed (${lineupList(
+            change.renamed.map((r) => `${r.number} ${r.from} → ${r.to}`)
+          )})`
+        );
+      if (change.moved.length)
+        parts.push(
+          `${change.moved.length} moved (${lineupList(
+            change.moved.map((m) => `${m.name} ${m.from} → ${m.to}`)
+          )})`
+        );
+      return `${where}: ${parts.join(', ')}`;
+    })
+    .join('\n');
+}
+
+/** Every channel in one category across the changed sources, for template variables. */
+function lineupVariable(
+  changes: LineupSourceChange[] | null,
+  pick: (change: LineupSourceChange) => string[]
+): string {
+  return (changes ?? []).flatMap(pick).join(', ');
 }
 
 /**
@@ -417,6 +475,11 @@ export const PayloadBuilders = {
         message: `${ctx.serverName} is back to ${free} free of ${total} for recordings (${dvrPercent(ctx.freePercent)}%)`,
         severity: 'low' as const,
       },
+      lineup_changed: {
+        title: 'Channel lineup changed',
+        message: describeLineupChanges(ctx.serverName, ctx.lineup ?? []),
+        severity: 'warning' as const,
+      },
     }[ctx.kind];
     return {
       event: 'dvr_alert',
@@ -648,6 +711,16 @@ function variablesOf(event: NotificationEvent): Record<string, string> {
         'disk.total': d.totalBytes === null ? '' : formatDvrBytes(d.totalBytes),
         'disk.freePercent': dvrPercent(d.freePercent),
         'disk.threshold': d.thresholdPercent === null ? '' : String(d.thresholdPercent),
+        'lineup.summary': d.lineup ? describeLineupChanges(d.serverName, d.lineup) : '',
+        'lineup.sources': (d.lineup ?? []).map((c) => c.source).join(', '),
+        'lineup.added': lineupVariable(d.lineup, (c) => c.added.map(lineupChannel)),
+        'lineup.removed': lineupVariable(d.lineup, (c) => c.removed.map(lineupChannel)),
+        'lineup.renamed': lineupVariable(d.lineup, (c) =>
+          c.renamed.map((r) => `${r.number} ${r.from} → ${r.to}`)
+        ),
+        'lineup.moved': lineupVariable(d.lineup, (c) =>
+          c.moved.map((m) => `${m.name} ${m.from} → ${m.to}`)
+        ),
       };
     }
     case 'newsletter_send': {

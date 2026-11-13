@@ -13,6 +13,7 @@ import {
   Globe,
   HardDrive,
   Library,
+  ListOrdered,
   Mail,
   MapPin,
   MessageSquare,
@@ -86,6 +87,7 @@ const TRIGGER_ICONS: Partial<Record<TriggerType, LucideIcon>> = {
   'dvr.recording_glitch': CircleDot,
   'dvr.disk_low': HardDrive,
   'dvr.disk_ok': HardDrive,
+  'dvr.lineup_changed': ListOrdered,
 };
 
 function iconForTrigger(type: TriggerType): LucideIcon {
