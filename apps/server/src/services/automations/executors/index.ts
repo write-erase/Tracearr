@@ -18,6 +18,7 @@ import { evaluateAllGroupsAsync } from '../engine.js';
 import { pauseMinutes } from '../wakes/crossings.js';
 import { resolveTargetSessions } from './targeting.js';
 import type {
+  DvrAlertPayload,
   NotificationEvent,
   NotificationSource,
   ServerEventPayload,
@@ -238,6 +239,16 @@ function serverPayload(server: Server): ServerEventPayload {
   return { serverName: server.name, serverId: server.id, serverType: server.type };
 }
 
+/** The alert kind each Channels DVR recording trigger sends. */
+const DVR_RECORDING_KINDS = {
+  'dvr.recording_failed': 'recording_failed',
+  'dvr.recording_resumed': 'recording_resumed',
+  'dvr.recording_glitch': 'recording_glitch',
+  'dvr.recording_missed': 'recording_missed',
+  'dvr.recording_started': 'recording_started',
+  'dvr.recording_completed': 'recording_completed',
+} as const satisfies Record<string, DvrAlertPayload['kind']>;
+
 /**
  * The notification event the trigger speaks natively. Triggers with none - transcode
  * changes, pauses, held_for and inactivity - fall through to the violation shape.
@@ -288,18 +299,16 @@ function nativeEventFor(context: EvaluationContext): NotificationEvent | null {
     case 'dvr.recording_failed':
     case 'dvr.recording_resumed':
     case 'dvr.recording_glitch':
+    case 'dvr.recording_missed':
+    case 'dvr.recording_started':
+    case 'dvr.recording_completed':
       return {
         type: 'dvr_alert',
         payload: {
           serverId: trigger.server.id,
           serverName: trigger.server.name,
           serverType: trigger.server.type,
-          kind:
-            trigger.type === 'dvr.recording_failed'
-              ? 'recording_failed'
-              : trigger.type === 'dvr.recording_resumed'
-                ? 'recording_resumed'
-                : 'recording_glitch',
+          kind: DVR_RECORDING_KINDS[trigger.type],
           jobId: trigger.recording.jobId,
           recordingTitle: trigger.recording.title,
           channel: trigger.recording.channel,

@@ -465,6 +465,21 @@ export const PayloadBuilders = {
         message: `${recording}${channel} on ${ctx.serverName} lost its stream for a moment; the recording may have a gap`,
         severity: 'warning' as const,
       },
+      recording_missed: {
+        title: 'Recording missed',
+        message: `${recording}${channel} should be recording on ${ctx.serverName} but hasn't started`,
+        severity: 'high' as const,
+      },
+      recording_started: {
+        title: 'Recording started',
+        message: `${recording}${channel} started recording on ${ctx.serverName}`,
+        severity: 'low' as const,
+      },
+      recording_completed: {
+        title: 'Recording finished',
+        message: `${recording}${channel} finished recording on ${ctx.serverName}`,
+        severity: 'low' as const,
+      },
       disk_low: {
         title: 'DVR disk almost full',
         message: `${ctx.serverName} has ${free} free of ${total} for recordings (${dvrPercent(ctx.freePercent)}%)`,

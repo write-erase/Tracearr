@@ -144,8 +144,12 @@ export interface ChannelsDvrJobStatus {
   error: string | null;
   /** The recording's file id once it has one */
   fileId: string | null;
+  /** When the airing starts (ms since epoch), from `Time`; null when missing */
+  startsAt: number | null;
   /** When the airing ends (ms since epoch), from `Time` + `Duration`; null when either is missing */
   endsAt: number | null;
+  /** Skipped in Channels, so it isn't meant to record */
+  skipped: boolean;
   /** The series pass (rule) that scheduled it; null for a one-time recording */
   ruleId: string | null;
 }
@@ -171,10 +175,12 @@ export function parseDvrJobStatuses(data: unknown): ChannelsDvrJobStatus[] {
       failed: job.Failed === true,
       error: str(job.Error),
       fileId: str(job.FileID) ?? (typeof job.FileID === 'number' ? String(job.FileID) : null),
+      startsAt: typeof job.Time === 'number' ? job.Time * 1000 : null,
       endsAt:
         typeof job.Time === 'number' && typeof job.Duration === 'number'
           ? (job.Time + job.Duration) * 1000
           : null,
+      skipped: job.Skipped === true,
       ruleId: str(job.RuleID) ?? (typeof job.RuleID === 'number' ? String(job.RuleID) : null),
     });
   }

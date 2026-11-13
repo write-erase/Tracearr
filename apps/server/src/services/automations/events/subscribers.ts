@@ -122,6 +122,9 @@ export function edgeKeyOf(event: ContextEvaluatingEvent, node: TriggerNode | nul
     case 'dvr.recording_failed':
     case 'dvr.recording_resumed':
     case 'dvr.recording_glitch':
+    case 'dvr.recording_missed':
+    case 'dvr.recording_started':
+    case 'dvr.recording_completed':
       return `${event.recording.jobId}@${event.at.toISOString()}`;
     case 'dvr.disk_low':
     case 'dvr.disk_ok':
@@ -320,6 +323,9 @@ const SERVER_TRIGGERS = [
   'dvr.recording_failed',
   'dvr.recording_resumed',
   'dvr.recording_glitch',
+  'dvr.recording_missed',
+  'dvr.recording_started',
+  'dvr.recording_completed',
   'dvr.disk_low',
   'dvr.disk_ok',
   'dvr.lineup_changed',

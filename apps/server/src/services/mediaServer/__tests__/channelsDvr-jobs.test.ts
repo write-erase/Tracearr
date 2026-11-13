@@ -152,7 +152,9 @@ describe('parseDvrJobStatuses', () => {
       failed: true,
       error: 'could not start stream on channels=[2]: connect: connection refused',
       fileId: '1346',
+      startsAt: 1794423600 * 1000,
       endsAt: (1794423600 + 3600) * 1000,
+      skipped: false,
       ruleId: null,
     });
   });
@@ -163,7 +165,9 @@ describe('parseDvrJobStatuses', () => {
       { ID: '1794424758-ch2', Name: 'Beyond the Gates', RuleID: '' },
     ]);
     expect(pass?.ruleId).toBe('1');
+    expect(pass?.skipped).toBe(true);
     expect(oneTime?.ruleId).toBeNull();
+    expect(oneTime?.skipped).toBe(false);
   });
 });
 

@@ -1409,6 +1409,9 @@
         "dvrRecordingFailed": "a Channels DVR recording fails",
         "dvrRecordingResumed": "a failed Channels DVR recording resumes",
         "dvrRecordingGlitch": "a Channels DVR recording loses its stream for a moment",
+        "dvrRecordingMissed": "a scheduled Channels DVR recording doesn't start",
+        "dvrRecordingStarted": "a Channels DVR recording starts",
+        "dvrRecordingCompleted": "a Channels DVR recording finishes",
         "dvrDiskLow": "free space on the DVR disk drops below {{percent}}%",
         "dvrDiskOk": "free space on the DVR disk is back above {{percent}}%",
         "dvrLineupChanged": "a Channels DVR channel lineup changes"
@@ -2122,6 +2125,16 @@
         "description": "Tell a destination when a Channels DVR recording loses its stream for a moment and may have a gap.",
         "keywords": "channels dvr recording glitch gap corrupted interrupted notify"
       },
+      "channels-dvr-recording-missed": {
+        "name": "Channels DVR recording missed",
+        "description": "Tell a destination when a scheduled Channels DVR recording doesn't start.",
+        "keywords": "channels dvr recording missed not started scheduled notify discord"
+      },
+      "channels-dvr-recording-activity": {
+        "name": "Channels DVR recording started and finished",
+        "description": "Tell a destination when a Channels DVR recording starts and when it finishes.",
+        "keywords": "channels dvr recording started finished completed done notify discord"
+      },
       "channels-dvr-disk-space": {
         "name": "Channels DVR disk almost full",
         "description": "Tell a destination when free space on the disk Channels DVR records to drops below the percentage you choose, and when it recovers.",
@@ -2254,6 +2267,18 @@
         "dvrRecordingGlitch": {
           "description": "The stream dropped during a Channels DVR recording and Channels reconnected, so the recording may have a gap.",
           "synonyms": "channels dvr recording glitch gap corrupted interrupted dropout"
+        },
+        "dvrRecordingMissed": {
+          "description": "A scheduled Channels DVR recording is a few minutes past its start time and still isn't recording, and Channels hasn't flagged it as failed.",
+          "synonyms": "channels dvr recording missed not started scheduled tuner"
+        },
+        "dvrRecordingStarted": {
+          "description": "A Channels DVR recording begins. A failed recording that starts again counts as resumed, not started.",
+          "synonyms": "channels dvr recording started began scheduled"
+        },
+        "dvrRecordingCompleted": {
+          "description": "A Channels DVR recording stops at the end of its airing. Recordings that are cancelled or fail partway aren't reported.",
+          "synonyms": "channels dvr recording completed finished done ended"
         },
         "dvrDiskLow": {
           "label": "Channels DVR disk almost full",

@@ -1,5 +1,37 @@
 # Tracearr Fork Information
 
+## November 13, 2026 — Channels DVR recording started and finished alerts
+
+- New triggers `dvr.recording_started` and `dvr.recording_completed` (server context, servers group,
+  3.1.7), off unless someone makes an automation from them.
+- Started: a job in the activity feed that wasn't at the last check. A failed job recording again
+  is `dvr.recording_resumed`, not a start.
+- Completed: a job recording at the last check that has stopped, within a minute of its airing's
+  end or later (end padding). One that stops earlier was cancelled or is failing, and isn't
+  reported; one newly flagged failed at the same check is the failed alert. Channels drops finished
+  jobs from `/dvr/jobs`, so the alert job keeps each recording's last-seen job (`recordingNow`) to
+  name it.
+- Recordings already running on the first check after a start are learned silently.
+- `dvr_alert` kinds `recording_started` ("Recording started") and `recording_completed`
+  ("Recording finished"), severity low, same `recording.*` variables. The executor maps recording
+  triggers to kinds through one table (`DVR_RECORDING_KINDS`).
+- Built-in template `channels-dvr-recording-activity` with both triggers.
+
+## November 13, 2026 — Channels DVR recording missed alert
+
+- New trigger `dvr.recording_missed` (server context, servers group, 3.1.7): a scheduled recording
+  that should be recording and isn't. Catches what the failed alert can't, such as no free tuner or
+  a source that never answered, when Channels doesn't flag the job as failed.
+- A job counts as missed when its airing started more than 2 minutes ago and hasn't ended, it isn't
+  skipped or flagged failed, it has no file and it isn't in the activity feed. It must look missed
+  on two checks in a row (a minute apart), so a recording that's slow to start, or one scheduled
+  mid-airing, isn't reported. Each job is reported once.
+- Jobs already missed on the first check after a start are learned silently, like failures.
+- `parseDvrJobStatuses` now also reads `startsAt` (from `Time`) and `skipped` (from `Skipped`).
+- `dvr_alert` kind `recording_missed`, severity high: "<title> on channel <n> should be recording on
+  <server> but hasn't started". Same `recording.*` variables as the other recording alerts.
+- Built-in template `channels-dvr-recording-missed`.
+
 ## November 13, 2026 — Channels DVR channel lineup alert
 
 - New trigger `dvr.lineup_changed` (server context, servers group, 3.1.7): channels added, removed,

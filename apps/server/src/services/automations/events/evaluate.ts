@@ -14,6 +14,9 @@ import type {
   DvrLineupChangedEvent,
   DvrRecordingFailedEvent,
   DvrRecordingGlitchEvent,
+  DvrRecordingMissedEvent,
+  DvrRecordingStartedEvent,
+  DvrRecordingCompletedEvent,
   DvrRecordingResumedEvent,
   EvaluationInputs,
   MediaAddedEvent,
@@ -61,6 +64,9 @@ export type ServerEvaluatingEvent =
   | DvrRecordingFailedEvent
   | DvrRecordingResumedEvent
   | DvrRecordingGlitchEvent
+  | DvrRecordingMissedEvent
+  | DvrRecordingStartedEvent
+  | DvrRecordingCompletedEvent
   | DvrDiskLowEvent
   | DvrDiskOkEvent
   | DvrLineupChangedEvent;
