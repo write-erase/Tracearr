@@ -10,7 +10,7 @@ body:
 
       **For server or web dashboard bugs**, please use the **Tracearr Bug Report** template instead.
 
-      **Before submitting:** Search [existing issues](https://github.com/connorgallopo/tracearr/issues) first.
+      **Before submitting:** Search [existing issues](https://github.com/write-erase/Tracearr/issues) first.
 
       **What gets a report closed:** replacing this template with your own format, or pasting
       AI-generated analysis and suggested fixes in place of the facts the form asks for.
@@ -106,7 +106,7 @@ body:
       **Required.** If the app can't connect, shows wrong data, or misses a push
       notification, attach your Tracearr server logs covering the time it happened, for
       all three services. The commands for each deployment are in the
-      [Tracearr Bug Report](https://github.com/connorgallopo/Tracearr/issues/new?template=bug-report.yml)
+      [Tracearr Bug Report](https://github.com/write-erase/Tracearr/issues/new?template=bug-report.yml)
       template and at https://docs.tracearr.com/troubleshooting/logs.
       If the problem is purely visual (layout, colors, spacing), write `UI only` here
       instead and attach screenshots above. For anything else, screenshots do not
