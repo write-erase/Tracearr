@@ -1,11 +1,8 @@
 blank_issues_enabled: false
 contact_links:
 - name: Feature Requests
-  url: https://github.com/connorgallopo/Tracearr/discussions/categories/feature-requests
+  url: https://github.com/write-erase/Tracearr/discussions/categories/feature-requests
   about: Suggest new features or enhancements in Discussions
 - name: Documentation
   url: https://docs.tracearr.com
   about: Check the docs for setup guides and common questions
-- name: Discord Community
-  url: https://discord.gg/a7n3sFd2Yw
-  about: Get help from the community or discuss ideas

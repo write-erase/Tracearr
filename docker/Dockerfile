@@ -126,8 +126,8 @@ ARG APP_UPSTREAM_VERSION=${APP_VERSION}
 ARG APP_FORK_REVISION=
 ARG APP_FORK_VERSION=
 ARG APP_FORK_RELEASE_TAG=
-ARG APP_FORK_REPO=d4rk-4lchemy/Tracearr
-ARG APP_IMAGE_REPO=darkalchemy2137/distracearr
+ARG APP_FORK_REPO=write-erase/Tracearr
+ARG APP_IMAGE_REPO=ghcr.io/write-erase/tracearr
 ARG CACHE_BUST
 
 # Write build info to JSON file - can't be overridden by compose ENV vars
@@ -153,11 +153,11 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
   CMD wget --no-verbose --tries=1 --spider http://127.0.0.1:3000/health || exit 1
 
 # OCI image labels for container registries and tools like Renovate
-LABEL org.opencontainers.image.source="https://github.com/d4rk-4lchemy/Tracearr" \
-      org.opencontainers.image.url="https://github.com/d4rk-4lchemy/Tracearr" \
+LABEL org.opencontainers.image.source="https://github.com/write-erase/Tracearr" \
+      org.opencontainers.image.url="https://github.com/write-erase/Tracearr" \
       org.opencontainers.image.title="Tracearr" \
       org.opencontainers.image.description="Streaming access manager for Plex, Jellyfin, and Emby" \
-      org.opencontainers.image.vendor="d4rk-4lchemy" \
+      org.opencontainers.image.vendor="write-erase" \
       org.opencontainers.image.licenses="AGPL-3.0" \
       org.opencontainers.image.version="${APP_VERSION}" \
       org.opencontainers.image.revision="${APP_COMMIT}" \

@@ -1,5 +1,23 @@
 # Tracearr Fork Information
 
+## November 12, 2026 — Point this fork's links and defaults at write-erase
+
+- User menu "GitHub" opens `write-erase/Tracearr` (was connor's repo). Sponsor still credits connor.
+- Issue and discussion templates (`.github/ISSUE_TEMPLATE`, `DISCUSSION_TEMPLATE/feature-requests.yml`)
+  link to this fork's issues and discussions instead of connor's, so fork bugs don't go to him.
+- `buildInfo.ts` and both Dockerfiles default to `write-erase/Tracearr` and
+  `ghcr.io/write-erase/tracearr` (were d4rk's), and the Dockerfile OCI labels name this fork.
+  Released images already set these through `release-ghcr.yml`; this covers local builds.
+- Removed links to connor's Discord from the user menu (and its unused icon), the new-issue page and
+  CONTRIBUTING.md, so this fork's users don't go there for help. The two Discord links in the
+  original-README part of README.md stay with the rest of connor's original README.
+- Removed `.github/scripts/post-release-to-reddit.mjs`: connor's script for posting his releases,
+  not used by any workflow here.
+- Removed `.github/workflows/fork-ghcr-release.yml`: d4rk's release workflow, which only runs on
+  `d4rk-4lchemy/Tracearr` (this fork releases with `release-ghcr.yml`).
+- Left on purpose: What's New issue links (they number connor's issues in connor's release notes),
+  the upstream version check, credits, and the SSE metrics plugin links (d4rk's plugin).
+
 ## November 12, 2026 — Fork update check reads this fork's releases
 
 - `jobs/versionCheckQueue.ts` fetched fork releases from a hard-coded
