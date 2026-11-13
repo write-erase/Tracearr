@@ -86,6 +86,8 @@ const TRIGGER_ICONS: Partial<Record<TriggerType, LucideIcon>> = {
   'dvr.recording_resumed': CircleDot,
   'dvr.recording_glitch': CircleDot,
   'dvr.recording_missed': CircleDot,
+  'dvr.recording_started': CircleDot,
+  'dvr.recording_completed': CircleDot,
   'dvr.disk_low': HardDrive,
   'dvr.disk_ok': HardDrive,
   'dvr.lineup_changed': ListOrdered,

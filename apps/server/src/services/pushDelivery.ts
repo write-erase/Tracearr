@@ -66,6 +66,8 @@ const TRIGGER_PREFERENCE = {
   'dvr.recording_resumed': null,
   'dvr.recording_glitch': null,
   'dvr.recording_missed': null,
+  'dvr.recording_started': null,
+  'dvr.recording_completed': null,
   'dvr.disk_low': null,
   'dvr.disk_ok': null,
   'dvr.lineup_changed': null,

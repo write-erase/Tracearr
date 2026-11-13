@@ -13,6 +13,7 @@ const fresh = (): ServerAlertState => ({
   failedJobs: new Set(),
   resumedJobs: new Set(),
   corruptedFiles: new Set(),
+  recordingNow: new Map(),
   missedCandidates: new Set(),
   missedJobs: new Set(),
   diskLevels: new Map(),
@@ -34,6 +35,9 @@ const job = (overrides: Partial<ChannelsDvrJobStatus> = {}): ChannelsDvrJobStatu
   ...overrides,
 });
 
+/** What a check with nothing to report returns. */
+const QUIET = { failed: [], resumed: [], glitched: [], missed: [], started: [], completed: [] };
+
 /** A check during the airing, and one after it ended. */
 const DURING = 1794424000 * 1000;
 const AFTER = (1794423600 + 3600 + 60) * 1000;
@@ -46,7 +50,7 @@ describe('recordingChanges', () => {
       recordingJobIds: [],
       corruptedFileIds: ['1346'],
     });
-    expect(changes).toEqual({ failed: [], resumed: [], glitched: [], missed: [] });
+    expect(changes).toEqual(QUIET);
     expect(state.failedJobs.has('1794424758-ch2')).toBe(true);
   });
 
@@ -80,7 +84,7 @@ describe('recordingChanges', () => {
       recordingJobIds: [],
       corruptedFileIds: [],
     });
-    expect(stillFailed).toEqual({ failed: [], resumed: [], glitched: [], missed: [] });
+    expect(stillFailed).toEqual(QUIET);
 
     // Channels keeps Failed on after it retries; recording again is what says it resumed.
     const resumed = recordingChanges(state, {
@@ -98,7 +102,7 @@ describe('recordingChanges', () => {
       { jobs: [job({ failed: true })], recordingJobIds: ['1794424758-ch2'], corruptedFileIds: [] },
       DURING
     );
-    expect(stillRecording).toEqual({ failed: [], resumed: [], glitched: [], missed: [] });
+    expect(stillRecording).toEqual(QUIET);
   });
 
   it('also counts a resume when Channels clears the flag', () => {
@@ -156,7 +160,7 @@ describe('recordingChanges', () => {
     expect(back.resumed.map((j) => j.id)).toEqual(['1794424758-ch2']);
   });
 
-  it('stays quiet when a resumed recording finishes at the end of its airing', () => {
+  it('reports a resumed recording that finishes at the end of its airing as completed, not failed', () => {
     const state = fresh();
     const failedJob = job({ failed: true });
     recordingChanges(state, {
@@ -180,7 +184,7 @@ describe('recordingChanges', () => {
       { jobs: [failedJob], recordingJobIds: [], corruptedFileIds: [] },
       AFTER
     );
-    expect(finished).toEqual({ failed: [], resumed: [], glitched: [], missed: [] });
+    expect(finished).toEqual({ ...QUIET, completed: [failedJob] });
   });
 
   it("doesn't report a failed job that was already recording again when Tracearr started", () => {
@@ -196,7 +200,7 @@ describe('recordingChanges', () => {
       { jobs: [failedJob], recordingJobIds: ['1794424758-ch2'], corruptedFileIds: [] },
       DURING
     );
-    expect(next).toEqual({ failed: [], resumed: [], glitched: [], missed: [] });
+    expect(next).toEqual(QUIET);
   });
 
   it('forgets a failed job that ended without resuming', () => {
@@ -208,7 +212,7 @@ describe('recordingChanges', () => {
       corruptedFileIds: [],
     });
     const gone = recordingChanges(state, { jobs: [], recordingJobIds: [], corruptedFileIds: [] });
-    expect(gone).toEqual({ failed: [], resumed: [], glitched: [], missed: [] });
+    expect(gone).toEqual(QUIET);
     expect(state.failedJobs.size).toBe(0);
   });
 });
@@ -299,5 +303,58 @@ describe('missed recordings', () => {
     const state = fresh();
     check(state, [scheduled()], START + 3 * 60_000);
     expect(check(state, [scheduled()], START + 4 * 60_000).missed).toEqual([]);
+  });
+});
+
+describe('recordings starting and finishing', () => {
+  const ID = '1794424758-ch2';
+  const check = (
+    state: ServerAlertState,
+    jobs: ChannelsDvrJobStatus[],
+    recordingJobIds: string[],
+    now: number
+  ) => recordingChanges(state, { jobs, recordingJobIds, corruptedFileIds: [] }, now);
+
+  it('reports a recording starting, and finishing at the end of its airing', () => {
+    const state = fresh();
+    check(state, [job({ fileId: null })], [], DURING - 120_000);
+    const started = check(state, [job()], [ID], DURING);
+    expect(started.started.map((j) => j.id)).toEqual([ID]);
+    expect(check(state, [job()], [ID], DURING + 60_000).started).toEqual([]);
+
+    // Finished recordings leave the job list; the last check still names it.
+    const finished = check(state, [], [], AFTER);
+    expect(finished.completed.map((j) => j.title)).toEqual(['Beyond the Gates']);
+    expect(check(state, [], [], AFTER + 60_000).completed).toEqual([]);
+  });
+
+  it("doesn't report a recording that stops before its airing ends as completed", () => {
+    const state = fresh();
+    check(state, [job()], [ID], DURING);
+    // Cancelled: the job is gone partway through the airing.
+    expect(check(state, [], [], DURING + 60_000)).toEqual(QUIET);
+  });
+
+  it('reports a recording that fails partway as failed, not completed', () => {
+    const state = fresh();
+    check(state, [job()], [ID], DURING);
+    const failed = check(state, [job({ failed: true })], [], DURING + 60_000);
+    expect(failed.failed.map((j) => j.id)).toEqual([ID]);
+    expect(failed.completed).toEqual([]);
+  });
+
+  it('reports a failed recording that comes back as resumed, not started', () => {
+    const state = fresh();
+    check(state, [job()], [ID], DURING);
+    check(state, [job({ failed: true })], [], DURING + 60_000);
+    const back = check(state, [job({ failed: true })], [ID], DURING + 120_000);
+    expect(back.resumed.map((j) => j.id)).toEqual([ID]);
+    expect(back.started).toEqual([]);
+  });
+
+  it("doesn't report recordings already running on the first check", () => {
+    const state = fresh();
+    expect(check(state, [job()], [ID], DURING)).toEqual(QUIET);
+    expect(check(state, [job()], [ID], DURING + 60_000)).toEqual(QUIET);
   });
 });

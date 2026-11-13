@@ -240,6 +240,19 @@ export interface DvrRecordingMissedEvent extends BaseEvent {
   recording: DvrRecordingSubject;
 }
 
+export interface DvrRecordingStartedEvent extends BaseEvent {
+  type: 'dvr.recording_started';
+  server: EvaluationServer;
+  recording: DvrRecordingSubject;
+}
+
+/** A recording stopped at the end of its airing (not cancelled or failed). */
+export interface DvrRecordingCompletedEvent extends BaseEvent {
+  type: 'dvr.recording_completed';
+  server: EvaluationServer;
+  recording: DvrRecordingSubject;
+}
+
 /** Recording space at one check, and the thresholds it just crossed. */
 export interface DvrDiskState {
   freeBytes: number;
@@ -311,6 +324,8 @@ export type RuleEvent =
   | DvrRecordingResumedEvent
   | DvrRecordingGlitchEvent
   | DvrRecordingMissedEvent
+  | DvrRecordingStartedEvent
+  | DvrRecordingCompletedEvent
   | DvrDiskLowEvent
   | DvrDiskOkEvent
   | DvrLineupChangedEvent

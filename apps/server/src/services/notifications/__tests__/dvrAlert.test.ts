@@ -36,6 +36,14 @@ describe('Channels DVR alert notifications', () => {
       'Beyond the Gates on channel 2 is recording again on Channels DVR'
     );
     expect(render({ ...base, kind: 'recording_glitch' }).severity).toBe('warning');
+    expect(render({ ...base, kind: 'recording_started' }).message).toBe(
+      'Beyond the Gates on channel 2 started recording on Channels DVR'
+    );
+    expect(render({ ...base, kind: 'recording_completed', error: null })).toMatchObject({
+      title: 'Recording finished',
+      message: 'Beyond the Gates on channel 2 finished recording on Channels DVR',
+      severity: 'low',
+    });
     expect(render({ ...base, kind: 'recording_missed' }).message).toBe(
       "Beyond the Gates on channel 2 should be recording on Channels DVR but hasn't started"
     );
