@@ -138,6 +138,9 @@ export const REDIS_KEYS = {
     `${_redisPrefix}tracearr:servers:${serverId}:stats:bandwidth:samples`,
   SERVER_STATS_CHANNELS_DVR_FETCH: (serverId: string) =>
     `${_redisPrefix}tracearr:servers:${serverId}:stats:channels-dvr`,
+  /** The Channels DVR lineup the lineup alert last saw, so a restart doesn't report old changes. */
+  CHANNELS_DVR_LINEUP: (serverId: string) =>
+    `${_redisPrefix}tracearr:servers:${serverId}:channels-dvr:lineup`,
   DOWNLOAD_CURSOR: (serverId: string) =>
     `${_redisPrefix}tracearr:servers:${serverId}:downloads:cursor`,
   SYNC_CURSOR: (serverId: string) =>

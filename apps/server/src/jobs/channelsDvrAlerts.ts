@@ -8,15 +8,21 @@
  *   and Channels reconnected, leaving a gap).
  * - dvr.disk_low / dvr.disk_ok: free space crosses an enabled alert's threshold, with a
  *   one-point margin before it counts as OK again.
+ * - dvr.lineup_changed: every 30 minutes, channels added, removed, renamed or moved in a
+ *   source's lineup (Virtual Channels left out).
  *
- * State lives in memory. Recording state is learned silently on the first check after a
- * start, so a restart doesn't repeat old failures; disk thresholds start "OK", so an alert
- * created while space is already low fires on its first check.
+ * Recording and disk state live in memory. Recording state is learned silently on the first
+ * check after a start, so a restart doesn't repeat old failures; disk thresholds start "OK",
+ * so an alert created while space is already low fires on its first check. The last lineup is
+ * kept in Redis, so a change made while Tracearr was down is still reported; the very first
+ * read is only stored.
  */
 
-import type { ServerType } from '@tracearr/shared';
+import { REDIS_KEYS, type ServerType } from '@tracearr/shared';
+import { getRedis } from '../lib/redisShared.js';
 import {
   dispatchDvrDisk,
+  dispatchDvrLineup,
   dispatchDvrRecording,
   dvrDiskThresholds,
 } from '../services/automations/events/producers.js';
@@ -28,6 +34,12 @@ import {
   tidyDvrError,
   type ChannelsDvrJobStatus,
 } from '../services/mediaServer/channelsDvr/jobs.js';
+import {
+  diffLineups,
+  lineupChangeCount,
+  type LineupSource,
+  type LineupSourceChange,
+} from '../services/mediaServer/channelsDvr/lineup.js';
 import { createLogger } from '../utils/logger.js';
 import { startPeriodic, type PeriodicTimers } from '../utils/periodic.js';
 
@@ -37,6 +49,8 @@ const CHECK_INTERVAL_MS = 60_000;
 const INITIAL_DELAY_MS = 20_000;
 /** Space must climb this many points above a threshold before it counts as OK again. */
 const DISK_RECOVERY_MARGIN = 1;
+/** Lineups change rarely, and /devices lists every channel, so they're read less often. */
+const LINEUP_INTERVAL_MS = 30 * 60_000;
 
 type DiskLevel = 'low' | 'ok';
 
@@ -51,6 +65,8 @@ export interface ServerAlertState {
   resumedJobs: Set<string>;
   corruptedFiles: Set<string>;
   diskLevels: Map<number, DiskLevel>;
+  /** When the lineup was last read; 0 until the first read */
+  lineupCheckedAt: number;
 }
 
 const states = new Map<string, ServerAlertState>();
@@ -67,6 +83,7 @@ function stateFor(serverId: string): ServerAlertState {
     resumedJobs: new Set(),
     corruptedFiles: new Set(),
     diskLevels: new Map(),
+    lineupCheckedAt: 0,
   }));
 }
 
@@ -197,6 +214,8 @@ async function checkServer(server: EvaluationServer & { url: string }): Promise<
     await dispatchDvrRecording('dvr.recording_glitch', evaluationServer, subject(job));
   }
 
+  await checkLineup(client, server, evaluationServer, state);
+
   if (!snapshot.disk) return;
   const thresholds = await dvrDiskThresholds(server.id);
   const freePercent = diskFreePercent(snapshot.disk);
@@ -204,6 +223,60 @@ async function checkServer(server: EvaluationServer & { url: string }): Promise<
   const disk = { ...snapshot.disk, freePercent };
   await dispatchDvrDisk('dvr.disk_low', evaluationServer, disk, low);
   await dispatchDvrDisk('dvr.disk_ok', evaluationServer, disk, ok);
+}
+
+/** Whether the lineup is due a read: the first check after a start, then every 30 minutes. */
+export function lineupDue(state: ServerAlertState, now: number = Date.now()): boolean {
+  return now - state.lineupCheckedAt >= LINEUP_INTERVAL_MS;
+}
+
+/** The stored lineup, or null when there's none yet or it can't be read. */
+async function storedLineup(serverId: string): Promise<LineupSource[] | null> {
+  const raw = await getRedis().get(REDIS_KEYS.CHANNELS_DVR_LINEUP(serverId));
+  if (!raw) return null;
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    return Array.isArray(parsed) ? (parsed as LineupSource[]) : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The changes since the stored lineup, storing the new one. The first read is stored silently.
+ * An empty read (Channels answering mid-restart, say) is ignored rather than reported as every
+ * source going away.
+ */
+export async function lineupChanges(
+  serverId: string,
+  lineup: LineupSource[]
+): Promise<LineupSourceChange[]> {
+  if (lineup.length === 0) return [];
+  const previous = await storedLineup(serverId);
+  await getRedis().set(REDIS_KEYS.CHANNELS_DVR_LINEUP(serverId), JSON.stringify(lineup));
+  return previous ? diffLineups(previous, lineup) : [];
+}
+
+async function checkLineup(
+  client: ChannelsDvrClient,
+  server: { id: string; name: string },
+  evaluationServer: EvaluationServer,
+  state: ServerAlertState
+): Promise<void> {
+  if (!lineupDue(state)) return;
+  state.lineupCheckedAt = Date.now();
+  try {
+    const changes = await lineupChanges(server.id, await client.getLineups());
+    if (changes.length === 0) return;
+    const count = changes.reduce((sum, change) => sum + lineupChangeCount(change), 0);
+    logger.info(
+      `${server.name}: lineup changed (${count} channels across ${changes.length} sources)`
+    );
+    await dispatchDvrLineup(evaluationServer, changes);
+  } catch (error) {
+    // Tried again in 30 minutes; recordings and disk still get checked every minute.
+    logger.debug(`${server.name}: lineup check failed`, { error });
+  }
 }
 
 export async function runChannelsDvrAlertCheck(): Promise<void> {
@@ -224,7 +297,13 @@ export async function runChannelsDvrAlertCheck(): Promise<void> {
     }
     // Forget servers that were removed.
     const live = new Set(rows.map((row) => row.id));
-    for (const id of states.keys()) if (!live.has(id)) states.delete(id);
+    for (const id of states.keys()) {
+      if (live.has(id)) continue;
+      states.delete(id);
+      await getRedis()
+        .del(REDIS_KEYS.CHANNELS_DVR_LINEUP(id))
+        .catch(() => undefined);
+    }
   } catch (error) {
     logger.error('Check failed', { error });
   }

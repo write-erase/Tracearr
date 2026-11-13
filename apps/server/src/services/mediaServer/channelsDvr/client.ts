@@ -39,6 +39,7 @@ import {
   type ChannelsDvrJobStatus,
 } from './jobs.js';
 import type { ChannelsDvrActivityEntry } from './parser.js';
+import { parseLineups, type LineupSource } from './lineup.js';
 
 /** The job list changes rarely; the dashboard asks every 10 s. Shared across client instances. */
 const JOBS_CACHE_TTL_MS = 15 * 1000;
@@ -854,6 +855,16 @@ export class ChannelsDvrClient implements IMediaServerClient {
           channelLogoPath(recording.channelNumber),
       };
     });
+  }
+
+  /** Each source's channel lineup (`GET /devices`), Virtual Channels left out. Read fresh. */
+  async getLineups(): Promise<LineupSource[]> {
+    const data = await fetchJson<unknown>(`${this.baseUrl}/devices`, {
+      headers: { Accept: 'application/json' },
+      service: 'channels-dvr',
+      timeout: 10000,
+    });
+    return parseLineups(data);
   }
 
   /**

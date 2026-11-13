@@ -739,6 +739,18 @@ describe('variables per trigger', () => {
         totalBytes: 1_000_000_000_000,
         freePercent: 20,
         thresholdPercent: 10,
+        // Filled for every kind so each trigger's variables have something to render.
+        lineup: [
+          {
+            source: 'Dispatcharr',
+            status: 'changed',
+            channelCount: 209,
+            added: [{ number: '105', name: 'ESPN2' }],
+            removed: [{ number: '210', name: 'CNN' }],
+            renamed: [{ number: '4', from: 'NBC', to: 'WDIV' }],
+            moved: [{ name: 'FOX', from: '2', to: '22' }],
+          },
+        ],
       },
     },
   };
@@ -768,6 +780,7 @@ describe('variables per trigger', () => {
     'dvr.recording_glitch': ['dvr_alert'],
     'dvr.disk_low': ['dvr_alert'],
     'dvr.disk_ok': ['dvr_alert'],
+    'dvr.lineup_changed': ['dvr_alert'],
   };
 
   for (const [trigger, names] of Object.entries(eventsFor) as [TriggerType, string[]][]) {

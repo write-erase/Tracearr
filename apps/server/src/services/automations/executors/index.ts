@@ -308,6 +308,7 @@ function nativeEventFor(context: EvaluationContext): NotificationEvent | null {
           totalBytes: null,
           freePercent: null,
           thresholdPercent: null,
+          lineup: null,
         },
       };
     case 'dvr.disk_low':
@@ -332,6 +333,26 @@ function nativeEventFor(context: EvaluationContext): NotificationEvent | null {
             context.triggerNode?.type === 'dvr.disk_ok'
               ? context.triggerNode.params.percent
               : (trigger.crossed[0] ?? null),
+          lineup: null,
+        },
+      };
+    case 'dvr.lineup_changed':
+      return {
+        type: 'dvr_alert',
+        payload: {
+          serverId: trigger.server.id,
+          serverName: trigger.server.name,
+          serverType: trigger.server.type,
+          kind: 'lineup_changed',
+          jobId: null,
+          recordingTitle: null,
+          channel: null,
+          error: null,
+          freeBytes: null,
+          totalBytes: null,
+          freePercent: null,
+          thresholdPercent: null,
+          lineup: trigger.changes,
         },
       };
     case 'tracearr.update_available':

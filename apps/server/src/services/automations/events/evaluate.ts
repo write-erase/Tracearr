@@ -11,6 +11,7 @@ import type {
   AccountTrustChangedEvent,
   DvrDiskLowEvent,
   DvrDiskOkEvent,
+  DvrLineupChangedEvent,
   DvrRecordingFailedEvent,
   DvrRecordingGlitchEvent,
   DvrRecordingResumedEvent,
@@ -61,7 +62,8 @@ export type ServerEvaluatingEvent =
   | DvrRecordingResumedEvent
   | DvrRecordingGlitchEvent
   | DvrDiskLowEvent
-  | DvrDiskOkEvent;
+  | DvrDiskOkEvent
+  | DvrLineupChangedEvent;
 
 /** The events about one library item on a server. */
 export type MediaEvaluatingEvent = MediaAddedEvent | MediaUpgradedEvent;

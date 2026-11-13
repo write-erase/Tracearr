@@ -11,6 +11,7 @@ import type { ActionResult } from '../executors/index.js';
 import type { MediaQuality, MediaSubject } from '../types.js';
 import type { ViolationInsertResult } from '../../../jobs/poller/violations.js';
 import type { NewsletterSendPayload } from '../../notifications/events.js';
+import type { LineupSourceChange } from '../../mediaServer/channelsDvr/lineup.js';
 
 export type DbTx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 export type SessionRow = typeof sessions.$inferSelect;
@@ -258,6 +259,13 @@ export interface DvrDiskOkEvent extends BaseEvent {
   crossed: number[];
 }
 
+/** A Channels DVR lineup changed since the last check; one event covers every source that did. */
+export interface DvrLineupChangedEvent extends BaseEvent {
+  type: 'dvr.lineup_changed';
+  server: EvaluationServer;
+  changes: LineupSourceChange[];
+}
+
 export interface TracearrUpdateEvent extends BaseEvent {
   type: 'tracearr.update_available';
   current: string;
@@ -297,6 +305,7 @@ export type RuleEvent =
   | DvrRecordingGlitchEvent
   | DvrDiskLowEvent
   | DvrDiskOkEvent
+  | DvrLineupChangedEvent
   | TracearrUpdateEvent
   | NewsletterSentEvent
   | NewsletterFailedEvent;

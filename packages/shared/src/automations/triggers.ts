@@ -104,6 +104,16 @@ const DISK_VARS = [
   'disk.freePercent',
   'disk.threshold',
 ] as const;
+/** A Channels DVR lineup change, listed per source. */
+const LINEUP_VARS = [
+  ...SERVER_VARS,
+  'lineup.summary',
+  'lineup.sources',
+  'lineup.added',
+  'lineup.removed',
+  'lineup.renamed',
+  'lineup.moved',
+] as const;
 
 /** What a trigger is about, and what the list filters on. */
 export const TRIGGER_GROUPS = [
@@ -192,6 +202,7 @@ export const TRIGGERS = {
   'dvr.recording_glitch': { context: 'server', group: 'servers', variables: RECORDING_VARS },
   'dvr.disk_low': { context: 'server', group: 'servers', variables: DISK_VARS },
   'dvr.disk_ok': { context: 'server', group: 'servers', variables: DISK_VARS },
+  'dvr.lineup_changed': { context: 'server', group: 'servers', variables: LINEUP_VARS },
   'newsletter.sent': { context: 'install', group: 'notifications', variables: NEWSLETTER_VARS },
   'newsletter.failed': { context: 'install', group: 'notifications', variables: NEWSLETTER_VARS },
 } as const satisfies Record<
@@ -226,6 +237,7 @@ export const TRIGGER_INTRODUCED_IN: Partial<Record<TriggerType, string>> = {
   'dvr.recording_glitch': '3.1.7',
   'dvr.disk_low': '3.1.7',
   'dvr.disk_ok': '3.1.7',
+  'dvr.lineup_changed': '3.1.7',
 };
 export const TRIGGER_TYPES = Object.keys(TRIGGERS) as TriggerType[];
 

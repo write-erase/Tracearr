@@ -986,6 +986,14 @@
         "total": "Disk size",
         "freePercent": "Free space (%)",
         "threshold": "Alert threshold (%)"
+      },
+      "lineup": {
+        "summary": "What changed",
+        "sources": "Sources",
+        "added": "Channels added",
+        "removed": "Channels removed",
+        "renamed": "Channels renamed",
+        "moved": "Channels moved"
       }
     },
     "actions": {
@@ -1402,7 +1410,8 @@
         "dvrRecordingResumed": "a failed Channels DVR recording resumes",
         "dvrRecordingGlitch": "a Channels DVR recording loses its stream for a moment",
         "dvrDiskLow": "free space on the DVR disk drops below {{percent}}%",
-        "dvrDiskOk": "free space on the DVR disk is back above {{percent}}%"
+        "dvrDiskOk": "free space on the DVR disk is back above {{percent}}%",
+        "dvrLineupChanged": "a Channels DVR channel lineup changes"
       },
       "operators": {
         "eq": "is",
@@ -2117,6 +2126,11 @@
         "name": "Channels DVR disk almost full",
         "description": "Tell a destination when free space on the disk Channels DVR records to drops below the percentage you choose, and when it recovers.",
         "keywords": "channels dvr disk space storage full low notify discord"
+      },
+      "channels-dvr-lineup-changed": {
+        "name": "Channels DVR channel lineup changed",
+        "description": "Tell a destination when channels are added, removed, renamed or moved in a Channels DVR source's lineup.",
+        "keywords": "channels dvr lineup channel added removed renamed moved guide m3u notify"
       }
     },
     "title": "Automations",
@@ -2250,6 +2264,10 @@
           "label": "Channels DVR disk space recovers",
           "description": "Free space on the Channels DVR disk climbs back above the percentage you set.",
           "synonyms": "channels dvr disk space storage recovered ok"
+        },
+        "dvrLineupChanged": {
+          "description": "Channels were added, removed, renamed or moved in a Channels DVR source's lineup. Checked every 30 minutes; Virtual Channels are left out.",
+          "synonyms": "channels dvr lineup channel added removed renamed moved guide source m3u"
         }
       },
       "actions": {

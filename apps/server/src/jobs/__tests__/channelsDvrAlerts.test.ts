@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { diskCrossings, recordingChanges, type ServerAlertState } from '../channelsDvrAlerts.js';
+import {
+  diskCrossings,
+  lineupDue,
+  recordingChanges,
+  type ServerAlertState,
+} from '../channelsDvrAlerts.js';
 import type { ChannelsDvrJobStatus } from '../../services/mediaServer/channelsDvr/jobs.js';
 
 const fresh = (): ServerAlertState => ({
@@ -8,6 +13,7 @@ const fresh = (): ServerAlertState => ({
   resumedJobs: new Set(),
   corruptedFiles: new Set(),
   diskLevels: new Map(),
+  lineupCheckedAt: 0,
 });
 
 const job = (overrides: Partial<ChannelsDvrJobStatus> = {}): ChannelsDvrJobStatus => ({
@@ -230,5 +236,16 @@ describe('diskCrossings', () => {
     diskCrossings(state, 5, [10]);
     diskCrossings(state, 5, []);
     expect(state.diskLevels.size).toBe(0);
+  });
+});
+
+describe('lineupDue', () => {
+  it('reads the lineup on the first check, then every 30 minutes', () => {
+    const state = fresh();
+    const now = 1794424000 * 1000;
+    expect(lineupDue(state, now)).toBe(true);
+    state.lineupCheckedAt = now;
+    expect(lineupDue(state, now + 29 * 60_000)).toBe(false);
+    expect(lineupDue(state, now + 30 * 60_000)).toBe(true);
   });
 });
