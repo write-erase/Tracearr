@@ -40,6 +40,8 @@ import {
 } from './jobs.js';
 import type { ChannelsDvrActivityEntry } from './parser.js';
 import { parseLineups, type LineupSource } from './lineup.js';
+import { runChannelsDvrCheck } from './check.js';
+import type { ChannelsDvrCheck } from '@tracearr/shared';
 
 /** The job list changes rarely; the dashboard asks every 10 s. Shared across client instances. */
 const JOBS_CACHE_TTL_MS = 15 * 1000;
@@ -1057,6 +1059,17 @@ export class ChannelsDvrClient implements IMediaServerClient {
     } catch {
       return false;
     }
+  }
+
+  /** "Check connection": reads each endpoint Tracearr uses, fresh, and reports each one. */
+  async runCheck(): Promise<ChannelsDvrCheck> {
+    return runChannelsDvrCheck((path) =>
+      fetchJson<unknown>(`${this.baseUrl}${path}`, {
+        headers: { Accept: 'application/json' },
+        service: 'channels-dvr',
+        timeout: 10000,
+      })
+    );
   }
 
   /** The server's build ("2026.11.11.2228"), from `GET /status`: `GET /dvr` doesn't carry it. */

@@ -1,5 +1,21 @@
 # Tracearr Fork Information
 
+## November 13, 2026 — Channels DVR "Check connection"
+
+- Edit server dialog, Channels DVR only: a "Check connection" button that reads each endpoint
+  Tracearr uses and shows one row per part, with what it found or why it failed:
+  - Server (`GET /status`): the Channels version
+  - Activity (`GET /dvr`): recordings in progress
+  - Disk space (same `GET /dvr`): free of total
+  - Scheduled recordings (`GET /dvr/jobs`): upcoming, not skipped
+  - Channel lineup (`GET /devices`): channels and sources, Virtual Channels left out
+- One failing part doesn't stop the others. The check reads the saved address, so the button waits
+  until a changed address is saved. Hidden for historical servers.
+- `POST /servers/:id/check` (`writeServers`, Channels DVR only; 400 for other types, 409 for a
+  historical server). The steps live in `channelsDvr/check.ts` (`runChannelsDvrCheck`, which takes
+  a fetcher so it's tested without a server); `ChannelsDvrClient.runCheck()` feeds it.
+- Shared types `ChannelsDvrCheck` / `ChannelsDvrCheckStep`.
+
 ## November 13, 2026 — Channels DVR recording started and finished alerts
 
 - New triggers `dvr.recording_started` and `dvr.recording_completed` (server context, servers group,

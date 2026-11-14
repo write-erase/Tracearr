@@ -287,6 +287,26 @@
       "stable": "Stable releases",
       "prerelease": "Pre-releases",
       "hint": "Automatic follows pre-releases when this server runs one, and stable releases otherwise."
+    },
+    "dvrCheck": {
+      "button": "Check connection",
+      "running": "Checking…",
+      "hint": "Reads each part of Channels DVR that Tracearr uses, at the saved address.",
+      "saveFirst": "Save the new address before checking it.",
+      "failed": "Couldn't run the check: {{error}}",
+      "server": "Server",
+      "serverOk": "Channels DVR {{version}}",
+      "serverOkNoVersion": "Answering",
+      "activity": "Activity",
+      "activityOk_one": "{{count}} recording now",
+      "activityOk_other": "{{count}} recording now",
+      "disk": "Disk space",
+      "diskOk": "{{free}} free of {{total}}",
+      "jobs": "Scheduled recordings",
+      "jobsOk_one": "{{count}} scheduled",
+      "jobsOk_other": "{{count}} scheduled",
+      "lineup": "Channel lineup",
+      "lineupOk": "{{channels}} channels from {{sources}} sources"
     }
   },
   "mobile": {

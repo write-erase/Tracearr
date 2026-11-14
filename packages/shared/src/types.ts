@@ -48,6 +48,23 @@ export type DispatcharrAuthMode = 'token' | 'credentials';
 /** Which Channels DVR releases the update checker follows. */
 export type ServerUpdateTrack = 'auto' | 'stable' | 'prerelease';
 
+/** One part of a Channels DVR check: what it found, or why it failed. */
+export type ChannelsDvrCheckStep<T> = ({ ok: true } & T) | { ok: false; error: string };
+
+/** What "Check connection" found on a Channels DVR server, one step per endpoint Tracearr uses. */
+export interface ChannelsDvrCheck {
+  /** `GET /status`: the server answers and says which build it runs */
+  server: ChannelsDvrCheckStep<{ version: string | null }>;
+  /** `GET /dvr`: the activity feed sessions and recordings come from */
+  activity: ChannelsDvrCheckStep<{ recording: number }>;
+  /** Disk space, from the same `GET /dvr` */
+  disk: ChannelsDvrCheckStep<{ freeBytes: number; totalBytes: number }>;
+  /** `GET /dvr/jobs`: scheduled recordings, for Coming Up and the recording alerts */
+  jobs: ChannelsDvrCheckStep<{ scheduled: number }>;
+  /** `GET /devices`: sources and channels, for tuners and the lineup alert */
+  lineup: ChannelsDvrCheckStep<{ sources: number; channels: number }>;
+}
+
 export interface Server {
   id: string;
   name: string;

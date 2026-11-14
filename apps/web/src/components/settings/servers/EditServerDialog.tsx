@@ -31,6 +31,7 @@ import {
   useUpdateServerLocations,
 } from '@/hooks/queries';
 import { SERVER_DIALOG_CONTENT_CLASS } from './dialogClasses';
+import { ChannelsDvrCheckPanel } from './ChannelsDvrCheckPanel';
 import { DispatcharrFields, emptyDispatcharrForm } from './DispatcharrFields';
 import { ServerLocationEditor } from './ServerLocationEditor';
 import { draftsKey, toDrafts, toEntries, type LocationDraft } from './serverLocationDrafts';
@@ -355,6 +356,9 @@ export function EditServerDialog({
                 })}
               </FieldDescription>
             </Field>
+          )}
+          {isChannelsDvr && server && !locked && (
+            <ChannelsDvrCheckPanel serverId={server.id} urlChanged={Boolean(hasUrlChange)} />
           )}
           <Field>
             <FieldTitle>{t('servers.serverColor')}</FieldTitle>

@@ -30,6 +30,7 @@ vi.mock('../../utils/crypto.js', () => ({
   decrypt: vi.fn((token: string) => token.replace('encrypted_', '')),
 }));
 
+const mockChannelsRunCheck = vi.hoisted(() => vi.fn());
 vi.mock('../../services/mediaServer/index.js', () => ({
   PlexClient: {
     verifyServerAdmin: vi.fn(),
@@ -61,6 +62,9 @@ vi.mock('../../services/mediaServer/index.js', () => ({
     encodeCredentialToken: vi.fn((username: string, password: string) => {
       return `dispatcharr-credentials:${username}:${password}`;
     }),
+  },
+  ChannelsDvrClient: class {
+    runCheck = mockChannelsRunCheck;
   },
 }));
 
@@ -2164,6 +2168,55 @@ describe('Server Routes', () => {
       expect(renderSql(statusChain.where.mock.calls[0]?.[0] as SQL).sql).toContain(
         'servers.historical_at is null'
       );
+    });
+  });
+
+  describe('POST /servers/:id/check', () => {
+    const channels = {
+      ...mockServer,
+      name: 'Channels DVR',
+      type: 'channels_dvr' as const,
+      url: 'http://10.10.0.2:8089',
+    };
+    const check = {
+      server: { ok: true, version: '2026.11.11.2228' },
+      activity: { ok: true, recording: 1 },
+      disk: { ok: true, freeBytes: 100, totalBytes: 400 },
+      jobs: { ok: true, scheduled: 12 },
+      lineup: { ok: false, error: 'connect ECONNREFUSED' },
+    };
+
+    it('runs the check against the saved address and returns every step', async () => {
+      app = await buildTestApp(ownerUser);
+      mockDbSelectLimit([channels]);
+      mockChannelsRunCheck.mockResolvedValue(check);
+
+      const response = await app.inject({ method: 'POST', url: `/servers/${channels.id}/check` });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toEqual(check);
+      expect(mockChannelsRunCheck).toHaveBeenCalledTimes(1);
+    });
+
+    it('only checks Channels DVR servers that are still live', async () => {
+      app = await buildTestApp(ownerUser);
+      mockDbSelectLimit([mockServer]);
+      let response = await app.inject({ method: 'POST', url: `/servers/${mockServer.id}/check` });
+      expect(response.statusCode).toBe(400);
+
+      mockDbSelectLimit([{ ...channels, historicalAt: new Date('2026-10-01T12:00:00Z') }]);
+      response = await app.inject({ method: 'POST', url: `/servers/${channels.id}/check` });
+      expect(response.statusCode).toBe(409);
+
+      mockDbSelectLimit([]);
+      response = await app.inject({ method: 'POST', url: `/servers/${randomUUID()}/check` });
+      expect(response.statusCode).toBe(404);
+    });
+
+    it('is not open to viewers', async () => {
+      app = await buildTestApp(viewerUser);
+      const response = await app.inject({ method: 'POST', url: `/servers/${channels.id}/check` });
+      expect(response.statusCode).toBe(403);
     });
   });
 });

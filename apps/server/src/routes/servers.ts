@@ -817,6 +817,35 @@ export const serverRoutes: FastifyPluginAsync = async (app) => {
   });
 
   /**
+   * POST /servers/:id/check - Channels DVR only: read each endpoint Tracearr uses and report
+   * what came back, so a setup problem names the part that's wrong. Reads the saved address.
+   */
+  app.post('/:id/check', writeServers, async (request, reply) => {
+    const params = serverIdParamSchema.safeParse(request.params);
+    if (!params.success) {
+      return reply.badRequest('Invalid server ID');
+    }
+    const { id } = params.data;
+    if (!hasServerAccess(request.user, id)) {
+      return reply.forbidden('You do not have access to this server');
+    }
+
+    const serverRows = await db.select().from(servers).where(eq(servers.id, id)).limit(1);
+    const server = serverRows[0];
+    if (!server) {
+      return reply.notFound('Server not found');
+    }
+    if (server.type !== 'channels_dvr') {
+      return reply.badRequest('Checks are only available for Channels DVR servers');
+    }
+    if (server.historicalAt) {
+      return reply.conflict('Resume this server to check it');
+    }
+
+    return new ChannelsDvrClient({ url: server.url, token: '' }).runCheck();
+  });
+
+  /**
    * POST /servers/:id/historical - Stop contacting a server (historical: true) or resume it.
    * Marking force-stops its streams; history, users and libraries stay.
    */
