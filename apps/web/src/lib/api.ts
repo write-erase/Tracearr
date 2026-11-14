@@ -168,6 +168,7 @@ import type {
   PeopleResponse,
   PeopleRank,
   StorageWarning,
+  ChannelsDvrCheck,
 } from '@tracearr/shared';
 
 // Re-export shared types needed by frontend components
@@ -860,6 +861,12 @@ class ApiClient {
       this.request<{ success: boolean }>('/servers/reorder', {
         method: 'PATCH',
         body: JSON.stringify({ servers }),
+      }),
+    /** Channels DVR only: read each endpoint Tracearr uses and report what came back. */
+    check: (id: string) =>
+      this.request<ChannelsDvrCheck>(`/servers/${id}/check`, {
+        method: 'POST',
+        body: JSON.stringify({}),
       }),
     setHistorical: (id: string, historical: boolean) =>
       this.request<Server>(`/servers/${id}/historical`, {

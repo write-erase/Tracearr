@@ -8,6 +8,8 @@ export type {
   ServerType,
   DispatcharrAuthMode,
   ServerUpdateTrack,
+  ChannelsDvrCheck,
+  ChannelsDvrCheckStep,
   Server,
   ServerLocationEntry,
   ServerLocationsResponse,
