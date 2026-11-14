@@ -55,6 +55,7 @@ export interface ServerPatch {
   ignoreAnonymousStreams?: boolean;
   apiKey?: string;
   updateTrack?: ServerUpdateTrack;
+  dispatcharrUser?: string | null;
 }
 
 export function EditServerDialog({
@@ -77,6 +78,7 @@ export function EditServerDialog({
   const [editApiKey, setEditApiKey] = useState('');
   const [editColor, setEditColor] = useState<string>(SERVER_COLOR_OPTIONS[3]?.hex ?? '#3B82F6');
   const [editUpdateTrack, setEditUpdateTrack] = useState<ServerUpdateTrack>('auto');
+  const [editDispatcharrUser, setEditDispatcharrUser] = useState('');
   const [seededServer, setSeededServer] = useState<Server | null>(null);
   const isPlexServer = server?.type === 'plex';
   const isDispatcharr = server?.type === 'dispatcharr';
@@ -114,6 +116,7 @@ export function EditServerDialog({
       });
       setEditApiKey('');
       setEditUpdateTrack(server.updateTrack ?? 'auto');
+      setEditDispatcharrUser(server.dispatcharrUser ?? '');
       const otherColors = servers.filter((s) => s.id !== server.id).map((s) => s.color);
       setEditColor(server.color ?? pickServerColor(server.type, otherColors));
     }
@@ -167,7 +170,14 @@ export function EditServerDialog({
       ? editApiKey.trim().length > 0
       : false;
   const hasUpdateTrackChange = isChannelsDvr && editUpdateTrack !== (server?.updateTrack ?? 'auto');
+  // Only worth asking when a Dispatcharr server is here to hide streams from, or one is already set.
+  const showDispatcharrUser =
+    isChannelsDvr &&
+    (servers.some((s) => s.type === 'dispatcharr') || Boolean(server?.dispatcharrUser));
+  const hasDispatcharrUserChange =
+    isChannelsDvr && editDispatcharrUser.trim() !== (server?.dispatcharrUser ?? '');
   const hasServerChange =
+    hasDispatcharrUserChange ||
     hasUpdateTrackChange ||
     hasNameChange ||
     hasUrlChange ||
@@ -357,6 +367,21 @@ export function EditServerDialog({
               </FieldDescription>
             </Field>
           )}
+          {showDispatcharrUser && (
+            <Field>
+              <FieldLabel htmlFor="edit-dispatcharr-user">
+                {t('servers.dispatcharrUser.label')}
+              </FieldLabel>
+              <Input
+                id="edit-dispatcharr-user"
+                value={editDispatcharrUser}
+                onChange={(e) => setEditDispatcharrUser(e.target.value)}
+                placeholder={t('servers.dispatcharrUser.placeholder')}
+                autoComplete="off"
+              />
+              <FieldDescription>{t('servers.dispatcharrUser.hint')}</FieldDescription>
+            </Field>
+          )}
           {isChannelsDvr && server && !locked && (
             <ChannelsDvrCheckPanel serverId={server.id} urlChanged={Boolean(hasUrlChange)} />
           )}
@@ -406,6 +431,9 @@ export function EditServerDialog({
                     : {}),
                   apiKey: hasApiKeyChange ? editApiKey.trim() : undefined,
                   updateTrack: hasUpdateTrackChange ? editUpdateTrack : undefined,
+                  dispatcharrUser: hasDispatcharrUserChange
+                    ? editDispatcharrUser.trim() || null
+                    : undefined,
                 });
               } else {
                 onClose();

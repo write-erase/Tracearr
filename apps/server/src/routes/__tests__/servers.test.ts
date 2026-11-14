@@ -2219,4 +2219,58 @@ describe('Server Routes', () => {
       expect(response.statusCode).toBe(403);
     });
   });
+
+  describe('PATCH /servers/:id dispatcharrUser', () => {
+    const channels = { ...mockServer, type: 'channels_dvr' as const, dispatcharrUser: null };
+
+    it('saves the Dispatcharr user a Channels DVR server signs in as, trimmed', async () => {
+      app = await buildTestApp(ownerUser);
+      mockDbSelectLimit([channels]);
+      const update = mockDbUpdateReturning([{ ...channels, dispatcharrUser: 'moms-house' }]);
+
+      const response = await app.inject({
+        method: 'PATCH',
+        url: `/servers/${channels.id}`,
+        payload: { dispatcharrUser: '  moms-house ' },
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(update.set).toHaveBeenCalledWith({
+        dispatcharrUser: 'moms-house',
+        updatedAt: expect.any(Date),
+      });
+      expect(response.json().dispatcharrUser).toBe('moms-house');
+    });
+
+    it('clears it when emptied', async () => {
+      app = await buildTestApp(ownerUser);
+      mockDbSelectLimit([{ ...channels, dispatcharrUser: 'moms-house' }]);
+      const update = mockDbUpdateReturning([channels]);
+
+      const response = await app.inject({
+        method: 'PATCH',
+        url: `/servers/${channels.id}`,
+        payload: { dispatcharrUser: '' },
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(update.set).toHaveBeenCalledWith({
+        dispatcharrUser: null,
+        updatedAt: expect.any(Date),
+      });
+    });
+
+    it('is only for Channels DVR servers', async () => {
+      app = await buildTestApp(ownerUser);
+      mockDbSelectLimit([mockServer]);
+
+      const response = await app.inject({
+        method: 'PATCH',
+        url: `/servers/${mockServer.id}`,
+        payload: { dispatcharrUser: 'moms-house' },
+      });
+
+      expect(response.statusCode).toBe(400);
+    });
+  });
 });

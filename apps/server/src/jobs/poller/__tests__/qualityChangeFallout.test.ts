@@ -48,6 +48,12 @@ const {
   mockProcessPollResults: vi.fn().mockResolvedValue(undefined),
 }));
 
+// Channels DVR relay hiding reads the servers table; these tests don't configure any.
+vi.mock('../../../services/channelsDvrRelays.js', () => ({
+  getChannelsDvrRelayUsers: vi.fn().mockResolvedValue(new Set<string>()),
+  withoutChannelsDvrRelays: <T>(sessions: T[]) => sessions,
+}));
+
 vi.mock('../../../services/leaderLease.js', () => ({
   isLeader: () => true,
 }));

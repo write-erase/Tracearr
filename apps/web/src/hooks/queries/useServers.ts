@@ -86,6 +86,7 @@ export function useUpdateServer({ silent = false }: { silent?: boolean } = {}) {
       apiKey,
       allowMemberLogin,
       updateTrack,
+      dispatcharrUser,
     }: {
       id: string;
       name?: string;
@@ -100,6 +101,7 @@ export function useUpdateServer({ silent = false }: { silent?: boolean } = {}) {
       apiKey?: string;
       allowMemberLogin?: boolean;
       updateTrack?: ServerUpdateTrack;
+      dispatcharrUser?: string | null;
     }) =>
       api.servers.update(id, {
         name,
@@ -114,6 +116,7 @@ export function useUpdateServer({ silent = false }: { silent?: boolean } = {}) {
         apiKey,
         allowMemberLogin,
         updateTrack,
+        dispatcharrUser,
       }),
     onSuccess: () => {
       const refreshed = Promise.all([

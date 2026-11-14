@@ -1,5 +1,25 @@
 # Tracearr Fork Information
 
+## November 13, 2026 — Hide a Channels DVR server's own Dispatcharr streams
+
+- Asked for by justinglock40, who runs three Channels DVR servers on one Dispatcharr, each signed
+  in with its own XC login. Every channel those DVRs play or record is also a Dispatcharr stream,
+  so each viewer showed twice. With an M3U source the Dispatcharr stream is anonymous and "ignore
+  anonymous streams" already hides it; an XC login carries a name, so it didn't.
+- Channels DVR servers get an optional "Dispatcharr user" (edit server dialog; shown when a
+  Dispatcharr server is connected, or one is already set). New column `servers.dispatcharr_user`
+  (fork migration `0007_channels_dvr_dispatcharr_user`), `dispatcharrUser` on `PATCH /servers/:id`
+  (Channels DVR only; empty clears it).
+- `services/channelsDvrRelays.ts`: in `processServerSessions`, Dispatcharr sessions whose user
+  matches a live Channels DVR server's Dispatcharr user (case-insensitive) and whose user agent is
+  Channels DVR's own (`channels-dvr/…`) are dropped before processing, for both the poller and
+  realtime snapshots. The same user in another player (TiviMate, a browser) still shows. The names
+  are cached for 30 seconds and cleared when a server's Dispatcharr user changes; if they can't be
+  read, nothing is hidden.
+- Hidden streams aren't recorded in history either: they're the same viewing as the Channels DVR
+  session. Channels cards no longer borrow channel art from the hidden Dispatcharr stream; they
+  use Channels' own guide logos.
+
 ## November 13, 2026 — Channels DVR "Check connection"
 
 - Edit server dialog, Channels DVR only: a "Check connection" button that reads each endpoint

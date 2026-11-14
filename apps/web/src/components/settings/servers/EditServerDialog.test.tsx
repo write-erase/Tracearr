@@ -97,6 +97,37 @@ function server(overrides: Partial<Server> = {}): Server {
 }
 
 describe('EditServerDialog', () => {
+  it('saves the Dispatcharr user a Channels DVR server signs in as, when Dispatcharr is connected', async () => {
+    const onUpdate = vi.fn();
+    const channels = server({ type: 'channels_dvr', url: 'http://10.10.0.2:8089' });
+    const { rerender } = render(
+      <EditServerDialog
+        server={channels}
+        servers={[channels]}
+        onClose={vi.fn()}
+        onUpdate={onUpdate}
+        isUpdating={false}
+      />
+    );
+    expect(screen.queryByLabelText('servers.dispatcharrUser.label')).not.toBeInTheDocument();
+
+    const withDispatcharr = { ...channels };
+    rerender(
+      <EditServerDialog
+        server={withDispatcharr}
+        servers={[withDispatcharr, server({ id: 'd', type: 'dispatcharr' })]}
+        onClose={vi.fn()}
+        onUpdate={onUpdate}
+        isUpdating={false}
+      />
+    );
+    await userEvent.type(screen.getByLabelText('servers.dispatcharrUser.label'), ' moms-house ');
+    await userEvent.click(screen.getByRole('button', { name: 'common:actions.update' }));
+    expect(onUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({ dispatcharrUser: 'moms-house' })
+    );
+  });
+
   it('switches Dispatcharr token auth to complete credentials without exposing saved secrets', async () => {
     const onUpdate = vi.fn();
     render(

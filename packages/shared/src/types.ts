@@ -83,6 +83,8 @@ export interface Server {
   latestVersion?: string | null;
   /** Channels DVR only: which releases the update checker follows */
   updateTrack?: ServerUpdateTrack;
+  /** Channels DVR only: the Dispatcharr user it signs in as, whose relay streams are hidden */
+  dispatcharrUser?: string | null;
   /** When Tracearr stopped contacting this server. Null, or absent on older payloads, while it is live. */
   historicalAt?: string | null;
   allowMemberLogin?: boolean;
