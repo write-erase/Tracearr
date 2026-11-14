@@ -70,9 +70,9 @@ Channels DVR does not provide individual user accounts, so Tracearr identifies v
 
 - `ghcr.io/write-erase/tracearr:latest` - standalone Tracearr with Dispatcharr and Channels DVR support, so you also need to deploy `timescale` and `redis`.
 - `ghcr.io/write-erase/tracearr:supervised-latest` - supervised Tracearr (database and Redis included) with Dispatcharr and Channels DVR support.
-- Pin a release with `ghcr.io/write-erase/tracearr:3.1.7-r2` or `ghcr.io/write-erase/tracearr:supervised-3.1.7-r2`.
+- Pin a release with `ghcr.io/write-erase/tracearr:3.1.7-r3` or `ghcr.io/write-erase/tracearr:supervised-3.1.7-r3`.
 
-These are built from the `baseline` branch for each release and are published for both AMD64 and ARM64.
+These are built from the `main` branch for each release and are published for both AMD64 and ARM64.
 
 Development images, built from the `dev` branch (AMD64 and ARM64):
 
@@ -81,7 +81,7 @@ Development images, built from the `dev` branch (AMD64 and ARM64):
 
 Dispatcharr-only images from the fork this one builds on are published by d4rk-4lchemy as `ghcr.io/d4rk-4lchemy/distracearr` (and `darkalchemy2137/distracearr`); they do not include Channels DVR support.
 
-To deploy, use one of the images above in place of the official image in the [Docker Compose examples](https://github.com/write-erase/Tracearr/tree/baseline/docker/examples).
+To deploy, use one of the images above in place of the official image in the [Docker Compose examples](https://github.com/write-erase/Tracearr/tree/main/docker/examples).
 
 **Building your own image:**
 

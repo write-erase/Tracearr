@@ -1,5 +1,15 @@
 # Tracearr Fork Information
 
+## November 14, 2026 — `baseline` renamed to `main`
+
+- The release branch is now `main` (renamed from `baseline` on GitHub, which redirects old links).
+  The stale `main` that predated it (last updated Nov 8, fully contained in `baseline`) was
+  deleted first. `dev` is unchanged; releases are still tagged from what's merged into `main`.
+- README: the release-image line and the Docker Compose examples link point at `main`, and the
+  pinned example is `3.1.7-r3`.
+- Corrected the "Fork update check reads this fork's releases" entry below: r3 still checked
+  d4rk's releases (the fix landed after it), so people on r1–r3 update by hand once.
+
 ## November 13, 2026 — Hide a Channels DVR server's own Dispatcharr streams
 
 - Asked for by justinglock40, who runs three Channels DVR servers on one Dispatcharr, each signed
@@ -113,8 +123,8 @@
   URLs are now built from `getBuildInfo().forkRepo` (`write-erase/Tracearr` in this fork's images).
 - `UpdateDialog.tsx` showed `docker pull` commands for d4rk's `distracearr` images (GHCR and Docker
   Hub). It now shows one GHCR command for `current.imageRepo` (`APP_IMAGE_REPO`).
-- Images released before this fix (r1, r2) still check d4rk's repo, so they won't be told about
-  r3; people on them need to update by hand once. From r3 on, update notices work.
+- Images released before this fix (r1–r3) still check d4rk's repo, so they won't be told about
+  later releases; people on them need to update by hand once. Releases after r3 get update notices.
 
 ## November 12, 2026 — Channels DVR update check (stable or pre-release)
 
