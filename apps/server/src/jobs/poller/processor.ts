@@ -119,6 +119,10 @@ import type {
 } from './types.js';
 import { excludeUncountableSessions } from './utils.js';
 import { broadcastViolations } from './violations.js';
+import {
+  getChannelsDvrRelayUsers,
+  withoutChannelsDvrRelays,
+} from '../../services/channelsDvrRelays.js';
 
 // ============================================================================
 // Module State
@@ -837,7 +841,13 @@ export async function processServerSessions(
       id: server.id,
       name: server.name,
     });
-    const mediaSessions = options.mediaSessions ?? (await client.getSessions());
+    const fetchedSessions = options.mediaSessions ?? (await client.getSessions());
+    // A Channels DVR server fetching a channel from Dispatcharr under its own login is already
+    // the Channels DVR session; hide its Dispatcharr side so the viewer shows once.
+    const mediaSessions =
+      server.type === 'dispatcharr'
+        ? withoutChannelsDvrRelays(fetchedSessions, await getChannelsDvrRelayUsers())
+        : fetchedSessions;
     sseManager.nudgeReconnect(server.id);
 
     // Channels DVR identifies the viewer's IP, while Dispatcharr identifies

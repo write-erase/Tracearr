@@ -288,6 +288,11 @@
       "prerelease": "Pre-releases",
       "hint": "Automatic follows pre-releases when this server runs one, and stable releases otherwise."
     },
+    "dispatcharrUser": {
+      "label": "Dispatcharr user",
+      "placeholder": "e.g. moms-house",
+      "hint": "If this Channels DVR gets its channels from Dispatcharr with an XC login, enter that user as Tracearr shows it. Its Dispatcharr streams are then hidden, since they're this DVR fetching channels and already show as Channels DVR sessions. The same user in another player still shows."
+    },
     "dvrCheck": {
       "button": "Check connection",
       "running": "Checking…",

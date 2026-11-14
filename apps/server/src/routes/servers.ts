@@ -28,6 +28,7 @@ import {
   ChannelsDvrClient,
 } from '../services/mediaServer/index.js';
 import { getServerLiveStats, getServerResourceStats } from '../services/serverLiveStats.js';
+import { clearChannelsDvrRelayUsers } from '../services/channelsDvrRelays.js';
 import { syncServer } from '../services/sync.js';
 import { sseManager } from '../services/sseManager.js';
 import { getCacheService } from '../services/cache.js';
@@ -128,6 +129,7 @@ export const serverRoutes: FastifyPluginAsync = async (app) => {
         version: servers.version,
         latestVersion: servers.latestVersion,
         updateTrack: servers.updateTrack,
+        dispatcharrUser: servers.dispatcharrUser,
         historicalAt: servers.historicalAt,
         allowMemberLogin: servers.allowMemberLogin,
         createdAt: servers.createdAt,
@@ -359,6 +361,7 @@ export const serverRoutes: FastifyPluginAsync = async (app) => {
       apiKey: newApiKey,
       allowMemberLogin: newAllowMemberLogin,
       updateTrack: newUpdateTrack,
+      dispatcharrUser: newDispatcharrUser,
     } = body.data;
     const newUrl = bodyUrl !== undefined ? bodyUrl.replace(/\/$/, '') : undefined;
     const authUser = request.user;
@@ -413,6 +416,9 @@ export const serverRoutes: FastifyPluginAsync = async (app) => {
     if (newUpdateTrack !== undefined && server.type !== 'channels_dvr') {
       return reply.badRequest('Only Channels DVR servers have an update track');
     }
+    if (newDispatcharrUser !== undefined && server.type !== 'channels_dvr') {
+      return reply.badRequest('Only Channels DVR servers have a Dispatcharr user');
+    }
 
     const same = <T>(next: T | undefined, current: T): boolean =>
       next === undefined || next === current;
@@ -426,6 +432,7 @@ export const serverRoutes: FastifyPluginAsync = async (app) => {
       same(newApiKey, server.token) &&
       same(newAllowMemberLogin, server.allowMemberLogin) &&
       same(newUpdateTrack, server.updateTrack) &&
+      same(newDispatcharrUser, server.dispatcharrUser) &&
       // Off again is how a revoke that failed gets retried.
       newAllowMemberLogin !== false
     ) {
@@ -440,6 +447,7 @@ export const serverRoutes: FastifyPluginAsync = async (app) => {
           server.type === 'dispatcharr' ? getDispatcharrAuthMode(server.token) : undefined,
         ignoreAnonymousStreams: server.ignoreAnonymousStreams,
         updateTrack: server.updateTrack,
+        dispatcharrUser: server.dispatcharrUser,
         historicalAt: server.historicalAt,
         allowMemberLogin: server.allowMemberLogin,
         createdAt: server.createdAt,
@@ -539,6 +547,7 @@ export const serverRoutes: FastifyPluginAsync = async (app) => {
       machineIdentifier?: string;
       allowMemberLogin?: boolean;
       updateTrack?: 'auto' | 'stable' | 'prerelease';
+      dispatcharrUser?: string | null;
       updatedAt: Date;
     } = { updatedAt: new Date() };
     if (backfilledIdentity !== undefined) updatePayload.machineIdentifier = backfilledIdentity;
@@ -553,6 +562,7 @@ export const serverRoutes: FastifyPluginAsync = async (app) => {
     if (newApiKey !== undefined) updatePayload.token = newApiKey;
     if (newAllowMemberLogin !== undefined) updatePayload.allowMemberLogin = newAllowMemberLogin;
     if (newUpdateTrack !== undefined) updatePayload.updateTrack = newUpdateTrack;
+    if (newDispatcharrUser !== undefined) updatePayload.dispatcharrUser = newDispatcharrUser;
 
     const updated = await db
       .update(servers)
@@ -567,6 +577,7 @@ export const serverRoutes: FastifyPluginAsync = async (app) => {
         publicUrl: servers.publicUrl,
         ignoreAnonymousStreams: servers.ignoreAnonymousStreams,
         updateTrack: servers.updateTrack,
+        dispatcharrUser: servers.dispatcharrUser,
         color: servers.color,
         historicalAt: servers.historicalAt,
         allowMemberLogin: servers.allowMemberLogin,
@@ -609,6 +620,7 @@ export const serverRoutes: FastifyPluginAsync = async (app) => {
       );
     }
 
+    if (newDispatcharrUser !== undefined) clearChannelsDvrRelayUsers();
     await publishServersChanged();
 
     if (connectorConfigChanged) {

@@ -833,6 +833,7 @@ class ApiClient {
         apiKey?: string;
         allowMemberLogin?: boolean;
         updateTrack?: ServerUpdateTrack;
+        dispatcharrUser?: string | null;
       }
     ) =>
       this.request<Server>(`/servers/${id}`, {
