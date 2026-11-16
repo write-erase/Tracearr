@@ -31,6 +31,11 @@ vi.mock('../../utils/serverVersions.js', async (importActual) => {
   return { ...actual, latestVersionFor: vi.fn(), latestChannelsVersions: vi.fn() };
 });
 
+const mockPublishServersChanged = vi.fn().mockResolvedValue(undefined);
+vi.mock('../poller/database.js', () => ({
+  publishServersChanged: (...args: unknown[]) => mockPublishServersChanged(...args),
+}));
+
 const mockDispatchServerUpdate = vi.fn().mockResolvedValue(undefined);
 vi.mock('../../services/automations/events/producers.js', () => ({
   dispatchServerUpdate: (...args: unknown[]) => mockDispatchServerUpdate(...args),
@@ -39,6 +44,7 @@ vi.mock('../../services/automations/events/producers.js', () => ({
 import { latestChannelsVersions, latestVersionFor } from '../../utils/serverVersions.js';
 import {
   _resetServerUpdateStateForTests,
+  runChannelsUpdateWatch,
   runServerUpdateCheck,
   startServerUpdateChecker,
   stopServerUpdateChecker,
@@ -215,19 +221,33 @@ describe('startServerUpdateChecker', () => {
   });
 
   it('checks once after the initial delay, then every 6h, and Channels DVR every hour', async () => {
+    const HOUR = 60 * 60 * 1000;
+    // Every run reads the settings first: both sweeps, plus the minute watch (45s, then each minute).
+    const runsBy = (ms: number) =>
+      2 * (ms >= 15_000 ? 1 : 0) +
+      Math.floor(ms / (6 * HOUR)) +
+      Math.floor(ms / HOUR) +
+      (ms >= 45_000 ? 1 : 0) +
+      Math.floor(ms / 60_000);
     startServerUpdateChecker();
 
-    // Both sweeps run once after the delay
+    // Both sweeps run once after the delay; the watch hasn't started yet
     await vi.advanceTimersByTimeAsync(15_000);
     expect(mockGetSettings).toHaveBeenCalledTimes(2);
 
-    // An hour on: only the Channels DVR sweep again
-    await vi.advanceTimersByTimeAsync(60 * 60 * 1000);
+    // The watch starts at 45s and runs every minute
+    await vi.advanceTimersByTimeAsync(30_000);
     expect(mockGetSettings).toHaveBeenCalledTimes(3);
+    await vi.advanceTimersByTimeAsync(15_000);
+    expect(mockGetSettings).toHaveBeenCalledTimes(4);
 
-    // Six hours in: the Channels sweep five more times, the other sweep once
-    await vi.advanceTimersByTimeAsync(5 * 60 * 60 * 1000);
-    expect(mockGetSettings).toHaveBeenCalledTimes(9);
+    // An hour on: the Channels DVR sweep again, the other sweep not
+    await vi.advanceTimersByTimeAsync(HOUR - 60_000 + 15_000);
+    expect(mockGetSettings).toHaveBeenCalledTimes(runsBy(HOUR + 15_000));
+
+    // Six hours in: the other sweep once more
+    await vi.advanceTimersByTimeAsync(5 * HOUR);
+    expect(mockGetSettings).toHaveBeenCalledTimes(runsBy(6 * HOUR + 15_000));
   });
 
   it('stops checking once stopped', async () => {
@@ -337,5 +357,169 @@ describe('runServerUpdateCheck scopes', () => {
     await runServerUpdateCheck('others');
     expect(mockLatestChannelsVersions).not.toHaveBeenCalled();
     expect(mockLatestVersionFor).toHaveBeenCalledWith('jellyfin');
+  });
+});
+
+describe('telling dashboards the versions changed', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    _resetServerUpdateStateForTests();
+    mockGetSettings.mockResolvedValue({ serverUpdateCheckEnabled: true });
+    mockCreateClient.mockReturnValue({ getSoftwareVersion: mockGetSoftwareVersion });
+    mockGetSoftwareVersion.mockResolvedValue('10.11.11');
+    mockLatestVersionFor.mockResolvedValue('10.11.12');
+  });
+
+  it('announces once per sweep when a stored version changed', async () => {
+    mockServerRows.mockResolvedValue([
+      { ...JELLYFIN, version: '10.11.10', latestVersion: '10.11.12' },
+      { ...JELLYFIN, id: 's9', version: null, latestVersion: null },
+    ]);
+
+    await runServerUpdateCheck();
+
+    expect(mockPublishServersChanged).toHaveBeenCalledTimes(1);
+  });
+
+  it('stays quiet when the sweep read what the rows already hold', async () => {
+    mockServerRows.mockResolvedValue([
+      { ...JELLYFIN, version: '10.11.11', latestVersion: '10.11.12' },
+    ]);
+
+    await runServerUpdateCheck();
+
+    expect(mockUpdate).toHaveBeenCalledTimes(1);
+    expect(mockPublishServersChanged).not.toHaveBeenCalled();
+  });
+
+  it('stays quiet when the write failed', async () => {
+    mockServerRows.mockResolvedValue([{ ...JELLYFIN, version: '10.11.10' }]);
+    mockUpdate.mockImplementationOnce(() => {
+      throw new Error('deadlock detected');
+    });
+
+    await runServerUpdateCheck();
+
+    expect(mockPublishServersChanged).not.toHaveBeenCalled();
+  });
+
+  it('finishes the sweep when the announcement fails', async () => {
+    mockServerRows.mockResolvedValue([{ ...JELLYFIN, version: '10.11.10' }]);
+    mockPublishServersChanged.mockRejectedValueOnce(new Error('redis down'));
+
+    await expect(runServerUpdateCheck()).resolves.toBeUndefined();
+    expect(mockDispatchServerUpdate).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('runChannelsUpdateWatch', () => {
+  const WAITING = {
+    id: 's3',
+    name: 'Channels',
+    type: 'channels_dvr' as const,
+    url: 'http://cdvr.local:8089',
+    token: '',
+    updateTrack: 'auto' as const,
+    version: '2026.11.11.2228',
+    latestVersion: '2026.11.12.0900',
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    _resetServerUpdateStateForTests();
+    mockGetSettings.mockResolvedValue({ serverUpdateCheckEnabled: true });
+    mockCreateClient.mockReturnValue({ getSoftwareVersion: mockGetSoftwareVersion });
+    mockLatestChannelsVersions.mockResolvedValue({
+      stable: '2026.10.24.0621',
+      prerelease: '2026.11.12.0900',
+    });
+  });
+
+  it('stores the new version and announces it once the update is installed', async () => {
+    mockServerRows.mockResolvedValue([WAITING]);
+    mockGetSoftwareVersion.mockResolvedValue('2026.11.12.0900');
+
+    await runChannelsUpdateWatch();
+
+    expect(mockGetSoftwareVersion).toHaveBeenCalledTimes(1);
+    expect(mockUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({ version: '2026.11.12.0900', latestVersion: '2026.11.12.0900' })
+    );
+    expect(mockPublishServersChanged).toHaveBeenCalledTimes(1);
+    expect(mockDispatchServerUpdate).not.toHaveBeenCalled();
+  });
+
+  it('only reads the version while the update is still waiting', async () => {
+    mockServerRows.mockResolvedValue([WAITING]);
+    mockGetSoftwareVersion.mockResolvedValue('2026.11.11.2228');
+
+    await runChannelsUpdateWatch();
+
+    expect(mockGetSoftwareVersion).toHaveBeenCalledTimes(1);
+    expect(mockLatestChannelsVersions).not.toHaveBeenCalled();
+    expect(mockUpdate).not.toHaveBeenCalled();
+    expect(mockPublishServersChanged).not.toHaveBeenCalled();
+  });
+
+  it('tries again next time when the server is restarting mid-update', async () => {
+    mockServerRows.mockResolvedValue([WAITING]);
+    mockGetSoftwareVersion.mockRejectedValue(new Error('ECONNREFUSED'));
+
+    await runChannelsUpdateWatch();
+
+    expect(mockUpdate).not.toHaveBeenCalled();
+    expect(mockPublishServersChanged).not.toHaveBeenCalled();
+  });
+
+  it('asks only Channels DVR servers with an update waiting', async () => {
+    mockServerRows.mockResolvedValue([
+      { ...WAITING, id: 'current', latestVersion: '2026.11.11.2228' },
+      { ...WAITING, id: 'unknown', latestVersion: null },
+      { ...JELLYFIN, version: '10.11.11', latestVersion: '10.11.12' },
+    ]);
+
+    await runChannelsUpdateWatch();
+
+    expect(mockCreateClient).not.toHaveBeenCalled();
+  });
+
+  it('rechecks a server that moved to a version that still is not the latest', async () => {
+    mockServerRows.mockResolvedValue([WAITING]);
+    mockGetSoftwareVersion.mockResolvedValue('2026.11.12.0100');
+
+    await runChannelsUpdateWatch();
+
+    expect(mockUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({ version: '2026.11.12.0100', latestVersion: '2026.11.12.0900' })
+    );
+    expect(mockDispatchServerUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({ installedVersion: '2026.11.12.0100' })
+    );
+    expect(mockPublishServersChanged).toHaveBeenCalledTimes(1);
+  });
+
+  it('does nothing when update checks are off', async () => {
+    mockGetSettings.mockResolvedValue({ serverUpdateCheckEnabled: false });
+
+    await runChannelsUpdateWatch();
+
+    expect(mockServerRows).not.toHaveBeenCalled();
+  });
+
+  it('skips a run while the previous one is still going', async () => {
+    mockServerRows.mockResolvedValue([WAITING]);
+    let finish: (value: string) => void = () => {};
+    mockGetSoftwareVersion.mockReturnValueOnce(
+      new Promise<string>((resolve) => {
+        finish = resolve;
+      })
+    );
+
+    const first = runChannelsUpdateWatch();
+    await runChannelsUpdateWatch();
+    finish('2026.11.11.2228');
+    await first;
+
+    expect(mockServerRows).toHaveBeenCalledTimes(1);
   });
 });

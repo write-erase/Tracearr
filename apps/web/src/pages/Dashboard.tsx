@@ -13,7 +13,7 @@ import { ErrorState } from '@/components/library/ErrorState';
 import { NowPlayingSection } from '@/components/dashboard/NowPlayingSection';
 import {
   RecordingNowSection,
-  channelsUpdatesFor,
+  channelsVersionsFor,
 } from '@/components/dashboard/RecordingNowSection';
 import { SectionHeading } from '@/components/dashboard/SectionHeading';
 import { PersonalDashboard } from '@/components/dashboard/PersonalDashboard';
@@ -42,12 +42,12 @@ function ServerDashboard({ actions }: { actions?: ReactNode }) {
     () => Object.fromEntries(channelsServers.map((s) => [s.id, serverLinkBase(s)])),
     [channelsServers]
   );
-  // The versions the server list already carries: a newer Channels DVR release shows as a pill,
-  // to owners and admins only, since it links into the Channels DVR web UI where it's installed.
+  // The versions the server list already carries show as a pill, "Update available" or
+  // "Up to date", to owners and admins only, since it links into the Channels DVR web UI.
   const { user } = useAuth();
   const canManageServers = user?.role === 'owner' || user?.role === 'admin';
-  const channelsUpdates = useMemo(
-    () => (canManageServers ? channelsUpdatesFor(channelsServers) : []),
+  const channelsVersions = useMemo(
+    () => (canManageServers ? channelsVersionsFor(channelsServers) : []),
     [canManageServers, channelsServers]
   );
   const { data: schedule } = useChannelsRecordings(channelsServerIds.length > 0);
@@ -282,7 +282,7 @@ function ServerDashboard({ actions }: { actions?: ReactNode }) {
         upcoming={dvr?.upcoming}
         tuners={dvr?.tuners}
         disks={dvr?.disks}
-        updates={channelsUpdates}
+        versions={channelsVersions}
         linkBases={channelsLinkBases}
         showServer={channelsServerIds.length > 1}
       />
