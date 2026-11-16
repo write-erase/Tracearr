@@ -34,6 +34,38 @@ describe('Dispatcharr parser', () => {
       });
     });
 
+    it('keeps the sign-in (XC) name and whether an XC password is set', () => {
+      expect(
+        parseUser({
+          id: 9,
+          username: 'moms-house',
+          first_name: 'Mom',
+          last_name: 'Lennemann',
+          custom_properties: { xc_password: 'secret' },
+        })
+      ).toMatchObject({ username: 'Mom Lennemann', login: 'moms-house', xcEnabled: true });
+      expect(
+        parseUser({ id: 10, username: 'admin', custom_properties: { xc_password: '' } })
+      ).toMatchObject({ login: 'admin', xcEnabled: false });
+      expect(parseUser({ id: 11, username: 'plain' })).toMatchObject({ xcEnabled: false });
+    });
+
+    it('carries the sign-in name onto live sessions', () => {
+      const sessions = parseSessionsFromChannels(
+        [
+          {
+            channelId: 'channel-1',
+            channelName: 'News HD',
+            clients: [{ client_id: 'client-1', user_id: '9', ip_address: '10.0.0.5' }],
+          },
+        ],
+        new Map([
+          ['9', { id: '9', username: 'Mom Lennemann', login: 'moms-house', isAdmin: false }],
+        ])
+      );
+      expect(sessions[0]?.user).toMatchObject({ username: 'Mom Lennemann', login: 'moms-house' });
+    });
+
     it('falls back to username when first and last name are empty', () => {
       expect(
         normalizeDispatcharrUserName({

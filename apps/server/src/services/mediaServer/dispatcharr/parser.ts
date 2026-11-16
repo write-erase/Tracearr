@@ -265,9 +265,14 @@ export function parseUser(raw: unknown, options?: DispatcharrParserOptions): Med
   const username = normalizeDispatcharrUserName(user);
   if (!id || !username || shouldIgnoreAnonymousDispatcharrUser(username, options)) return null;
 
+  const login = asString(user.username).trim();
+  const customProperties = asRecord(user.custom_properties);
   return {
     id,
     username,
+    ...(login ? { login } : {}),
+    // XC sign-in only works once an XC password is set; an empty or missing one means no XC.
+    xcEnabled: asString(customProperties?.xc_password).trim() !== '',
     email: asOptionalString(user.email),
     isAdmin:
       Boolean(user.is_superuser) || Boolean(user.is_staff) || asNumber(user.user_level) >= 10,
@@ -710,6 +715,7 @@ export function parseSessionsFromCatchupStats(
         user: {
           id: user.id,
           username: user.username,
+          ...(user.login ? { login: user.login } : {}),
           thumb: user.thumb,
         },
         media: {
@@ -816,6 +822,7 @@ export function parseSessionsFromVodStats(
       user: {
         id: user.id,
         username: user.username,
+        ...(user.login ? { login: user.login } : {}),
         thumb: user.thumb,
       },
       media: {
@@ -1017,6 +1024,7 @@ export function parseSessionsFromChannels(
         user: {
           id: user.id,
           username: user.username,
+          ...(user.login ? { login: user.login } : {}),
           thumb: user.thumb,
         },
         media: {

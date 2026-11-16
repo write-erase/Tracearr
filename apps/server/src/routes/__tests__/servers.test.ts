@@ -31,6 +31,7 @@ vi.mock('../../utils/crypto.js', () => ({
 }));
 
 const mockChannelsRunCheck = vi.hoisted(() => vi.fn());
+const mockDispatcharrGetUsers = vi.hoisted(() => vi.fn());
 vi.mock('../../services/mediaServer/index.js', () => ({
   PlexClient: {
     verifyServerAdmin: vi.fn(),
@@ -56,13 +57,18 @@ vi.mock('../../services/mediaServer/index.js', () => ({
       NOT_ADMIN: 'NOT_ADMIN',
     },
   },
-  DispatcharrClient: {
-    verifyServerAdmin: vi.fn(),
-    isCredentialToken: vi.fn((token: string) => token.startsWith('dispatcharr-credentials:')),
-    encodeCredentialToken: vi.fn((username: string, password: string) => {
-      return `dispatcharr-credentials:${username}:${password}`;
-    }),
-  },
+  DispatcharrClient: Object.assign(
+    class {
+      getUsers = mockDispatcharrGetUsers;
+    },
+    {
+      verifyServerAdmin: vi.fn(),
+      isCredentialToken: vi.fn((token: string) => token.startsWith('dispatcharr-credentials:')),
+      encodeCredentialToken: vi.fn((username: string, password: string) => {
+        return `dispatcharr-credentials:${username}:${password}`;
+      }),
+    }
+  ),
   ChannelsDvrClient: class {
     runCheck = mockChannelsRunCheck;
   },
@@ -2271,6 +2277,67 @@ describe('Server Routes', () => {
       });
 
       expect(response.statusCode).toBe(400);
+    });
+  });
+
+  describe('GET /servers/dispatcharr-users', () => {
+    const dispatcharr = { id: 'd1', name: 'Dispatcharr', url: 'http://d:9191', token: 't' };
+
+    it('lists XC users from each Dispatcharr server with their sign-in and display names', async () => {
+      app = await buildTestApp(ownerUser);
+      const where = vi.fn().mockResolvedValue([dispatcharr]);
+      vi.mocked(db.select).mockReturnValueOnce({
+        from: vi.fn().mockReturnThis(),
+        where,
+      } as never);
+      mockDispatcharrGetUsers.mockResolvedValue([
+        {
+          id: '1',
+          username: 'Mom Lennemann',
+          login: 'moms-house',
+          xcEnabled: true,
+          isAdmin: false,
+        },
+        { id: '2', username: 'admin', login: 'admin', xcEnabled: false, isAdmin: true },
+        { id: '3', username: 'jonzey', login: 'jonzey', xcEnabled: true, isAdmin: false },
+      ]);
+
+      const response = await app.inject({ method: 'GET', url: '/servers/dispatcharr-users' });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toEqual({
+        users: [
+          { serverId: 'd1', serverName: 'Dispatcharr', login: 'jonzey', displayName: 'jonzey' },
+          {
+            serverId: 'd1',
+            serverName: 'Dispatcharr',
+            login: 'moms-house',
+            displayName: 'Mom Lennemann',
+          },
+        ],
+        unavailable: [],
+      });
+      expect(renderSql(where.mock.calls[0]?.[0] as SQL).sql).toContain('historical_at is null');
+    });
+
+    it('names a Dispatcharr server that does not answer instead of failing', async () => {
+      app = await buildTestApp(ownerUser);
+      vi.mocked(db.select).mockReturnValueOnce({
+        from: vi.fn().mockReturnThis(),
+        where: vi.fn().mockResolvedValue([dispatcharr]),
+      } as never);
+      mockDispatcharrGetUsers.mockRejectedValue(new Error('ECONNREFUSED'));
+
+      const response = await app.inject({ method: 'GET', url: '/servers/dispatcharr-users' });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toEqual({ users: [], unavailable: ['Dispatcharr'] });
+    });
+
+    it('is only for owners, like editing a server', async () => {
+      app = await buildTestApp(viewerUser);
+      const response = await app.inject({ method: 'GET', url: '/servers/dispatcharr-users' });
+      expect(response.statusCode).toBe(403);
     });
   });
 });

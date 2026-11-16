@@ -128,6 +128,7 @@ export {
   useSetServerHistorical,
   useServerLocations,
   useUpdateServerLocations,
+  useDispatcharrUsers,
   useServerLiveStats,
   useMultiServerLiveStats,
   usePlexServerConnections,

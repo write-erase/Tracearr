@@ -32,6 +32,7 @@ import {
 } from '@/hooks/queries';
 import { SERVER_DIALOG_CONTENT_CLASS } from './dialogClasses';
 import { ChannelsDvrCheckPanel } from './ChannelsDvrCheckPanel';
+import { DispatcharrUserField } from './DispatcharrUserField';
 import { DispatcharrFields, emptyDispatcharrForm } from './DispatcharrFields';
 import { ServerLocationEditor } from './ServerLocationEditor';
 import { draftsKey, toDrafts, toEntries, type LocationDraft } from './serverLocationDrafts';
@@ -170,10 +171,8 @@ export function EditServerDialog({
       ? editApiKey.trim().length > 0
       : false;
   const hasUpdateTrackChange = isChannelsDvr && editUpdateTrack !== (server?.updateTrack ?? 'auto');
-  // Only worth asking when a Dispatcharr server is here to hide streams from, or one is already set.
-  const showDispatcharrUser =
-    isChannelsDvr &&
-    (servers.some((s) => s.type === 'dispatcharr') || Boolean(server?.dispatcharrUser));
+  // Only a Dispatcharr server in Tracearr has streams to hide, so the field needs one.
+  const hasDispatcharr = servers.some((s) => s.type === 'dispatcharr');
   const hasDispatcharrUserChange =
     isChannelsDvr && editDispatcharrUser.trim() !== (server?.dispatcharrUser ?? '');
   const hasServerChange =
@@ -367,17 +366,15 @@ export function EditServerDialog({
               </FieldDescription>
             </Field>
           )}
-          {showDispatcharrUser && (
+          {isChannelsDvr && hasDispatcharr && (
             <Field>
               <FieldLabel htmlFor="edit-dispatcharr-user">
                 {t('servers.dispatcharrUser.label')}
               </FieldLabel>
-              <Input
+              <DispatcharrUserField
                 id="edit-dispatcharr-user"
                 value={editDispatcharrUser}
-                onChange={(e) => setEditDispatcharrUser(e.target.value)}
-                placeholder={t('servers.dispatcharrUser.placeholder')}
-                autoComplete="off"
+                onChange={setEditDispatcharrUser}
               />
               <FieldDescription>{t('servers.dispatcharrUser.hint')}</FieldDescription>
             </Field>

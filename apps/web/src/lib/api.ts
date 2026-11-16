@@ -171,6 +171,16 @@ import type {
   ChannelsDvrCheck,
 } from '@tracearr/shared';
 
+/** A Dispatcharr user that can sign in over XC, and the Dispatcharr server it's on. */
+export interface DispatcharrUserOption {
+  serverId: string;
+  serverName: string;
+  /** The sign-in (XC) name, as in the M3U link */
+  login: string;
+  /** The name Tracearr shows (first and last name when set) */
+  displayName: string;
+}
+
 // Re-export shared types needed by frontend components
 export type {
   PlexDiscoveredServer,
@@ -863,6 +873,11 @@ class ApiClient {
         method: 'PATCH',
         body: JSON.stringify({ servers }),
       }),
+    /** Dispatcharr's XC users, read live, for a Channels DVR server's "Dispatcharr user". */
+    dispatcharrUsers: () =>
+      this.request<{ users: DispatcharrUserOption[]; unavailable: string[] }>(
+        '/servers/dispatcharr-users'
+      ),
     /** Channels DVR only: read each endpoint Tracearr uses and report what came back. */
     check: (id: string) =>
       this.request<ChannelsDvrCheck>(`/servers/${id}/check`, {
