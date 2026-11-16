@@ -289,7 +289,11 @@ export function EditServerDialog({
                   value={manualUrl}
                   onChange={(e) => setManualUrl(e.target.value)}
                   placeholder={
-                    isChannelsDvr ? 'http://192.168.1.100:8089' : 'http://192.168.1.100:8096'
+                    isChannelsDvr
+                      ? 'http://192.168.1.100:8089'
+                      : isDispatcharr
+                        ? 'http://192.168.1.100:9191'
+                        : 'http://192.168.1.100:8096'
                   }
                   disabled={locked}
                 />
