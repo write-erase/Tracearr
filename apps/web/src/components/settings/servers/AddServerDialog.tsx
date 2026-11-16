@@ -256,7 +256,9 @@ export function AddServerDialog({
                   placeholder={
                     serverType === 'channels_dvr'
                       ? 'http://192.168.1.100:8089'
-                      : t('servers.serverUrlPlaceholder')
+                      : serverType === 'dispatcharr'
+                        ? 'http://192.168.1.100:9191'
+                        : t('servers.serverUrlPlaceholder')
                   }
                   value={serverUrl}
                   onChange={(e) => onServerUrlChange(e.target.value)}
