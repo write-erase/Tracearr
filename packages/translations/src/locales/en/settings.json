@@ -290,8 +290,12 @@
     },
     "dispatcharrUser": {
       "label": "Dispatcharr user",
-      "placeholder": "e.g. moms-house",
-      "hint": "If this Channels DVR gets its channels from Dispatcharr with an XC login, enter that user as Tracearr shows it. Its Dispatcharr streams are then hidden, since they're this DVR fetching channels and already show as Channels DVR sessions. The same user in another player still shows."
+      "hint": "If this server uses a Dispatcharr M3U link with an XC username in it, select that user in the dropdown. That user's Dispatcharr streams are then hidden, since they're this server fetching channels that already show as Channels DVR sessions. The same user in another player still shows.",
+      "placeholder": "Choose or type a user",
+      "notListed": "Not listed? Type the username in the search box.",
+      "none": "None",
+      "search": "Search or type a name",
+      "useTyped": "Use \"{{name}}\""
     },
     "dvrCheck": {
       "button": "Check connection",

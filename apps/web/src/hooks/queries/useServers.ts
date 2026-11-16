@@ -163,6 +163,16 @@ export function useSetServerHistorical() {
   });
 }
 
+/** Dispatcharr users for the Channels DVR "Dispatcharr user" picker; only fetched when asked. */
+export function useDispatcharrUsers(enabled: boolean) {
+  return useQuery({
+    queryKey: ['servers', 'dispatcharr-users'],
+    queryFn: async () => (await api.servers.dispatcharrUsers()).users,
+    enabled,
+    staleTime: 60_000,
+  });
+}
+
 export function useServerLocations(serverId: string | undefined) {
   return useQuery({
     queryKey: ['servers', 'locations', serverId],

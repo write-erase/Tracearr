@@ -1001,6 +1001,67 @@ export const serverRoutes: FastifyPluginAsync = async (app) => {
   });
 
   /**
+   * GET /servers/dispatcharr-users - The Dispatcharr users that can sign in over XC, read live
+   * from each Dispatcharr server, for a Channels DVR server's "Dispatcharr user". Each comes with
+   * its sign-in (XC) name, which is what goes in the M3U link, and the name Tracearr shows.
+   * A Dispatcharr server that doesn't answer is listed under `unavailable` instead.
+   */
+  app.get('/dispatcharr-users', writeServers, async (request, reply) => {
+    // Only owners can edit servers, so only they need the list.
+    if (request.user.role !== 'owner') {
+      return reply.forbidden('Only server owners can update servers');
+    }
+    const dispatcharrServers = await db
+      .select({ id: servers.id, name: servers.name, url: servers.url, token: servers.token })
+      .from(servers)
+      .where(
+        and(
+          eq(servers.type, 'dispatcharr'),
+          liveServerCondition,
+          buildServerAccessCondition(request.user, servers.id)
+        )
+      );
+
+    const results = await Promise.all(
+      dispatcharrServers.map(async (server) => {
+        try {
+          const accounts = await new DispatcharrClient({
+            url: server.url,
+            token: server.token,
+          }).getUsers();
+          return { server, accounts, failed: false };
+        } catch (error) {
+          app.log.warn({ err: error, serverId: server.id }, 'Could not list Dispatcharr users');
+          return { server, accounts: [], failed: true };
+        }
+      })
+    );
+
+    const users = results
+      .flatMap(({ server, accounts }) =>
+        accounts.flatMap((account) =>
+          account.xcEnabled && account.login
+            ? [
+                {
+                  serverId: server.id,
+                  serverName: server.name,
+                  login: account.login,
+                  displayName: account.username,
+                },
+              ]
+            : []
+        )
+      )
+      .sort(
+        (a, b) =>
+          a.serverName.localeCompare(b.serverName) ||
+          a.login.localeCompare(b.login, undefined, { sensitivity: 'base' })
+      );
+    const unavailable = results.filter((r) => r.failed).map((r) => r.server.name);
+    return { users, unavailable };
+  });
+
+  /**
    * GET /servers/health - Get health status for all servers
    * Returns which servers are currently unreachable based on cached health state
    */

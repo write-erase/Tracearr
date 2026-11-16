@@ -4,7 +4,8 @@
  * When a Channels DVR server gets its channels from Dispatcharr, every channel it plays or
  * records is also a Dispatcharr stream, so one viewer shows up twice. With an M3U source that
  * stream is anonymous and "ignore anonymous streams" hides it; with an XC login it carries that
- * user's name. A Channels DVR server can name the Dispatcharr user it signs in as, and a
+ * user's name. A Channels DVR server can name the Dispatcharr user it signs in as (its XC
+ * login, or the name Tracearr shows for it; either matches), and a
  * Dispatcharr stream from that user whose user agent is Channels DVR's own (`channels-dvr/…`) is
  * then left out. The same user in another player still shows.
  */
@@ -34,7 +35,12 @@ export function isChannelsDvrUserAgent(userAgent: string | undefined): boolean {
 export function isChannelsDvrRelay(session: MediaSession, relayUsers: Set<string>): boolean {
   if (relayUsers.size === 0) return false;
   const userAgent = session.player.product ?? session.player.name;
-  return isChannelsDvrUserAgent(userAgent) && relayUsers.has(relayUserKey(session.user.username));
+  if (!isChannelsDvrUserAgent(userAgent)) return false;
+  // The XC login is what's in the M3U link; the display name is what Tracearr shows. Either works.
+  return (
+    relayUsers.has(relayUserKey(session.user.username)) ||
+    (!!session.user.login && relayUsers.has(relayUserKey(session.user.login)))
+  );
 }
 
 export function withoutChannelsDvrRelays(

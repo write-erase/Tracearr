@@ -64,6 +64,8 @@ export interface MediaSession {
   user: {
     id: string;
     username: string;
+    /** Dispatcharr only: the account's sign-in (XC) name, when it differs from `username` */
+    login?: string;
     thumb?: string;
   };
 
@@ -222,6 +224,11 @@ export interface MediaUser {
   id: string;
   /** Display name */
   username: string;
+  /** Dispatcharr only: the sign-in name, which is also the XC username (`username` may be the
+   *  first and last name instead) */
+  login?: string;
+  /** Dispatcharr only: whether an XC password is set, so the account can sign in over XC */
+  xcEnabled?: boolean;
   /** Email address (may be empty for local accounts) */
   email?: string;
   /** Avatar/profile image URL */

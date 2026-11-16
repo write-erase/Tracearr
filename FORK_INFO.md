@@ -1,5 +1,24 @@
 # Tracearr Fork Information
 
+## November 15, 2026 — Pick the Channels DVR "Dispatcharr user" from a list
+
+- The Channels DVR "Dispatcharr user" field is now a dropdown of Dispatcharr's XC users, read live
+  from each Dispatcharr server's `GET /api/accounts/users/` (a user counts as XC when
+  `custom_properties.xc_password` is set and not empty). Each shows as "Display Name (login)",
+  grouped by Dispatcharr server when there's more than one. It's searchable: typing narrows the
+  list by sign-in or display name, and a name the list doesn't have can be saved with
+  "Use "…"" (a line under the list says so while the search box is empty). "None" clears it.
+- What's saved is the XC sign-in name (`username`, the name in the M3U link). Tracearr shows a
+  Dispatcharr user by first and last name when set, so a typed XC login didn't match before.
+  `parseUser` now keeps `login` and `xcEnabled`, Dispatcharr sessions carry `user.login`, and the
+  relay hiding matches either the login or the display name, so names saved earlier keep working.
+- The field only shows when a Dispatcharr server is configured in Tracearr; without one there are
+  no Dispatcharr streams to hide. When no Dispatcharr server answers, the list is empty but a
+  name can still be typed and used. A saved name the list doesn't have is shown as-is.
+- `GET /servers/dispatcharr-users` (`writeServers`): XC users of live Dispatcharr servers the user
+  can access, sorted by server then login; a Dispatcharr server that doesn't answer is listed in
+  `unavailable` rather than failing the request.
+
 ## November 14, 2026 — `baseline` renamed to `main`
 
 - The release branch is now `main` (renamed from `baseline` on GitHub, which redirects old links).

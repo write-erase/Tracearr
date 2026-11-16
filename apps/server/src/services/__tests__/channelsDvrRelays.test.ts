@@ -46,6 +46,15 @@ describe('withoutChannelsDvrRelays', () => {
     ]);
   });
 
+  it('matches the XC login when Tracearr shows the user by first and last name', () => {
+    const relay = {
+      ...session('Mom Lennemann', 'channels-dvr/2026.11.11.2228'),
+      user: { id: '7', username: 'Mom Lennemann', login: 'moms-house' },
+    } as MediaSession;
+    expect(isChannelsDvrRelay(relay, new Set(['moms-house']))).toBe(true);
+    expect(isChannelsDvrRelay(relay, new Set(['mom lennemann']))).toBe(true);
+  });
+
   it('keeps everything when no Channels DVR server names a user', () => {
     const relay = session('moms-house', 'channels-dvr/2026.11.11.2228');
     expect(withoutChannelsDvrRelays([relay], new Set())).toEqual([relay]);
