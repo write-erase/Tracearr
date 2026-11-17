@@ -23,12 +23,7 @@ import { JellyfinClient } from './jellyfin/client.js';
 import { EmbyClient } from './emby/client.js';
 import { DispatcharrClient } from './dispatcharr/client.js';
 import { ChannelsDvrClient } from './channelsDvr/client.js';
-import type {
-  IMediaServerClient,
-  IMediaServerClientWithHistory,
-  MediaServerConfig,
-  CreateClientOptions,
-} from './types.js';
+import type { IMediaServerClient, MediaServerConfig, CreateClientOptions } from './types.js';
 
 // ============================================================================
 // Factory Function

@@ -6,6 +6,7 @@ vi.mock('../../../utils/http.js', () => ({ fetchJson: vi.fn(), fetchText: vi.fn(
 import { fetchJson } from '../../../utils/http.js';
 import { ChannelsDvrClient } from '../channelsDvr/client.js';
 import { mapEpisode, mapMovie, mapShow } from '../channelsDvr/library.js';
+import type { IMediaServerClient } from '../types.js';
 
 const BASE = 'http://channels.local:8089';
 const client = () => new ChannelsDvrClient({ url: BASE, token: 'none' });
@@ -172,11 +173,12 @@ describe('Channels DVR library client', () => {
 
   it('has no incremental sync, so every sync is a full scan that catches deletions', async () => {
     expect(SERVER_PROFILES.channels_dvr.syncsLibraryIncrementally).toBe(false);
-    const c = client();
+    // Called through the interface, the way library sync calls it.
+    const c: IMediaServerClient = client();
     await expect(c.getLibraryItemsSince('tv', new Date())).rejects.toThrow(/no incremental/);
     await expect(c.getLibraryLeavesSince('tv', new Date())).rejects.toThrow(/no incremental/);
     // A full listing is the whole library, so nothing missing from it is still there.
-    expect(await c.findExistingRatingKeys()).toEqual(new Set());
+    expect(await c.findExistingRatingKeys(['1'], { id: 'tv', type: 'show' })).toEqual(new Set());
   });
 
   it('fetches each list once while a sync pages through it', async () => {
