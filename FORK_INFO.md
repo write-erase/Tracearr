@@ -1,5 +1,28 @@
 # Tracearr Fork Information
 
+## November 17, 2026 — Upstream 3.2.0, step 3: up to beta 3
+
+**Back up your database before pulling this `:dev`.** It runs upstream's migration 0132
+(backfill person picture), which sets every merged person's picture from their accounts, so going
+back to an earlier `:dev` needs that backup. This fork still adds no migrations of its own.
+
+Third of the 3.2.0 merges: connor's `main` at `a0f4ded67` (11 commits after step 2, through
+`v3.2.0-beta.2` and `v3.2.0-beta.3`):
+
+- Merged people take their picture from their accounts (a current account first, then the most
+  recently active) and keep it current at each sync. Migration 0132 fills it in for existing
+  people.
+- tofa dates library items by when the file arrived. A server added after the others now gets
+  its library growth history backfilled: the check runs per server instead of across all of them.
+  Only servers with library items take part, so Dispatcharr (no library) is never checked;
+  Channels DVR is checked like the others.
+- The stop stream dialog drops the `@` in front of the name, and its prop is now `name` (was
+  `username`). The fork keeps its Channels DVR wording ("Stop … on <device>?", key
+  `stopMediaOnDevice` beside upstream's new `stopMediaFor`) and the hidden message field for
+  Channels DVR.
+- Crowdin translation syncs, plus connor's repair of the translations earlier syncs had wiped.
+- Not taken: upstream's `release` workflow changes, since this fork removed that workflow.
+
 ## November 17, 2026 — Upstream 3.2.0, step 2: tofa and beta 1
 
 **Back up your database before pulling this `:dev`.** It runs upstream's migrations 0126–0131, and

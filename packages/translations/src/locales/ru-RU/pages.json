@@ -317,6 +317,9 @@
     "suggestionsPairEmailUsernameMore_few": "{{first}} и {{second}} используют один адрес как имя пользователя или почту аккаунта, и ещё {{count}}",
     "suggestionsPairEmailUsernameMore_many": "{{first}} и {{second}} используют один адрес как имя пользователя или почту аккаунта, и ещё {{count}}",
     "suggestionsPairEmailUsernameMore_other": "{{first}} и {{second}} используют один адрес как имя пользователя или почту аккаунта, и ещё {{count}}",
+    "suggestionsPairLinkedMore_one": "",
+    "suggestionsPairLinkedMore_few": "",
+    "suggestionsPairLinkedMore_many": "",
     "suggestionsPairLinkedMore_other": "",
     "suggestionsPairUsernameMore_one": "{{first}} и {{second}}: одно имя пользователя, и ещё {{count}}",
     "suggestionsPairUsernameMore_few": "{{first}} и {{second}}: одно имя пользователя, и ещё {{count}}",
@@ -2342,6 +2345,7 @@
   "terminateStream": {
     "title": "Завершить Поток",
     "stopMedia": "Остановить \"{{mediaTitle}}\" для @{{username}}?",
+    "stopMediaFor": "",
     "messageLabel": "Сообщение пользователю (необязательно)",
     "messagePlaceholder": "например, пожалуйста, не делитесь своей учетной записью",
     "messageHint": "Это сообщение будет показано им во время воспроизведения",
