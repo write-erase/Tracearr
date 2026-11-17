@@ -20,6 +20,12 @@ const { mockCreateMediaServerClient, mockGetActiveAutomations } = vi.hoisted(() 
   mockGetActiveAutomations: vi.fn().mockResolvedValue([]),
 }));
 
+// Channels DVR relay hiding reads the servers table; these tests don't configure any.
+vi.mock('../../../services/channelsDvrRelays.js', () => ({
+  getChannelsDvrRelayUsers: vi.fn().mockResolvedValue(new Set<string>()),
+  withoutChannelsDvrRelays: <T>(sessions: T[]) => sessions,
+}));
+
 vi.mock('../../../db/client.js', () => ({
   db: { select: (...args: unknown[]) => mockDbSelect(...args) },
 }));

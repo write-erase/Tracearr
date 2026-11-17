@@ -1,0 +1,54 @@
+{
+  "schemaVersion": 1,
+  "slug": "channels-dvr-recording-missed",
+  "name": "Channels DVR recording missed",
+  "description": "Tell a destination when a scheduled Channels DVR recording doesn't start.",
+  "group": "server_health",
+  "kind": "notification",
+  "minServerVersion": "3.1.7",
+  "inputs": [
+    {
+      "key": "server",
+      "kind": "server",
+      "label": "Channels DVR server",
+      "required": false
+    },
+    {
+      "key": "to",
+      "kind": "destinations",
+      "label": "Send to",
+      "required": true
+    }
+  ],
+  "definition": {
+    "kind": "notification",
+    "triggers": [
+      {
+        "id": "5c1d7a0e-2b4f-4c8e-9d3a-000000002111",
+        "type": "dvr.recording_missed",
+        "enabled": true
+      }
+    ],
+    "conditions": {
+      "groups": []
+    },
+    "actions": {
+      "actions": [
+        {
+          "id": "5c1d7a0e-2b4f-4c8e-9d3a-000000002199",
+          "type": "send",
+          "enabled": true,
+          "to": {
+            "$input": "to"
+          }
+        }
+      ]
+    },
+    "scope": {
+      "serverId": {
+        "$input": "server"
+      }
+    }
+  },
+  "fingerprint": "52955e6ffedd26f775e4b456f7fd94ad9bc60d0b87e89716b52394a31ff2594b"
+}

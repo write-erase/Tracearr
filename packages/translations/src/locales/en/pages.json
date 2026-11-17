@@ -139,6 +139,33 @@
       "update": "Update available",
       "updateOnServer": "{{server}}: update available",
       "updateHint": "{{latest}} is available (running {{installed}})",
+      "upToDate": "Up to date",
+      "upToDateOnServer": "{{server}}: up to date",
+      "upToDateHint": "Running {{installed}}, the latest release",
+      "conflict_one": "Tuner conflict: {{overlapping}} recordings, {{count}} tuner",
+      "conflict_other": "Tuner conflict: {{overlapping}} recordings, {{count}} tuners",
+      "conflictHint_one": "{{overlapping}} recordings overlap on {{source}}, which has {{count}} tuner. One of them may not record, so skip or cancel one to make room.",
+      "conflictHint_other": "{{overlapping}} recordings overlap on {{source}}, which has {{count}} tuners. One of them may not record, so skip or cancel one to make room.",
+      "recent": "Recently Recorded",
+      "recentCaption": "last 24 hours",
+      "recentIssues_one": "{{count}} had problems",
+      "recentIssues_other": "{{count}} had problems",
+      "moreRecent_one": "+{{count}} more in the last 24 hours",
+      "moreRecent_other": "+{{count}} more in the last 24 hours",
+      "yesterday": "Yesterday {{time}}",
+      "minutes_one": "{{count}} min",
+      "minutes_other": "{{count}} min",
+      "hours_one": "{{count}} h",
+      "hours_other": "{{count}} h",
+      "hoursMinutes": "{{hours}} h {{minutes}} min",
+      "recordedOf": "{{recorded}} of {{scheduled}}",
+      "openShowInChannels": "Open the show in Channels DVR",
+      "issueInterrupted": "Interrupted",
+      "issueInterruptedHint": "The stream dropped partway through, so part of the recording is missing.",
+      "issueStoppedEarly": "Stopped early",
+      "issueStoppedEarlyHint": "The recording stopped before the show ended, either by hand or because the stream failed.",
+      "issueStartedLate": "Started late",
+      "issueStartedLateHint": "The recording started after the show began, so the beginning is missing.",
       "cancel": "Cancel recording",
       "cancelTitle": "Cancel this recording?",
       "cancelConfirm": "Cancel \"{{title}}\" at {{time}}? It will be removed from your Channels DVR schedule.",
@@ -986,6 +1013,14 @@
         "total": "Disk size",
         "freePercent": "Free space (%)",
         "threshold": "Alert threshold (%)"
+      },
+      "lineup": {
+        "summary": "What changed",
+        "sources": "Sources",
+        "added": "Channels added",
+        "removed": "Channels removed",
+        "renamed": "Channels renamed",
+        "moved": "Channels moved"
       }
     },
     "actions": {
@@ -1401,8 +1436,12 @@
         "dvrRecordingFailed": "a Channels DVR recording fails",
         "dvrRecordingResumed": "a failed Channels DVR recording resumes",
         "dvrRecordingGlitch": "a Channels DVR recording loses its stream for a moment",
+        "dvrRecordingMissed": "a scheduled Channels DVR recording doesn't start",
+        "dvrRecordingStarted": "a Channels DVR recording starts",
+        "dvrRecordingCompleted": "a Channels DVR recording finishes",
         "dvrDiskLow": "free space on the DVR disk drops below {{percent}}%",
-        "dvrDiskOk": "free space on the DVR disk is back above {{percent}}%"
+        "dvrDiskOk": "free space on the DVR disk is back above {{percent}}%",
+        "dvrLineupChanged": "a Channels DVR channel lineup changes"
       },
       "operators": {
         "eq": "is",
@@ -2113,10 +2152,25 @@
         "description": "Tell a destination when a Channels DVR recording loses its stream for a moment and may have a gap.",
         "keywords": "channels dvr recording glitch gap corrupted interrupted notify"
       },
+      "channels-dvr-recording-missed": {
+        "name": "Channels DVR recording missed",
+        "description": "Tell a destination when a scheduled Channels DVR recording doesn't start.",
+        "keywords": "channels dvr recording missed not started scheduled notify discord"
+      },
+      "channels-dvr-recording-activity": {
+        "name": "Channels DVR recording started and finished",
+        "description": "Tell a destination when a Channels DVR recording starts and when it finishes.",
+        "keywords": "channels dvr recording started finished completed done notify discord"
+      },
       "channels-dvr-disk-space": {
         "name": "Channels DVR disk almost full",
         "description": "Tell a destination when free space on the disk Channels DVR records to drops below the percentage you choose, and when it recovers.",
         "keywords": "channels dvr disk space storage full low notify discord"
+      },
+      "channels-dvr-lineup-changed": {
+        "name": "Channels DVR channel lineup changed",
+        "description": "Tell a destination when channels are added, removed, renamed or moved in a Channels DVR source's lineup.",
+        "keywords": "channels dvr lineup channel added removed renamed moved guide m3u notify"
       }
     },
     "title": "Automations",
@@ -2241,6 +2295,18 @@
           "description": "The stream dropped during a Channels DVR recording and Channels reconnected, so the recording may have a gap.",
           "synonyms": "channels dvr recording glitch gap corrupted interrupted dropout"
         },
+        "dvrRecordingMissed": {
+          "description": "A scheduled Channels DVR recording is a few minutes past its start time and still isn't recording, and Channels hasn't flagged it as failed.",
+          "synonyms": "channels dvr recording missed not started scheduled tuner"
+        },
+        "dvrRecordingStarted": {
+          "description": "A Channels DVR recording begins. A failed recording that starts again counts as resumed, not started.",
+          "synonyms": "channels dvr recording started began scheduled"
+        },
+        "dvrRecordingCompleted": {
+          "description": "A Channels DVR recording stops at the end of its airing. Recordings that are cancelled or fail partway aren't reported.",
+          "synonyms": "channels dvr recording completed finished done ended"
+        },
         "dvrDiskLow": {
           "label": "Channels DVR disk almost full",
           "description": "Free space on the disk a Channels DVR server records to drops below the percentage you set.",
@@ -2250,6 +2316,10 @@
           "label": "Channels DVR disk space recovers",
           "description": "Free space on the Channels DVR disk climbs back above the percentage you set.",
           "synonyms": "channels dvr disk space storage recovered ok"
+        },
+        "dvrLineupChanged": {
+          "description": "Channels were added, removed, renamed or moved in a Channels DVR source's lineup. Checked every 30 minutes; Virtual Channels are left out.",
+          "synonyms": "channels dvr lineup channel added removed renamed moved guide source m3u"
         }
       },
       "actions": {

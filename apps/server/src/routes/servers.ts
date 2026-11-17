@@ -28,6 +28,7 @@ import {
   ChannelsDvrClient,
 } from '../services/mediaServer/index.js';
 import { getServerLiveStats, getServerResourceStats } from '../services/serverLiveStats.js';
+import { clearChannelsDvrRelayUsers } from '../services/channelsDvrRelays.js';
 import { syncServer } from '../services/sync.js';
 import { sseManager } from '../services/sseManager.js';
 import { getCacheService } from '../services/cache.js';
@@ -128,6 +129,7 @@ export const serverRoutes: FastifyPluginAsync = async (app) => {
         version: servers.version,
         latestVersion: servers.latestVersion,
         updateTrack: servers.updateTrack,
+        dispatcharrUser: servers.dispatcharrUser,
         historicalAt: servers.historicalAt,
         allowMemberLogin: servers.allowMemberLogin,
         createdAt: servers.createdAt,
@@ -359,6 +361,7 @@ export const serverRoutes: FastifyPluginAsync = async (app) => {
       apiKey: newApiKey,
       allowMemberLogin: newAllowMemberLogin,
       updateTrack: newUpdateTrack,
+      dispatcharrUser: newDispatcharrUser,
     } = body.data;
     const newUrl = bodyUrl !== undefined ? bodyUrl.replace(/\/$/, '') : undefined;
     const authUser = request.user;
@@ -413,6 +416,9 @@ export const serverRoutes: FastifyPluginAsync = async (app) => {
     if (newUpdateTrack !== undefined && server.type !== 'channels_dvr') {
       return reply.badRequest('Only Channels DVR servers have an update track');
     }
+    if (newDispatcharrUser !== undefined && server.type !== 'channels_dvr') {
+      return reply.badRequest('Only Channels DVR servers have a Dispatcharr user');
+    }
 
     const same = <T>(next: T | undefined, current: T): boolean =>
       next === undefined || next === current;
@@ -426,6 +432,7 @@ export const serverRoutes: FastifyPluginAsync = async (app) => {
       same(newApiKey, server.token) &&
       same(newAllowMemberLogin, server.allowMemberLogin) &&
       same(newUpdateTrack, server.updateTrack) &&
+      same(newDispatcharrUser, server.dispatcharrUser) &&
       // Off again is how a revoke that failed gets retried.
       newAllowMemberLogin !== false
     ) {
@@ -440,6 +447,7 @@ export const serverRoutes: FastifyPluginAsync = async (app) => {
           server.type === 'dispatcharr' ? getDispatcharrAuthMode(server.token) : undefined,
         ignoreAnonymousStreams: server.ignoreAnonymousStreams,
         updateTrack: server.updateTrack,
+        dispatcharrUser: server.dispatcharrUser,
         historicalAt: server.historicalAt,
         allowMemberLogin: server.allowMemberLogin,
         createdAt: server.createdAt,
@@ -539,6 +547,7 @@ export const serverRoutes: FastifyPluginAsync = async (app) => {
       machineIdentifier?: string;
       allowMemberLogin?: boolean;
       updateTrack?: 'auto' | 'stable' | 'prerelease';
+      dispatcharrUser?: string | null;
       updatedAt: Date;
     } = { updatedAt: new Date() };
     if (backfilledIdentity !== undefined) updatePayload.machineIdentifier = backfilledIdentity;
@@ -553,6 +562,7 @@ export const serverRoutes: FastifyPluginAsync = async (app) => {
     if (newApiKey !== undefined) updatePayload.token = newApiKey;
     if (newAllowMemberLogin !== undefined) updatePayload.allowMemberLogin = newAllowMemberLogin;
     if (newUpdateTrack !== undefined) updatePayload.updateTrack = newUpdateTrack;
+    if (newDispatcharrUser !== undefined) updatePayload.dispatcharrUser = newDispatcharrUser;
 
     const updated = await db
       .update(servers)
@@ -567,6 +577,7 @@ export const serverRoutes: FastifyPluginAsync = async (app) => {
         publicUrl: servers.publicUrl,
         ignoreAnonymousStreams: servers.ignoreAnonymousStreams,
         updateTrack: servers.updateTrack,
+        dispatcharrUser: servers.dispatcharrUser,
         color: servers.color,
         historicalAt: servers.historicalAt,
         allowMemberLogin: servers.allowMemberLogin,
@@ -609,6 +620,7 @@ export const serverRoutes: FastifyPluginAsync = async (app) => {
       );
     }
 
+    if (newDispatcharrUser !== undefined) clearChannelsDvrRelayUsers();
     await publishServersChanged();
 
     if (connectorConfigChanged) {
@@ -817,6 +829,35 @@ export const serverRoutes: FastifyPluginAsync = async (app) => {
   });
 
   /**
+   * POST /servers/:id/check - Channels DVR only: read each endpoint Tracearr uses and report
+   * what came back, so a setup problem names the part that's wrong. Reads the saved address.
+   */
+  app.post('/:id/check', writeServers, async (request, reply) => {
+    const params = serverIdParamSchema.safeParse(request.params);
+    if (!params.success) {
+      return reply.badRequest('Invalid server ID');
+    }
+    const { id } = params.data;
+    if (!hasServerAccess(request.user, id)) {
+      return reply.forbidden('You do not have access to this server');
+    }
+
+    const serverRows = await db.select().from(servers).where(eq(servers.id, id)).limit(1);
+    const server = serverRows[0];
+    if (!server) {
+      return reply.notFound('Server not found');
+    }
+    if (server.type !== 'channels_dvr') {
+      return reply.badRequest('Checks are only available for Channels DVR servers');
+    }
+    if (server.historicalAt) {
+      return reply.conflict('Resume this server to check it');
+    }
+
+    return new ChannelsDvrClient({ url: server.url, token: '' }).runCheck();
+  });
+
+  /**
    * POST /servers/:id/historical - Stop contacting a server (historical: true) or resume it.
    * Marking force-stops its streams; history, users and libraries stay.
    */
@@ -957,6 +998,67 @@ export const serverRoutes: FastifyPluginAsync = async (app) => {
         : { bandwidthSamples: [], bandwidthAccounts: [], bandwidthDevices: [] }),
       fetchedAt: new Date().toISOString(),
     };
+  });
+
+  /**
+   * GET /servers/dispatcharr-users - The Dispatcharr users that can sign in over XC, read live
+   * from each Dispatcharr server, for a Channels DVR server's "Dispatcharr user". Each comes with
+   * its sign-in (XC) name, which is what goes in the M3U link, and the name Tracearr shows.
+   * A Dispatcharr server that doesn't answer is listed under `unavailable` instead.
+   */
+  app.get('/dispatcharr-users', writeServers, async (request, reply) => {
+    // Only owners can edit servers, so only they need the list.
+    if (request.user.role !== 'owner') {
+      return reply.forbidden('Only server owners can update servers');
+    }
+    const dispatcharrServers = await db
+      .select({ id: servers.id, name: servers.name, url: servers.url, token: servers.token })
+      .from(servers)
+      .where(
+        and(
+          eq(servers.type, 'dispatcharr'),
+          liveServerCondition,
+          buildServerAccessCondition(request.user, servers.id)
+        )
+      );
+
+    const results = await Promise.all(
+      dispatcharrServers.map(async (server) => {
+        try {
+          const accounts = await new DispatcharrClient({
+            url: server.url,
+            token: server.token,
+          }).getUsers();
+          return { server, accounts, failed: false };
+        } catch (error) {
+          app.log.warn({ err: error, serverId: server.id }, 'Could not list Dispatcharr users');
+          return { server, accounts: [], failed: true };
+        }
+      })
+    );
+
+    const users = results
+      .flatMap(({ server, accounts }) =>
+        accounts.flatMap((account) =>
+          account.xcEnabled && account.login
+            ? [
+                {
+                  serverId: server.id,
+                  serverName: server.name,
+                  login: account.login,
+                  displayName: account.username,
+                },
+              ]
+            : []
+        )
+      )
+      .sort(
+        (a, b) =>
+          a.serverName.localeCompare(b.serverName) ||
+          a.login.localeCompare(b.login, undefined, { sensitivity: 'base' })
+      );
+    const unavailable = results.filter((r) => r.failed).map((r) => r.server.name);
+    return { users, unavailable };
   });
 
   /**

@@ -494,6 +494,85 @@ describe('Channels DVR recordings and live progress', () => {
     ]);
   });
 
+  it('flags queued recordings that need more tuners than their source has', async () => {
+    const at = (h: number) => Math.round(Date.now() / 1000 + h * 3600);
+    vi.mocked(fetchJson).mockImplementation((async (url: string) => {
+      if (url.endsWith('/dvr')) return { activity: {} };
+      if (url.endsWith('/api/v1/jobs'))
+        return [
+          { id: 'a', name: 'A', start_time: at(1), end_time: at(2), channels: ['2'] },
+          { id: 'b', name: 'B', start_time: at(1), end_time: at(2), channels: ['4'] },
+          { id: 'c', name: 'C', start_time: at(5), end_time: at(6), channels: ['2'] },
+        ];
+      if (url.endsWith('/devices'))
+        return [
+          {
+            DeviceID: 'HDHR',
+            FriendlyName: 'HDHomeRun',
+            TunerCount: 1,
+            Channels: [{ GuideNumber: '2' }, { GuideNumber: '4' }],
+          },
+        ];
+      if (url.includes('/guide')) return guide;
+      return [];
+    }) as never);
+
+    const schedule = await client().getSchedule();
+    expect(schedule.upcoming.map((u) => [u.jobId, u.conflict])).toEqual([
+      ['a', { source: 'HDHomeRun', tuners: 1, overlapping: 2 }],
+      ['b', { source: 'HDHomeRun', tuners: 1, overlapping: 2 }],
+      ['c', null],
+    ]);
+  });
+
+  it('lists recordings finished in the last day, with channel logo artwork as a fallback', async () => {
+    const nowSec = Math.round(Date.now() / 1000);
+    vi.mocked(fetchJson).mockImplementation((async (url: string) => {
+      if (url.endsWith('/dvr')) return { activity: {} };
+      if (url.endsWith('/dvr/files'))
+        return [
+          {
+            ID: '1353',
+            JobID: '1794874205-ch1',
+            GroupID: 'KOCO 5 News at 6pm',
+            CreatedAt: nowSec - 900,
+            Duration: 600,
+            Completed: true,
+            Cancelled: true,
+            ChannelNumber: '1',
+            JobDuration: 1800,
+            Airing: { Title: 'KOCO 5 News at 6pm' },
+          },
+          { ID: '585', CreatedAt: nowSec - 900, Completed: true, ImportPath: '/media/TV/x' },
+        ];
+      if (url.includes('/guide')) return guide;
+      return [];
+    }) as never);
+
+    const schedule = await client().getSchedule();
+    expect(schedule.recent).toEqual([
+      expect.objectContaining({
+        fileId: '1353',
+        title: 'KOCO 5 News at 6pm',
+        startedAt: new Date((nowSec - 900) * 1000).toISOString(),
+        endedAt: new Date((nowSec - 300) * 1000).toISOString(),
+        thumbPath: '/dvr/guide/channels/1/logo',
+        issues: ['stoppedEarly'],
+      }),
+    ]);
+  });
+
+  it('still builds the schedule when the file list is unavailable', async () => {
+    vi.mocked(fetchJson).mockImplementation((async (url: string) => {
+      if (url.endsWith('/dvr')) return { activity: {} };
+      if (url.endsWith('/dvr/files')) throw new Error('timeout');
+      return [];
+    }) as never);
+
+    const schedule = await client().getSchedule();
+    expect(schedule.recent).toEqual([]);
+  });
+
   it('still lists recordings when the job list and tuner count are unavailable', async () => {
     vi.mocked(fetchJson).mockImplementation((async (url: string) => {
       if (url.endsWith('/dvr'))

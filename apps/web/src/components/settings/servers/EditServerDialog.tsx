@@ -31,6 +31,8 @@ import {
   useUpdateServerLocations,
 } from '@/hooks/queries';
 import { SERVER_DIALOG_CONTENT_CLASS } from './dialogClasses';
+import { ChannelsDvrCheckPanel } from './ChannelsDvrCheckPanel';
+import { DispatcharrUserField } from './DispatcharrUserField';
 import { DispatcharrFields, emptyDispatcharrForm } from './DispatcharrFields';
 import { ServerLocationEditor } from './ServerLocationEditor';
 import { draftsKey, toDrafts, toEntries, type LocationDraft } from './serverLocationDrafts';
@@ -54,6 +56,7 @@ export interface ServerPatch {
   ignoreAnonymousStreams?: boolean;
   apiKey?: string;
   updateTrack?: ServerUpdateTrack;
+  dispatcharrUser?: string | null;
 }
 
 export function EditServerDialog({
@@ -76,6 +79,7 @@ export function EditServerDialog({
   const [editApiKey, setEditApiKey] = useState('');
   const [editColor, setEditColor] = useState<string>(SERVER_COLOR_OPTIONS[3]?.hex ?? '#3B82F6');
   const [editUpdateTrack, setEditUpdateTrack] = useState<ServerUpdateTrack>('auto');
+  const [editDispatcharrUser, setEditDispatcharrUser] = useState('');
   const [seededServer, setSeededServer] = useState<Server | null>(null);
   const isPlexServer = server?.type === 'plex';
   const isDispatcharr = server?.type === 'dispatcharr';
@@ -113,6 +117,7 @@ export function EditServerDialog({
       });
       setEditApiKey('');
       setEditUpdateTrack(server.updateTrack ?? 'auto');
+      setEditDispatcharrUser(server.dispatcharrUser ?? '');
       const otherColors = servers.filter((s) => s.id !== server.id).map((s) => s.color);
       setEditColor(server.color ?? pickServerColor(server.type, otherColors));
     }
@@ -166,7 +171,12 @@ export function EditServerDialog({
       ? editApiKey.trim().length > 0
       : false;
   const hasUpdateTrackChange = isChannelsDvr && editUpdateTrack !== (server?.updateTrack ?? 'auto');
+  // Only a Dispatcharr server in Tracearr has streams to hide, so the field needs one.
+  const hasDispatcharr = servers.some((s) => s.type === 'dispatcharr');
+  const hasDispatcharrUserChange =
+    isChannelsDvr && editDispatcharrUser.trim() !== (server?.dispatcharrUser ?? '');
   const hasServerChange =
+    hasDispatcharrUserChange ||
     hasUpdateTrackChange ||
     hasNameChange ||
     hasUrlChange ||
@@ -279,7 +289,11 @@ export function EditServerDialog({
                   value={manualUrl}
                   onChange={(e) => setManualUrl(e.target.value)}
                   placeholder={
-                    isChannelsDvr ? 'http://192.168.1.100:8089' : 'http://192.168.1.100:8096'
+                    isChannelsDvr
+                      ? 'http://192.168.1.100:8089'
+                      : isDispatcharr
+                        ? 'http://192.168.1.100:9191'
+                        : 'http://192.168.1.100:8096'
                   }
                   disabled={locked}
                 />
@@ -356,6 +370,22 @@ export function EditServerDialog({
               </FieldDescription>
             </Field>
           )}
+          {isChannelsDvr && hasDispatcharr && (
+            <Field>
+              <FieldLabel htmlFor="edit-dispatcharr-user">
+                {t('servers.dispatcharrUser.label')}
+              </FieldLabel>
+              <DispatcharrUserField
+                id="edit-dispatcharr-user"
+                value={editDispatcharrUser}
+                onChange={setEditDispatcharrUser}
+              />
+              <FieldDescription>{t('servers.dispatcharrUser.hint')}</FieldDescription>
+            </Field>
+          )}
+          {isChannelsDvr && server && !locked && (
+            <ChannelsDvrCheckPanel serverId={server.id} urlChanged={Boolean(hasUrlChange)} />
+          )}
           <Field>
             <FieldTitle>{t('servers.serverColor')}</FieldTitle>
             {/* Colors saved before the palette's casing are stored lowercase. */}
@@ -402,6 +432,9 @@ export function EditServerDialog({
                     : {}),
                   apiKey: hasApiKeyChange ? editApiKey.trim() : undefined,
                   updateTrack: hasUpdateTrackChange ? editUpdateTrack : undefined,
+                  dispatcharrUser: hasDispatcharrUserChange
+                    ? editDispatcharrUser.trim() || null
+                    : undefined,
                 });
               } else {
                 onClose();

@@ -11,8 +11,12 @@ import type {
   AccountTrustChangedEvent,
   DvrDiskLowEvent,
   DvrDiskOkEvent,
+  DvrLineupChangedEvent,
   DvrRecordingFailedEvent,
   DvrRecordingGlitchEvent,
+  DvrRecordingMissedEvent,
+  DvrRecordingStartedEvent,
+  DvrRecordingCompletedEvent,
   DvrRecordingResumedEvent,
   EvaluationInputs,
   MediaAddedEvent,
@@ -60,8 +64,12 @@ export type ServerEvaluatingEvent =
   | DvrRecordingFailedEvent
   | DvrRecordingResumedEvent
   | DvrRecordingGlitchEvent
+  | DvrRecordingMissedEvent
+  | DvrRecordingStartedEvent
+  | DvrRecordingCompletedEvent
   | DvrDiskLowEvent
-  | DvrDiskOkEvent;
+  | DvrDiskOkEvent
+  | DvrLineupChangedEvent;
 
 /** The events about one library item on a server. */
 export type MediaEvaluatingEvent = MediaAddedEvent | MediaUpgradedEvent;

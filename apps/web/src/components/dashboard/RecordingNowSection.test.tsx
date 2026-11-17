@@ -1,8 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
-import type { ChannelsDvrTunerUsage, ChannelsDvrUpcomingEntry } from '@tracearr/shared';
+import type {
+  ChannelsDvrRecentEntry,
+  ChannelsDvrTunerUsage,
+  ChannelsDvrUpcomingEntry,
+} from '@tracearr/shared';
 import type { Server } from '@tracearr/shared';
-import { RecordingNowSection, channelsUpdatesFor } from './RecordingNowSection';
+import { RecordingNowSection, channelsVersionsFor } from './RecordingNowSection';
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
@@ -38,6 +42,7 @@ function upcoming(overrides: Partial<ChannelsDvrUpcomingEntry> = {}): ChannelsDv
     thumbPath: null,
     skipped: false,
     fromPass: false,
+    conflict: null,
     ...overrides,
   };
 }
@@ -185,7 +190,109 @@ describe('RecordingNowSection', () => {
   });
 });
 
-describe('Channels DVR update pill', () => {
+describe('Coming Up tuner conflicts', () => {
+  it('marks a queued recording that needs more tuners than its source has', () => {
+    render(
+      <RecordingNowSection
+        recordings={[]}
+        upcoming={[
+          upcoming({ conflict: { source: 'HDHomeRun', tuners: 2, overlapping: 3 } }),
+          upcoming({ jobId: 'other', title: 'Other' }),
+        ]}
+      />
+    );
+    const flags = screen.getAllByTestId('tuner-conflict');
+    expect(flags).toHaveLength(1);
+    expect(flags[0]?.textContent).toContain('"overlapping":3');
+    expect(flags[0]?.getAttribute('title')).toContain('HDHomeRun');
+  });
+
+  it('shows no conflict when everything fits', () => {
+    render(<RecordingNowSection recordings={[]} upcoming={[upcoming()]} />);
+    expect(screen.queryByTestId('tuner-conflict')).toBeNull();
+  });
+});
+
+describe('Recently Recorded', () => {
+  const recent = (overrides: Partial<ChannelsDvrRecentEntry> = {}): ChannelsDvrRecentEntry => ({
+    serverId: 'cdvr',
+    serverName: 'Channels',
+    fileId: '1353',
+    jobId: '1794874205-ch1',
+    showId: 'KOCO 5 News at 6pm',
+    title: 'KOCO 5 News at 6pm',
+    episodeTitle: null,
+    seasonNumber: null,
+    episodeNumber: null,
+    channelNumber: '1',
+    startedAt: new Date(2026, 10, 11, 11, 0).toISOString(),
+    endedAt: new Date(2026, 10, 11, 11, 30).toISOString(),
+    durationSec: 1800,
+    scheduledSec: 1800,
+    thumbPath: null,
+    issues: [],
+    ...overrides,
+  });
+
+  it('lists finished recordings, linked to the show in Channels DVR', () => {
+    render(
+      <RecordingNowSection
+        recordings={[]}
+        recent={[recent()]}
+        linkBases={{ cdvr: 'http://192.168.30.241:8089/' }}
+      />
+    );
+    const row = screen.getByTestId('recent-recording');
+    expect(row.querySelector('a')?.getAttribute('href')).toBe(
+      'http://192.168.30.241:8089/admin/shows/KOCO%205%20News%20at%206pm'
+    );
+    expect(screen.queryByTestId('recording-issue')).toBeNull();
+    expect(screen.queryByTestId('recent-issue-count')).toBeNull();
+  });
+
+  it('badges recordings that went wrong and counts them in the heading', () => {
+    render(
+      <RecordingNowSection
+        recordings={[]}
+        recent={[
+          recent({ issues: ['interrupted'] }),
+          recent({ fileId: '2', issues: ['stoppedEarly', 'startedLate'], durationSec: 180 }),
+          recent({ fileId: '3' }),
+        ]}
+      />
+    );
+    expect(
+      screen.getAllByTestId('recording-issue').map((b) => b.textContent?.split(':')[0])
+    ).toEqual([
+      'dashboard.recording.issueInterrupted',
+      'dashboard.recording.issueStoppedEarly',
+      'dashboard.recording.issueStartedLate',
+    ]);
+    expect(screen.getByTestId('recent-issue-count').textContent).toContain('"count":2');
+    // A short recording says how much of its scheduled time it got
+    expect(screen.getAllByTestId('recent-recording')[1]?.textContent).toContain(
+      'dashboard.recording.recordedOf'
+    );
+  });
+
+  it('shows five and says how many more', () => {
+    render(
+      <RecordingNowSection
+        recordings={[]}
+        recent={Array.from({ length: 7 }, (_, i) => recent({ fileId: String(i) }))}
+      />
+    );
+    expect(screen.getAllByTestId('recent-recording')).toHaveLength(5);
+    expect(screen.getByText(/dashboard\.recording\.moreRecent/).textContent).toContain('"count":2');
+  });
+
+  it('is left out when nothing finished in the last day', () => {
+    render(<RecordingNowSection recordings={[]} recent={[]} />);
+    expect(screen.queryByTestId('recent-recording')).toBeNull();
+  });
+});
+
+describe('Channels DVR version pill', () => {
   const server = (overrides: Partial<Server> = {}): Server => ({
     id: 'cdvr',
     name: 'Basement DVR',
@@ -198,35 +305,79 @@ describe('Channels DVR update pill', () => {
     ...overrides,
   });
 
-  it('lists Channels DVR servers with a newer release, and only those', () => {
-    expect(channelsUpdatesFor([server()])).toEqual([
+  it('lists every Channels DVR server with both versions known', () => {
+    expect(channelsVersionsFor([server()])).toEqual([
       {
         serverId: 'cdvr',
         serverName: 'Basement DVR',
         installed: '2026.11.11.2228',
         latest: '2026.11.12.0900',
+        updateAvailable: true,
       },
     ]);
-    expect(channelsUpdatesFor([server({ latestVersion: '2026.11.11.2228' })])).toEqual([]);
-    expect(channelsUpdatesFor([server({ latestVersion: null })])).toEqual([]);
-    expect(channelsUpdatesFor([server({ type: 'plex' })])).toEqual([]);
+    expect(channelsVersionsFor([server({ latestVersion: '2026.11.11.2228' })])).toEqual([
+      expect.objectContaining({ serverId: 'cdvr', updateAvailable: false }),
+    ]);
+    expect(channelsVersionsFor([server({ latestVersion: null })])).toEqual([]);
+    expect(channelsVersionsFor([server({ version: null })])).toEqual([]);
+    expect(channelsVersionsFor([server({ type: 'plex' })])).toEqual([]);
   });
 
-  it('shows a pill that opens the Channels DVR web UI', () => {
+  it('counts a server ahead of the latest release as up to date', () => {
+    expect(channelsVersionsFor([server({ version: '2026.11.13.0100' })])).toEqual([
+      expect.objectContaining({ updateAvailable: false }),
+    ]);
+  });
+
+  it('shows an update pill that opens the Channels DVR web UI', () => {
     render(
       <RecordingNowSection
         recordings={[]}
-        updates={channelsUpdatesFor([server()])}
+        versions={channelsVersionsFor([server()])}
         linkBases={{ cdvr: 'http://192.168.30.241:8089/' }}
       />
     );
     const pill = screen.getByTestId('dvr-update');
     expect(pill.getAttribute('href')).toBe('http://192.168.30.241:8089');
     expect(pill.getAttribute('title')).toMatch(/2026\.11\.12\.0900/);
+    expect(screen.queryByTestId('dvr-up-to-date')).toBeNull();
   });
 
-  it('shows no pill when nothing is waiting', () => {
-    render(<RecordingNowSection recordings={[]} updates={[]} />);
+  it('shows an up-to-date pill once the latest release is installed', () => {
+    render(
+      <RecordingNowSection
+        recordings={[]}
+        versions={channelsVersionsFor([server({ version: '2026.11.12.0900' })])}
+      />
+    );
+    const pill = screen.getByTestId('dvr-up-to-date');
+    expect(pill.textContent).toContain('dashboard.recording.upToDate');
+    expect(pill.getAttribute('title')).toMatch(/2026\.11\.12\.0900/);
     expect(screen.queryByTestId('dvr-update')).toBeNull();
+  });
+
+  it('names the server on each pill when several are shown', () => {
+    render(
+      <RecordingNowSection
+        recordings={[]}
+        showServer
+        versions={channelsVersionsFor([
+          server(),
+          server({ id: 'cdvr2', name: 'Attic DVR', version: '2026.11.12.0900' }),
+        ])}
+      />
+    );
+    const update = screen.getByTestId('dvr-update').textContent;
+    const current = screen.getByTestId('dvr-up-to-date').textContent;
+    expect(update).toContain('updateOnServer');
+    expect(update).toContain('Basement DVR');
+    expect(current).toContain('upToDateOnServer');
+    expect(current).toContain('Attic DVR');
+  });
+
+  it('shows no pill when no versions are known', () => {
+    render(<RecordingNowSection recordings={[]} versions={[]} />);
+    expect(screen.queryByTestId('dvr-update')).toBeNull();
+    expect(screen.queryByTestId('dvr-up-to-date')).toBeNull();
   });
 });

@@ -129,4 +129,4 @@ Linting is oxlint (type-aware, one pass over every workspace) and formatting is 
 
 ## Questions
 
-Open a GitHub Discussion or ask on [Discord](https://discord.gg/a7n3sFd2Yw).
+Open a GitHub Discussion.

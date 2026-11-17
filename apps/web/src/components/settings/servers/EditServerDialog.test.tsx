@@ -18,6 +18,7 @@ vi.mock('@/hooks/queries', () => ({
     isFetchedAfterMount: true,
   })),
   useUpdateServerLocations: vi.fn(() => ({ mutateAsync, isPending: false })),
+  useDispatcharrUsers: vi.fn(() => ({ data: [] })),
 }));
 vi.mock('@/components/map/LocationPicker', () => ({ LocationPicker: () => <div>map</div> }));
 vi.mock('@/components/settings/shared/CountrySelect', () => ({
@@ -97,6 +98,57 @@ function server(overrides: Partial<Server> = {}): Server {
 }
 
 describe('EditServerDialog', () => {
+  it('saves the Dispatcharr user of a Channels DVR server when Dispatcharr is connected', async () => {
+    const onUpdate = vi.fn();
+    const channels = server({ type: 'channels_dvr', url: 'http://10.10.0.2:8089' });
+    render(
+      <EditServerDialog
+        server={channels}
+        servers={[channels, server({ id: 'd', type: 'dispatcharr' })]}
+        onClose={vi.fn()}
+        onUpdate={onUpdate}
+        isUpdating={false}
+      />
+    );
+    await userEvent.click(screen.getByLabelText('servers.dispatcharrUser.label'));
+    await userEvent.type(
+      await screen.findByPlaceholderText('servers.dispatcharrUser.search'),
+      'moms-house'
+    );
+    await userEvent.click(screen.getByRole('option', { name: 'servers.dispatcharrUser.useTyped' }));
+    await userEvent.click(screen.getByRole('button', { name: 'common:actions.update' }));
+    expect(onUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({ dispatcharrUser: 'moms-house' })
+    );
+  });
+
+  it('has no Dispatcharr user field without a Dispatcharr server', () => {
+    const channels = server({ type: 'channels_dvr', url: 'http://10.10.0.2:8089' });
+    render(
+      <EditServerDialog
+        server={channels}
+        servers={[channels]}
+        onClose={vi.fn()}
+        onUpdate={vi.fn()}
+        isUpdating={false}
+      />
+    );
+    expect(screen.queryByLabelText('servers.dispatcharrUser.label')).not.toBeInTheDocument();
+  });
+
+  it('has no Dispatcharr user field for other server types', () => {
+    render(
+      <EditServerDialog
+        server={server()}
+        servers={[]}
+        onClose={vi.fn()}
+        onUpdate={vi.fn()}
+        isUpdating={false}
+      />
+    );
+    expect(screen.queryByLabelText('servers.dispatcharrUser.label')).not.toBeInTheDocument();
+  });
+
   it('switches Dispatcharr token auth to complete credentials without exposing saved secrets', async () => {
     const onUpdate = vi.fn();
     render(

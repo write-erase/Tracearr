@@ -1,5 +1,217 @@
 # Tracearr Fork Information
 
+## November 17, 2026 — Release v3.1.7-r4
+
+The last release on upstream 3.1.7; the next merges upstream 3.2.0. It carries every entry from
+November 12 to 16 below that came after r3:
+
+- Channels DVR alerts: channel lineup changed, recording missed, recording started and finished
+- Channels DVR "Check connection" on the server's settings
+- Hiding a Channels DVR server's own Dispatcharr streams, with the "Dispatcharr user" picker
+- The dashboard's "Up to date" / "Update available" pill, noticed within a minute of an update
+- Tuner conflicts in Coming Up, and Recently Recorded
+- Dispatcharr's default port (9191) in the server URL example
+- This fork's links, defaults and update check pointing at write-erase
+
+r4 is the first release whose update check reads this fork's releases, so it's told about later
+ones. People on r1–r3 need to update to r4 by hand. The README's pinned example is `3.1.7-r4`.
+
+## November 16, 2026 — Channels DVR tuner conflicts and Recently Recorded
+
+**Tuner conflicts in Coming Up.** A queued recording that, together with the others overlapping
+it, needs more tuners than its source has gets an amber "Tuner conflict: 3 recordings, 2 tuners"
+line (hover names the source and suggests skipping or cancelling one).
+
+- Sources come from `GET /devices` (`parseTunerSources`): each enabled source with a `TunerCount`,
+  and its channels' `GuideNumber`s. Virtual Channels and sources with no count (TV Everywhere)
+  are left out. Read with the tuner total, on the same 5-minute cache (`getTuners`).
+- `findTunerConflicts` sweeps each source's queued jobs (all of `GET /api/v1/jobs`, not just the
+  ten listed, and including one already recording). A job's source is the first source carrying
+  its first channel. Skipped and finished jobs don't count; one ending as another starts doesn't
+  overlap it. Live viewers also take tuners but can't be known ahead, so only recordings count.
+- `ChannelsDvrUpcomingEntry.conflict` (`{ source, tuners, overlapping }` or null).
+
+**Recently Recorded.** A list under Coming Up of recordings that finished in the last 24 hours,
+newest first (five shown, "+N more"), each with when it stopped, length, channel and a link to the
+show's page in the Channels web UI. Badges say how it went: red **Interrupted** (`Corrupted`: the
+stream dropped and Channels reconnected), amber **Stopped early** (`Cancelled`: by hand or a failed
+stream) and **Started late** (`Delayed`). A short one shows "3 min of 30 min" (`Duration` against
+`JobDuration`). The heading counts how many had problems.
+
+- Read from `GET /dvr/files` (`channelsDvr/recent.ts`), at most once a minute per server (it lists
+  the whole library). Recordings have a `JobID`; imports have an `ImportPath` and are left out, as
+  are files still recording (`Completed: false`) and deleted ones. Date-numbered episodes
+  (S2026 E1116, as news comes through) don't show a season and episode.
+- Finished jobs leave `GET /dvr/jobs` straight away, so a recording that failed before writing a
+  file can't be listed; the recording failed alert still covers that.
+- `ChannelsDvrScheduleResponse.recent` (`ChannelsDvrRecentEntry[]`); a server whose file list
+  can't be read just has none.
+
+## November 16, 2026 — Channels DVR "Up to date" pill, and updates noticed within a minute
+
+- The dashboard's Channels DVR version pill now always shows once both versions are known: green
+  "Up to date" (hover: "Running …, the latest release"), or "Update available" as before. With
+  several Channels servers selected each pill names its server. Owners and admins only, as before;
+  no pill while a version is unknown (server not read yet, or server update checks turned off).
+  `channelsUpdatesFor`/`ChannelsDvrUpdate` became `channelsVersionsFor`/`ChannelsDvrVersion`
+  (with `updateAvailable`), and the card's `updates` prop became `versions`.
+- Faster clearing: after installing an update the pill used to wait for the hourly check.
+  `runChannelsUpdateWatch` now runs every minute (first at 45 s) on the leader, but only asks
+  Channels DVR servers whose row has an update waiting (`latestVersion` newer than `version`),
+  one `GET /status` each. When the version it reads differs from the stored one, the server gets
+  a full check (feeds read again, since the track can follow the installed build). A server
+  restarting mid-update answers nothing and is asked again the next minute. Skipped while a run is
+  still going, and off with the server update check setting.
+- Open dashboards now hear about it: whenever a check stores a different version or latest version
+  (any server type, hourly, 6-hourly or the minute watch), it publishes `servers:changed` once per
+  run, so the server list refetches. Before, a new version only showed after a page reload or the
+  list's 5-minute stale time plus a refocus.
+
+## November 15, 2026 — Pick the Channels DVR "Dispatcharr user" from a list
+
+- The Channels DVR "Dispatcharr user" field is now a dropdown of Dispatcharr's XC users, read live
+  from each Dispatcharr server's `GET /api/accounts/users/` (a user counts as XC when
+  `custom_properties.xc_password` is set and not empty). Each shows as "Display Name (login)",
+  grouped by Dispatcharr server when there's more than one. It's searchable: typing narrows the
+  list by sign-in or display name, and a name the list doesn't have can be saved with
+  "Use "…"" (a line under the list says so while the search box is empty). "None" clears it.
+- What's saved is the XC sign-in name (`username`, the name in the M3U link). Tracearr shows a
+  Dispatcharr user by first and last name when set, so a typed XC login didn't match before.
+  `parseUser` now keeps `login` and `xcEnabled`, Dispatcharr sessions carry `user.login`, and the
+  relay hiding matches either the login or the display name, so names saved earlier keep working.
+- The field only shows when a Dispatcharr server is configured in Tracearr; without one there are
+  no Dispatcharr streams to hide. When no Dispatcharr server answers, the list is empty but a
+  name can still be typed and used. A saved name the list doesn't have is shown as-is.
+- `GET /servers/dispatcharr-users` (`writeServers`): XC users of live Dispatcharr servers the user
+  can access, sorted by server then login; a Dispatcharr server that doesn't answer is listed in
+  `unavailable` rather than failing the request.
+
+## November 14, 2026 — `baseline` renamed to `main`
+
+- The release branch is now `main` (renamed from `baseline` on GitHub, which redirects old links).
+  The stale `main` that predated it (last updated Nov 8, fully contained in `baseline`) was
+  deleted first. `dev` is unchanged; releases are still tagged from what's merged into `main`.
+- README: the release-image line and the Docker Compose examples link point at `main`, and the
+  pinned example is `3.1.7-r3`.
+- Corrected the "Fork update check reads this fork's releases" entry below: r3 still checked
+  d4rk's releases (the fix landed after it), so people on r1–r3 update by hand once.
+
+## November 13, 2026 — Hide a Channels DVR server's own Dispatcharr streams
+
+- Asked for by justinglock40, who runs three Channels DVR servers on one Dispatcharr, each signed
+  in with its own XC login. Every channel those DVRs play or record is also a Dispatcharr stream,
+  so each viewer showed twice. With an M3U source the Dispatcharr stream is anonymous and "ignore
+  anonymous streams" already hides it; an XC login carries a name, so it didn't.
+- Channels DVR servers get an optional "Dispatcharr user" (edit server dialog; shown when a
+  Dispatcharr server is connected, or one is already set). New column `servers.dispatcharr_user`
+  (fork migration `0007_channels_dvr_dispatcharr_user`), `dispatcharrUser` on `PATCH /servers/:id`
+  (Channels DVR only; empty clears it).
+- `services/channelsDvrRelays.ts`: in `processServerSessions`, Dispatcharr sessions whose user
+  matches a live Channels DVR server's Dispatcharr user (case-insensitive) and whose user agent is
+  Channels DVR's own (`channels-dvr/…`) are dropped before processing, for both the poller and
+  realtime snapshots. The same user in another player (TiviMate, a browser) still shows. The names
+  are cached for 30 seconds and cleared when a server's Dispatcharr user changes; if they can't be
+  read, nothing is hidden.
+- Hidden streams aren't recorded in history either: they're the same viewing as the Channels DVR
+  session. Channels cards no longer borrow channel art from the hidden Dispatcharr stream; they
+  use Channels' own guide logos.
+
+## November 13, 2026 — Channels DVR "Check connection"
+
+- Edit server dialog, Channels DVR only: a "Check connection" button that reads each endpoint
+  Tracearr uses and shows one row per part, with what it found or why it failed:
+  - Server (`GET /status`): the Channels version
+  - Activity (`GET /dvr`): recordings in progress
+  - Disk space (same `GET /dvr`): free of total
+  - Scheduled recordings (`GET /dvr/jobs`): upcoming, not skipped
+  - Channel lineup (`GET /devices`): channels and sources, Virtual Channels left out
+- One failing part doesn't stop the others. The check reads the saved address, so the button waits
+  until a changed address is saved. Hidden for historical servers.
+- `POST /servers/:id/check` (`writeServers`, Channels DVR only; 400 for other types, 409 for a
+  historical server). The steps live in `channelsDvr/check.ts` (`runChannelsDvrCheck`, which takes
+  a fetcher so it's tested without a server); `ChannelsDvrClient.runCheck()` feeds it.
+- Shared types `ChannelsDvrCheck` / `ChannelsDvrCheckStep`.
+
+## November 13, 2026 — Channels DVR recording started and finished alerts
+
+- New triggers `dvr.recording_started` and `dvr.recording_completed` (server context, servers group,
+  3.1.7), off unless someone makes an automation from them.
+- Started: a job in the activity feed that wasn't at the last check. A failed job recording again
+  is `dvr.recording_resumed`, not a start.
+- Completed: a job recording at the last check that has stopped, within a minute of its airing's
+  end or later (end padding). One that stops earlier was cancelled or is failing, and isn't
+  reported; one newly flagged failed at the same check is the failed alert. Channels drops finished
+  jobs from `/dvr/jobs`, so the alert job keeps each recording's last-seen job (`recordingNow`) to
+  name it.
+- Recordings already running on the first check after a start are learned silently.
+- `dvr_alert` kinds `recording_started` ("Recording started") and `recording_completed`
+  ("Recording finished"), severity low, same `recording.*` variables. The executor maps recording
+  triggers to kinds through one table (`DVR_RECORDING_KINDS`).
+- Built-in template `channels-dvr-recording-activity` with both triggers.
+
+## November 13, 2026 — Channels DVR recording missed alert
+
+- New trigger `dvr.recording_missed` (server context, servers group, 3.1.7): a scheduled recording
+  that should be recording and isn't. Catches what the failed alert can't, such as no free tuner or
+  a source that never answered, when Channels doesn't flag the job as failed.
+- A job counts as missed when its airing started more than 2 minutes ago and hasn't ended, it isn't
+  skipped or flagged failed, it has no file and it isn't in the activity feed. It must look missed
+  on two checks in a row (a minute apart), so a recording that's slow to start, or one scheduled
+  mid-airing, isn't reported. Each job is reported once.
+- Jobs already missed on the first check after a start are learned silently, like failures.
+- `parseDvrJobStatuses` now also reads `startsAt` (from `Time`) and `skipped` (from `Skipped`).
+- `dvr_alert` kind `recording_missed`, severity high: "<title> on channel <n> should be recording on
+  <server> but hasn't started". Same `recording.*` variables as the other recording alerts.
+- Built-in template `channels-dvr-recording-missed`.
+
+## November 13, 2026 — Channels DVR channel lineup alert
+
+- New trigger `dvr.lineup_changed` (server context, servers group, 3.1.7): channels added, removed,
+  renamed (same number, new name) or moved (same name, new number) in a Channels DVR source's
+  lineup. Our own code, not mjitkop's Channels-DVR-Monitor-Channel-Lineups script.
+- `channelsDvr/lineup.ts` parses `GET /devices` per source (keyed by `DeviceID`, named by
+  `FriendlyName`, channels by `GuideNumber`/`GuideName`) and diffs two reads. Virtual Channels
+  (`VIRTUAL`) are left out. A whole source appearing or going away is reported with its channel
+  count, not channel by channel.
+- `jobs/channelsDvrAlerts.ts` reads the lineup on the first check after a start and then every 30
+  minutes. The last lineup is kept in Redis (`CHANNELS_DVR_LINEUP`), so restarts don't cause false
+  alerts and a change made while Tracearr was down is still reported. The first read is stored
+  silently; an empty read is ignored.
+- One `dvr_alert` (kind `lineup_changed`, severity warning) per check per server, one line per
+  source, lists capped at 5 names ("and N more"). Template variables: `lineup.summary|sources|
+  added|removed|renamed|moved`.
+- Built-in template `channels-dvr-lineup-changed`. Like the other templates, nothing runs until
+  someone makes an automation from it.
+
+## November 12, 2026 — Point this fork's links and defaults at write-erase
+
+- User menu "GitHub" opens `write-erase/Tracearr` (was connor's repo). Sponsor still credits connor.
+- Issue and discussion templates (`.github/ISSUE_TEMPLATE`, `DISCUSSION_TEMPLATE/feature-requests.yml`)
+  link to this fork's issues and discussions instead of connor's, so fork bugs don't go to him.
+- `buildInfo.ts` and both Dockerfiles default to `write-erase/Tracearr` and
+  `ghcr.io/write-erase/tracearr` (were d4rk's), and the Dockerfile OCI labels name this fork.
+  Released images already set these through `release-ghcr.yml`; this covers local builds.
+- Removed links to connor's Discord from the user menu (and its unused icon), the new-issue page and
+  CONTRIBUTING.md, so this fork's users don't go there for help. The two Discord links in the
+  original-README part of README.md stay with the rest of connor's original README.
+- Removed `.github/scripts/post-release-to-reddit.mjs`: connor's script for posting his releases,
+  not used by any workflow here.
+- Removed `.github/workflows/fork-ghcr-release.yml`: d4rk's release workflow, which only runs on
+  `d4rk-4lchemy/Tracearr` (this fork releases with `release-ghcr.yml`).
+- Left on purpose: What's New issue links (they number connor's issues in connor's release notes),
+  the upstream version check, credits, and the SSE metrics plugin links (d4rk's plugin).
+
+## November 12, 2026 — Fork update check reads this fork's releases
+
+- `jobs/versionCheckQueue.ts` fetched fork releases from a hard-coded
+  `https://api.github.com/repos/d4rk-4lchemy/Tracearr/releases`, ignoring `APP_FORK_REPO`, so this
+  fork's images only ever saw d4rk's releases (newest `3.1.7-r1`) and never offered an update. The
+  URLs are now built from `getBuildInfo().forkRepo` (`write-erase/Tracearr` in this fork's images).
+- `UpdateDialog.tsx` showed `docker pull` commands for d4rk's `distracearr` images (GHCR and Docker
+  Hub). It now shows one GHCR command for `current.imageRepo` (`APP_IMAGE_REPO`).
+- Images released before this fix (r1–r3) still check d4rk's repo, so they won't be told about
+  later releases; people on them need to update by hand once. Releases after r3 get update notices.
+
 ## November 12, 2026 — Channels DVR update check (stable or pre-release)
 
 Upstream's server update checker (`jobs/serverUpdateChecker.ts`, every 6 h) had no feed for
@@ -24,7 +236,8 @@ Channels DVR (`latestVersionFor` returns null), so its version never got an "upd
 - No Channels-specific automation: the shared "Media server update" template and trigger cover it.
   Settings text and template keywords now name Channels DVR alongside Plex, Jellyfin and Emby.
 - Dashboard: an "Update available" pill on the Channels DVR card (next to tuners and disk), shown
-  only while one is waiting (`channelsUpdatesFor`, from the server list's versions), linking to the
+  only while one is waiting (`channelsUpdatesFor`, from the server list's versions; since Nov 16 it
+  also shows "Up to date", see above), linking to the
   server's web UI where it's installed; owners and admins only, since that UI usually has no login of its own.
 
 ## November 12, 2026 — Skip a series-pass airing from Coming Up

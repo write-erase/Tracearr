@@ -1,12 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import {
   countTunersInUse,
+  findTunerConflicts,
   parseDisk,
   parseDvrJobStatuses,
   parseJobs,
+  parseTunerSources,
   parseTunerTotal,
   tidyDvrError,
   upcomingJobs,
+  type ChannelsDvrJob,
+  type TunerSource,
 } from '../channelsDvr/jobs.js';
 
 // From GET /api/v1/jobs
@@ -152,7 +156,9 @@ describe('parseDvrJobStatuses', () => {
       failed: true,
       error: 'could not start stream on channels=[2]: connect: connection refused',
       fileId: '1346',
+      startsAt: 1794423600 * 1000,
       endsAt: (1794423600 + 3600) * 1000,
+      skipped: false,
       ruleId: null,
     });
   });
@@ -163,7 +169,9 @@ describe('parseDvrJobStatuses', () => {
       { ID: '1794424758-ch2', Name: 'Beyond the Gates', RuleID: '' },
     ]);
     expect(pass?.ruleId).toBe('1');
+    expect(pass?.skipped).toBe(true);
     expect(oneTime?.ruleId).toBeNull();
+    expect(oneTime?.skipped).toBe(false);
   });
 });
 
@@ -176,5 +184,164 @@ describe('tidyDvrError', () => {
     ).toBe("couldn't start the stream (connection refused)");
     expect(tidyDvrError('disk full')).toBe('disk full');
     expect(tidyDvrError(null)).toBeNull();
+  });
+});
+
+describe('parseTunerSources', () => {
+  // Shaped like a real GET /devices: an M3U source with a tuner limit, and Virtual Channels
+  const DEVICES = [
+    {
+      DeviceID: 'M3U-DispatcharrMPEGTS',
+      FriendlyName: 'Dispatcharr MPEG-TS',
+      Provider: 'm3u',
+      TunerCount: 5,
+      Disabled: false,
+      Channels: [
+        { GuideNumber: '2', GuideName: 'KWTV' },
+        { GuideNumber: '23', GuideName: 'Heroes' },
+      ],
+    },
+    {
+      DeviceID: 'VIRTUAL',
+      FriendlyName: 'Virtual Channels',
+      Provider: 'virtual',
+      Channels: [{ GuideNumber: '6000', GuideName: 'Cartoons' }],
+    },
+  ];
+
+  it('reads each source with a tuner count and its channels', () => {
+    expect(parseTunerSources(DEVICES)).toEqual([
+      {
+        id: 'M3U-DispatcharrMPEGTS',
+        name: 'Dispatcharr MPEG-TS',
+        tuners: 5,
+        channels: new Set(['2', '23']),
+      },
+    ]);
+  });
+
+  it('leaves out disabled sources and sources with no tuner count', () => {
+    expect(
+      parseTunerSources([
+        { DeviceID: 'HDHR', TunerCount: 4, Disabled: true, Channels: [] },
+        { DeviceID: 'TVE-Spectrum', FriendlyName: 'Spectrum', Channels: [{ GuideNumber: '100' }] },
+      ])
+    ).toEqual([]);
+    expect(parseTunerSources(null)).toEqual([]);
+  });
+
+  it('reads numeric guide numbers', () => {
+    expect(
+      parseTunerSources([{ DeviceID: 'HDHR', TunerCount: 2, Channels: [{ GuideNumber: 4.1 }] }])[0]
+        ?.channels
+    ).toEqual(new Set(['4.1']));
+  });
+});
+
+describe('findTunerConflicts', () => {
+  const NOW = 1_800_000_000;
+  const HOUR = 3600;
+  const job = (
+    id: string,
+    startH: number,
+    endH: number,
+    channel: string,
+    extra: Partial<ChannelsDvrJob> = {}
+  ): ChannelsDvrJob => ({
+    id,
+    title: id,
+    showId: null,
+    episodeTitle: null,
+    seasonNumber: null,
+    episodeNumber: null,
+    startSec: NOW + startH * HOUR,
+    endSec: NOW + endH * HOUR,
+    channels: [channel],
+    skipped: false,
+    failed: false,
+    image: null,
+    ...extra,
+  });
+  const hdhr = (tuners: number): TunerSource => ({
+    id: 'HDHR',
+    name: 'HDHomeRun',
+    tuners,
+    channels: new Set(['2', '4', '5', '9']),
+  });
+
+  it('flags every recording overlapping when there are more than tuners', () => {
+    const conflicts = findTunerConflicts(
+      [job('a', 1, 3, '2'), job('b', 1.5, 2.5, '4'), job('c', 2, 4, '5')],
+      [hdhr(2)],
+      NOW
+    );
+    expect([...conflicts.keys()].sort()).toEqual(['a', 'b', 'c']);
+    expect(conflicts.get('a')).toEqual({ source: 'HDHomeRun', tuners: 2, overlapping: 3 });
+  });
+
+  it('leaves alone recordings that fit, including back-to-back ones', () => {
+    const conflicts = findTunerConflicts(
+      [job('a', 1, 2, '2'), job('b', 2, 3, '4'), job('c', 1, 3, '5')],
+      [hdhr(2)],
+      NOW
+    );
+    expect(conflicts.size).toBe(0);
+  });
+
+  it('only flags the recordings in the overlap, not the rest of the day', () => {
+    const conflicts = findTunerConflicts(
+      [job('a', 1, 2, '2'), job('b', 1, 2, '4'), job('c', 1, 2, '5'), job('d', 5, 6, '9')],
+      [hdhr(2)],
+      NOW
+    );
+    expect([...conflicts.keys()].sort()).toEqual(['a', 'b', 'c']);
+  });
+
+  it('counts each source on its own tuners', () => {
+    const m3u: TunerSource = {
+      id: 'M3U',
+      name: 'Dispatcharr',
+      tuners: 5,
+      channels: new Set(['100']),
+    };
+    const conflicts = findTunerConflicts(
+      [job('a', 1, 2, '2'), job('b', 1, 2, '4'), job('c', 1, 2, '100')],
+      [hdhr(2), m3u],
+      NOW
+    );
+    expect(conflicts.size).toBe(0);
+  });
+
+  it('counts a recording already running against later ones', () => {
+    const conflicts = findTunerConflicts(
+      [job('running', -1, 2, '2'), job('next', 1, 3, '4')],
+      [hdhr(1)],
+      NOW
+    );
+    expect([...conflicts.keys()].sort()).toEqual(['next', 'running']);
+  });
+
+  it('ignores skipped and finished recordings, and channels on no counted source', () => {
+    const conflicts = findTunerConflicts(
+      [
+        job('a', 1, 2, '2'),
+        job('skipped', 1, 2, '4', { skipped: true }),
+        job('over', -3, -1, '5'),
+        job('tve', 1, 2, '700'),
+      ],
+      [hdhr(1)],
+      NOW
+    );
+    expect(conflicts.size).toBe(0);
+  });
+
+  it('uses the first source carrying the channel', () => {
+    const second: TunerSource = { id: 'B', name: 'Second', tuners: 1, channels: new Set(['2']) };
+    const conflicts = findTunerConflicts(
+      [job('a', 1, 2, '2'), job('b', 1, 2, '2')],
+      [hdhr(2), second],
+      NOW
+    );
+    expect(conflicts.size).toBe(0);
   });
 });

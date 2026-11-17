@@ -164,10 +164,8 @@ export function UpdateDialog({ open, onOpenChange, version }: UpdateDialogProps)
             <div className="text-muted-foreground text-xs font-medium tracking-wide uppercase">
               {t('settings:update.updateCommand')}
             </div>
-            {[
-              { label: 'GHCR', image: 'ghcr.io/d4rk-4lchemy/distracearr' },
-              { label: 'Docker Hub', image: 'darkalchemy2137/distracearr' },
-            ].map(({ label, image }) => (
+            {/* The image this build came from (APP_IMAGE_REPO); it was hard-coded to d4rk's images. */}
+            {[{ label: 'GHCR', image: current.imageRepo }].map(({ label, image }) => (
               <div key={label} className="space-y-1">
                 <div className="text-muted-foreground text-xs">{label}</div>
                 <div className="bg-muted flex items-center gap-2 rounded-md p-3 font-mono text-sm">

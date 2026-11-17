@@ -120,6 +120,10 @@ export const servers = pgTable(
       .notNull()
       .default('auto')
       .$type<'auto' | 'stable' | 'prerelease'>(),
+    // Channels DVR only: the Dispatcharr user this DVR signs in as (an XC login). Dispatcharr
+    // streams from that user with a channels-dvr/ user agent are this DVR fetching a channel,
+    // already shown as the Channels DVR session, so they're hidden.
+    dispatcharrUser: text('dispatcharr_user'),
     // Bumped on every save of this server's server_locations; the sync job records the version it applied
     locationVersion: integer('location_version').notNull().default(1),
     locationSyncedVersion: integer('location_synced_version').notNull().default(0),

@@ -1,10 +1,13 @@
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
+  AlertTriangle,
   CalendarClock,
   CircleArrowUp,
+  CircleCheck,
   CircleDot,
   ExternalLink,
+  History,
   HardDrive,
   SkipForward,
   Square,
@@ -13,7 +16,9 @@ import {
 } from 'lucide-react';
 import type {
   ChannelsDvrDiskUsage,
+  ChannelsDvrRecentEntry,
   ChannelsDvrRecordingEntry,
+  ChannelsDvrRecordingIssue,
   ChannelsDvrTunerUsage,
   ChannelsDvrUpcomingEntry,
   Server,
@@ -46,8 +51,10 @@ interface RecordingNowSectionProps {
   tuners?: ChannelsDvrTunerUsage[];
   /** Recording disk space on each Channels DVR server */
   disks?: ChannelsDvrDiskUsage[];
-  /** Channels DVR servers with a newer release on the track they follow */
-  updates?: ChannelsDvrUpdate[];
+  /** Recordings finished in the last day, newest first */
+  recent?: ChannelsDvrRecentEntry[];
+  /** Each Channels DVR server's installed version against the newest on the track it follows */
+  versions?: ChannelsDvrVersion[];
   /** Server id -> the address to open the Channels DVR web UI at */
   linkBases?: Record<string, string>;
   /** Show which server each recording is on */
@@ -217,6 +224,7 @@ function RecordingCard({
 
 /** How many Coming Up rows to show before "+N more". */
 const UPCOMING_SHOWN = 5;
+const RECENT_SHOWN = 5;
 
 function isSameDay(a: Date, b: Date): boolean {
   return (
@@ -232,6 +240,34 @@ function StartTime({ iso, now }: { iso: string; now: number }) {
   const time = formatClock(iso);
   if (isSameDay(new Date(iso), new Date(now))) return <>{time}</>;
   return <>{t('dashboard.recording.tomorrow', { defaultValue: 'Tomorrow {{time}}', time })}</>;
+}
+
+/** "6:10 PM" today, "Yesterday 6:10 PM" otherwise (the list only looks a day back). */
+function EndTime({ iso, now }: { iso: string; now: number }) {
+  const { t } = useTranslation('pages');
+  const time = formatClock(iso);
+  if (isSameDay(new Date(iso), new Date(now))) return <>{time}</>;
+  return <>{t('dashboard.recording.yesterday', { defaultValue: 'Yesterday {{time}}', time })}</>;
+}
+
+/** "45 min", "1 h 5 min"; under a minute reads as "1 min". */
+function useFormatMinutes(): (seconds: number) => string {
+  const { t } = useTranslation('pages');
+  return (seconds) => {
+    const minutes = Math.max(1, Math.round(seconds / 60));
+    const hours = Math.floor(minutes / 60);
+    const rest = minutes % 60;
+    if (hours === 0) {
+      return t('dashboard.recording.minutes', { defaultValue: '{{count}} min', count: minutes });
+    }
+    return rest === 0
+      ? t('dashboard.recording.hours', { defaultValue: '{{count}} h', count: hours })
+      : t('dashboard.recording.hoursMinutes', {
+          defaultValue: '{{hours}} h {{minutes}} min',
+          hours,
+          minutes: rest,
+        });
+  };
 }
 
 /** "3 of 5 tuners in use", amber when every tuner is busy. */
@@ -271,12 +307,14 @@ function TunerPill({ usage, showServer }: { usage: ChannelsDvrTunerUsage; showSe
  * "186.6 GB free", amber when space is low. Binary units, as Channels shows them. Low means
  * below the highest enabled disk alert's percentage for this server, or 10% with none.
  */
-/** A Channels DVR server with a newer release waiting. */
-export interface ChannelsDvrUpdate {
+/** A Channels DVR server's installed version, and the newest release on the track it follows. */
+export interface ChannelsDvrVersion {
   serverId: string;
   serverName: string;
   installed: string;
   latest: string;
+  /** The latest release is newer than the installed one */
+  updateAvailable: boolean;
 }
 
 /** Both versions are three or four dotted numbers; a missing part reads as zero. */
@@ -292,70 +330,91 @@ function isNewerVersion(latest: string, installed: string): boolean {
 }
 
 /**
- * The Channels DVR servers the update checker found a newer release for. Each server's
+ * Every Channels DVR server the update checker has read both versions for. Each server's
  * `latestVersion` is already the newest on the track it follows (stable or pre-release).
+ * A server missing either version (unreachable so far, or update checks turned off) is left out.
  */
-export function channelsUpdatesFor(servers: Server[]): ChannelsDvrUpdate[] {
+export function channelsVersionsFor(servers: Server[]): ChannelsDvrVersion[] {
   return servers.flatMap((server) =>
-    server.type === 'channels_dvr' &&
-    server.version &&
-    server.latestVersion &&
-    isNewerVersion(server.latestVersion, server.version)
+    server.type === 'channels_dvr' && server.version && server.latestVersion
       ? [
           {
             serverId: server.id,
             serverName: server.name,
             installed: server.version,
             latest: server.latestVersion,
+            updateAvailable: isNewerVersion(server.latestVersion, server.version),
           },
         ]
       : []
   );
 }
 
-/** Shown only while an update is waiting; opens the Channels DVR web UI, where it's installed. */
-function UpdatePill({
-  update,
+/**
+ * "Update available" while a newer release is waiting, otherwise a green "Up to date". Either
+ * opens the Channels DVR web UI, where updates are installed.
+ */
+function VersionPill({
+  version,
   showServer,
   linkBase,
 }: {
-  update: ChannelsDvrUpdate;
+  version: ChannelsDvrVersion;
   showServer: boolean;
   linkBase?: string;
 }) {
   const { t } = useTranslation('pages');
-  const label = showServer
-    ? t('dashboard.recording.updateOnServer', {
-        defaultValue: '{{server}}: update available',
-        server: update.serverName,
+  const { updateAvailable } = version;
+  const label = updateAvailable
+    ? showServer
+      ? t('dashboard.recording.updateOnServer', {
+          defaultValue: '{{server}}: update available',
+          server: version.serverName,
+        })
+      : t('dashboard.recording.update', { defaultValue: 'Update available' })
+    : showServer
+      ? t('dashboard.recording.upToDateOnServer', {
+          defaultValue: '{{server}}: up to date',
+          server: version.serverName,
+        })
+      : t('dashboard.recording.upToDate', { defaultValue: 'Up to date' });
+  const hint = updateAvailable
+    ? t('dashboard.recording.updateHint', {
+        defaultValue: '{{latest}} is available (running {{installed}})',
+        latest: version.latest,
+        installed: version.installed,
       })
-    : t('dashboard.recording.update', { defaultValue: 'Update available' });
-  const hint = t('dashboard.recording.updateHint', {
-    defaultValue: '{{latest}} is available (running {{installed}})',
-    latest: update.latest,
-    installed: update.installed,
-  });
-  const className =
-    'bg-primary/15 text-primary inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium';
+    : t('dashboard.recording.upToDateHint', {
+        defaultValue: 'Running {{installed}}, the latest release',
+        installed: version.installed,
+      });
+  const className = cn(
+    'inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium',
+    updateAvailable
+      ? 'bg-primary/15 text-primary'
+      : 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400'
+  );
+  const Icon = updateAvailable ? CircleArrowUp : CircleCheck;
   const content = (
     <>
-      <CircleArrowUp className="h-3 w-3" aria-hidden="true" />
+      <Icon className="h-3 w-3" aria-hidden="true" />
       {label}
     </>
   );
+  const testId = updateAvailable ? 'dvr-update' : 'dvr-up-to-date';
   return linkBase ? (
     <a
       href={linkBase.replace(/\/+$/, '')}
       target="_blank"
       rel="noopener noreferrer"
-      className={cn(className, 'hover:bg-primary/25')}
+      className={cn(className, updateAvailable ? 'hover:bg-primary/25' : 'hover:bg-emerald-500/25')}
       title={hint}
-      data-testid="dvr-update"
+      data-testid={testId}
     >
       {content}
     </a>
   ) : (
-    <span className={className} title={hint} data-testid="dvr-update">
+    <span className={className} title={hint} data-testid={testId}>
       {content}
     </span>
   );
@@ -598,6 +657,26 @@ function UpcomingRow({
             .filter(Boolean)
             .join(' · ')}
         </p>
+        {job.conflict && (
+          <p
+            className="flex items-center gap-1 truncate text-xs font-medium text-amber-600 dark:text-amber-400"
+            title={t('dashboard.recording.conflictHint', {
+              defaultValue:
+                '{{overlapping}} recordings overlap on {{source}}, which has {{count}} tuners. One of them may not record, so skip or cancel one to make room.',
+              overlapping: job.conflict.overlapping,
+              source: job.conflict.source,
+              count: job.conflict.tuners,
+            })}
+            data-testid="tuner-conflict"
+          >
+            <AlertTriangle className="h-3 w-3 shrink-0" aria-hidden="true" />
+            {t('dashboard.recording.conflict', {
+              defaultValue: 'Tuner conflict: {{overlapping}} recordings, {{count}} tuners',
+              overlapping: job.conflict.overlapping,
+              count: job.conflict.tuners,
+            })}
+          </p>
+        )}
       </div>
       {/* A pass airing is skipped (the pass keeps going); a one-time recording is cancelled. */}
       {job.fromPass || job.skipped ? (
@@ -609,9 +688,149 @@ function UpcomingRow({
   );
 }
 
+/** How a finished recording went, as a small badge: red when it has a gap, amber otherwise. */
+function IssueBadge({ issue }: { issue: ChannelsDvrRecordingIssue }) {
+  const { t } = useTranslation('pages');
+  const label =
+    issue === 'interrupted'
+      ? t('dashboard.recording.issueInterrupted', { defaultValue: 'Interrupted' })
+      : issue === 'stoppedEarly'
+        ? t('dashboard.recording.issueStoppedEarly', { defaultValue: 'Stopped early' })
+        : t('dashboard.recording.issueStartedLate', { defaultValue: 'Started late' });
+  const hint =
+    issue === 'interrupted'
+      ? t('dashboard.recording.issueInterruptedHint', {
+          defaultValue: 'The stream dropped partway through, so part of the recording is missing.',
+        })
+      : issue === 'stoppedEarly'
+        ? t('dashboard.recording.issueStoppedEarlyHint', {
+            defaultValue:
+              'The recording stopped before the show ended, either by hand or because the stream failed.',
+          })
+        : t('dashboard.recording.issueStartedLateHint', {
+            defaultValue:
+              'The recording started after the show began, so the beginning is missing.',
+          });
+  return (
+    <span
+      className={cn(
+        'shrink-0 rounded-full px-2 py-0.5 text-xs font-medium',
+        issue === 'interrupted'
+          ? 'bg-red-500/15 text-red-600 dark:text-red-400'
+          : 'bg-amber-500/15 text-amber-600 dark:text-amber-400'
+      )}
+      title={hint}
+      data-testid="recording-issue"
+    >
+      {label}
+    </span>
+  );
+}
+
+/** A recording that finished in the last day: when, what, how long, and how it went. */
+function RecentRow({
+  file,
+  now,
+  showServer,
+  linkBase,
+}: {
+  file: ChannelsDvrRecentEntry;
+  now: number;
+  showServer: boolean;
+  linkBase?: string;
+}) {
+  const { t } = useTranslation('pages');
+  const formatMinutes = useFormatMinutes();
+  const episode =
+    file.seasonNumber !== null && file.episodeNumber !== null
+      ? t('dashboard.recording.episode', {
+          defaultValue: 'S{{season}} E{{episode}}',
+          season: file.seasonNumber,
+          episode: file.episodeNumber,
+        })
+      : null;
+  const channel = file.channelNumber
+    ? t('dashboard.recording.channel', {
+        defaultValue: 'Channel {{number}}',
+        number: file.channelNumber,
+      })
+    : null;
+  // A short recording says how much of the scheduled time it got.
+  const short =
+    file.scheduledSec !== null &&
+    file.scheduledSec > 0 &&
+    file.durationSec < file.scheduledSec * 0.9;
+  const length = short
+    ? t('dashboard.recording.recordedOf', {
+        defaultValue: '{{recorded}} of {{scheduled}}',
+        recorded: formatMinutes(file.durationSec),
+        scheduled: formatMinutes(file.scheduledSec ?? 0),
+      })
+    : formatMinutes(file.durationSec);
+  const showUrl =
+    linkBase && file.showId
+      ? `${linkBase.replace(/\/+$/, '')}/admin/shows/${encodeURIComponent(file.showId)}`
+      : null;
+
+  return (
+    <li className="flex items-center gap-3 px-3 py-2" data-testid="recent-recording">
+      <span className="text-muted-foreground w-28 shrink-0 text-xs font-medium tabular-nums">
+        <EndTime iso={file.endedAt} now={now} />
+      </span>
+      <div className="bg-muted flex h-8 w-12 shrink-0 items-center justify-center overflow-hidden rounded">
+        {file.thumbPath ? (
+          <img
+            src={imageProxyUrl(file.serverId, file.thumbPath, 96, 64)}
+            alt=""
+            className="h-full w-full object-contain"
+            loading="lazy"
+          />
+        ) : (
+          <History className="text-muted-foreground h-4 w-4" aria-hidden="true" />
+        )}
+      </div>
+      <div className="min-w-0 flex-1">
+        {showUrl ? (
+          <a
+            href={showUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="group/link flex min-w-0 items-center gap-1 text-sm font-medium hover:underline"
+            title={t('dashboard.recording.openShowInChannels', {
+              defaultValue: 'Open the show in Channels DVR',
+            })}
+          >
+            <span className="truncate">{file.title}</span>
+            <ExternalLink
+              className="text-muted-foreground h-3 w-3 shrink-0 opacity-0 transition-opacity group-hover/link:opacity-100"
+              aria-hidden="true"
+            />
+          </a>
+        ) : (
+          <p className="truncate text-sm font-medium" title={file.title}>
+            {file.title}
+          </p>
+        )}
+        <p className="text-muted-foreground truncate text-xs">
+          {[episode, file.episodeTitle, channel, length, showServer ? file.serverName : null]
+            .filter(Boolean)
+            .join(' · ')}
+        </p>
+      </div>
+      {file.issues.length > 0 && (
+        <div className="flex shrink-0 flex-wrap justify-end gap-1">
+          {file.issues.map((issue) => (
+            <IssueBadge key={issue} issue={issue} />
+          ))}
+        </div>
+      )}
+    </li>
+  );
+}
+
 /**
- * The Channels DVR panel: recordings in progress, the next day's queued recordings, and
- * how many tuners are busy. Kept apart from Now Playing on purpose: recordings are not
+ * The Channels DVR panel: recordings in progress, the next day's queued recordings, the last
+ * day's finished ones, and how many tuners are busy. Kept apart from Now Playing on purpose: recordings are not
  * viewers, so they never count as streams, plays or users. Shown whenever a Channels DVR
  * server is selected, idle or not; `recordings` is undefined while loading or when none is.
  */
@@ -621,7 +840,8 @@ export function RecordingNowSection({
   upcoming = [],
   tuners = [],
   disks = [],
-  updates = [],
+  recent = [],
+  versions = [],
   linkBases = {},
   showServer = false,
 }: RecordingNowSectionProps) {
@@ -631,6 +851,9 @@ export function RecordingNowSection({
 
   const shown = upcoming.slice(0, UPCOMING_SHOWN);
   const more = upcoming.length - shown.length;
+  const recentShown = recent.slice(0, RECENT_SHOWN);
+  const recentMore = recent.length - recentShown.length;
+  const recentIssues = recent.filter((file) => file.issues.length > 0).length;
 
   return (
     <section>
@@ -645,12 +868,12 @@ export function RecordingNowSection({
             {disks.map((usage) => (
               <DiskPill key={usage.serverId} usage={usage} showServer={showServer} />
             ))}
-            {updates.map((update) => (
-              <UpdatePill
-                key={update.serverId}
-                update={update}
+            {versions.map((version) => (
+              <VersionPill
+                key={version.serverId}
+                version={version}
                 showServer={showServer}
-                linkBase={linkBases[update.serverId]}
+                linkBase={linkBases[version.serverId]}
               />
             ))}
           </CardTitle>
@@ -715,6 +938,47 @@ export function RecordingNowSection({
                   {t('dashboard.recording.moreComingUp', {
                     defaultValue: '+{{count}} more in the next 24 hours',
                     count: more,
+                  })}
+                </p>
+              )}
+            </div>
+          )}
+          {recentShown.length > 0 && (
+            <div className="mt-5">
+              <h4 className="mb-2 flex items-center gap-2 text-sm font-semibold">
+                <History className="text-muted-foreground h-4 w-4" aria-hidden="true" />
+                {t('dashboard.recording.recent', { defaultValue: 'Recently Recorded' })}
+                <span className="text-muted-foreground text-xs font-normal">
+                  {t('dashboard.recording.recentCaption', { defaultValue: 'last 24 hours' })}
+                </span>
+                {recentIssues > 0 && (
+                  <span
+                    className="rounded-full bg-amber-500/15 px-2 py-0.5 text-xs font-medium text-amber-600 dark:text-amber-400"
+                    data-testid="recent-issue-count"
+                  >
+                    {t('dashboard.recording.recentIssues', {
+                      defaultValue: '{{count}} had problems',
+                      count: recentIssues,
+                    })}
+                  </span>
+                )}
+              </h4>
+              <ul className="divide-y rounded-xl border">
+                {recentShown.map((file) => (
+                  <RecentRow
+                    key={`${file.serverId}:${file.fileId}`}
+                    file={file}
+                    now={now}
+                    showServer={showServer}
+                    linkBase={linkBases[file.serverId]}
+                  />
+                ))}
+              </ul>
+              {recentMore > 0 && (
+                <p className="text-muted-foreground mt-2 text-xs">
+                  {t('dashboard.recording.moreRecent', {
+                    defaultValue: '+{{count}} more in the last 24 hours',
+                    count: recentMore,
                   })}
                 </p>
               )}

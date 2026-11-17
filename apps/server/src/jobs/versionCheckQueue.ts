@@ -48,8 +48,11 @@ const UPSTREAM_API_LATEST_URL =
 const UPSTREAM_API_ALL_RELEASES_URL =
   'https://api.github.com/repos/connorgallopo/Tracearr/releases';
 const UPSTREAM_RELEASES_URL = 'https://github.com/connorgallopo/Tracearr/releases';
-const FORK_API_ALL_RELEASES_URL = 'https://api.github.com/repos/d4rk-4lchemy/Tracearr/releases';
-const FORK_RELEASES_URL = 'https://github.com/d4rk-4lchemy/Tracearr/releases';
+// The fork's releases live in whichever repo the image was built from (APP_FORK_REPO):
+// write-erase/Tracearr for this fork's images. It was hard-coded to d4rk-4lchemy/Tracearr,
+// so this fork's users were only ever told about d4rk's releases.
+const forkApiReleasesUrl = () => `https://api.github.com/repos/${getBuildInfo().forkRepo}/releases`;
+const forkReleasesUrl = () => `https://github.com/${getBuildInfo().forkRepo}/releases`;
 
 // Job types
 interface VersionCheckJobData {
@@ -373,7 +376,7 @@ function toForkLatestData(release: GitHubRelease): LatestForkReleaseData {
   return {
     ...toLatestData(release),
     version: parsed.forkVersion,
-    releaseUrl: release.html_url || `${FORK_RELEASES_URL}/tag/${release.tag_name}`,
+    releaseUrl: release.html_url || `${forkReleasesUrl()}/tag/${release.tag_name}`,
     // A -rN suffix is the fork revision, not a prerelease channel. Fork
     // prerelease channels, if introduced later, must use an explicit tag
     // convention instead of inheriting GitHub's prerelease flag here.
@@ -489,7 +492,7 @@ export async function processVersionCheck(job: Job<VersionCheckJobData>): Promis
       upstreamRelease = release;
     }
 
-    const forkReleases = await fetchGitHubReleases(`${FORK_API_ALL_RELEASES_URL}?per_page=100`);
+    const forkReleases = await fetchGitHubReleases(`${forkApiReleasesUrl()}?per_page=100`);
     if (!forkReleases || !Array.isArray(forkReleases)) {
       console.log('No fork releases found or invalid response');
       return;

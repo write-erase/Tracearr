@@ -50,6 +50,13 @@
       "when": 1794510000000,
       "tag": "0006_server_update_track",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1794600000000,
+      "tag": "0007_channels_dvr_dispatcharr_user",
+      "breakpoints": true
     }
   ]
 }

@@ -7,6 +7,7 @@ import type {
   ViolationWithDetails,
 } from '@tracearr/shared';
 import type { MediaQuality } from '../automations/types.js';
+import type { LineupSourceChange } from '../mediaServer/channelsDvr/lineup.js';
 
 /** The SSE fallback's down timer holds only the name and id, so the type is optional. */
 export interface ServerEventPayload {
@@ -108,7 +109,16 @@ export interface DvrAlertPayload {
   serverId: string;
   serverName: string;
   serverType: string;
-  kind: 'recording_failed' | 'recording_resumed' | 'recording_glitch' | 'disk_low' | 'disk_ok';
+  kind:
+    | 'recording_failed'
+    | 'recording_resumed'
+    | 'recording_glitch'
+    | 'recording_missed'
+    | 'recording_started'
+    | 'recording_completed'
+    | 'disk_low'
+    | 'disk_ok'
+    | 'lineup_changed';
   /** Recording alerts */
   jobId: string | null;
   recordingTitle: string | null;
@@ -120,6 +130,8 @@ export interface DvrAlertPayload {
   freePercent: number | null;
   /** The alert threshold that crossed, in percent */
   thresholdPercent: number | null;
+  /** Lineup alerts: what changed, per source */
+  lineup: LineupSourceChange[] | null;
 }
 
 export type NotificationEvent =

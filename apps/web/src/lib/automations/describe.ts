@@ -120,8 +120,12 @@ export const TRIGGER_KEYS = {
   'dvr.recording_failed': 'dvrRecordingFailed',
   'dvr.recording_resumed': 'dvrRecordingResumed',
   'dvr.recording_glitch': 'dvrRecordingGlitch',
+  'dvr.recording_missed': 'dvrRecordingMissed',
+  'dvr.recording_started': 'dvrRecordingStarted',
+  'dvr.recording_completed': 'dvrRecordingCompleted',
   'dvr.disk_low': 'dvrDiskLow',
   'dvr.disk_ok': 'dvrDiskOk',
+  'dvr.lineup_changed': 'dvrLineupChanged',
 } as const satisfies Record<TriggerType, string>;
 
 /** Fields whose truth reads as a state, not as a comparison against `true`. */

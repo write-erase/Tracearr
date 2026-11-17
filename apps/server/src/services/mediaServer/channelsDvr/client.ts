@@ -33,27 +33,48 @@ import {
   parseDisk,
   parseDvrJobStatuses,
   parseJobs,
+  findTunerConflicts,
+  parseTunerSources,
   parseTunerTotal,
   upcomingJobs,
   type ChannelsDvrJob,
   type ChannelsDvrJobStatus,
+  type TunerConflict,
+  type TunerSource,
 } from './jobs.js';
 import type { ChannelsDvrActivityEntry } from './parser.js';
+import { parseLineups, type LineupSource } from './lineup.js';
+import { recentRecordings, type RecentRecording, type RecentRecordingIssue } from './recent.js';
+import { runChannelsDvrCheck } from './check.js';
+import type { ChannelsDvrCheck } from '@tracearr/shared';
 
 /** The job list changes rarely; the dashboard asks every 10 s. Shared across client instances. */
 const JOBS_CACHE_TTL_MS = 15 * 1000;
 /** Tuner counts only change when a source is reconfigured. */
 const TUNERS_CACHE_TTL_MS = 5 * 60 * 1000;
 const jobsCache = new Map<string, { data: ChannelsDvrJob[]; expiresAt: number }>();
-const tunersCache = new Map<string, { total: number | null; expiresAt: number }>();
+const tunersCache = new Map<
+  string,
+  { total: number | null; sources: TunerSource[]; expiresAt: number }
+>();
+/**
+ * `GET /dvr/files` lists the whole DVR library, imports included, so the dashboard's Recently
+ * Recorded list reads it at most once a minute per server.
+ */
+const RECENT_CACHE_TTL_MS = 60 * 1000;
+const recentCache = new Map<string, { data: RecentRecording[]; expiresAt: number }>();
 /** Tests share a fake clock and a base URL; let them start each case with empty caches. */
 export function clearChannelsDvrScheduleCaches(): void {
   jobsCache.clear();
   tunersCache.clear();
+  recentCache.clear();
 }
 /** How far ahead the dashboard's Coming Up list looks, and how many it shows. */
 const UPCOMING_WINDOW_SEC = 24 * 60 * 60;
 const UPCOMING_LIMIT = 10;
+/** How far back Recently Recorded looks, and the most it sends. */
+const RECENT_WINDOW_SEC = 24 * 60 * 60;
+const RECENT_LIMIT = 25;
 
 /**
  * Channels DVR client (sessions and library).
@@ -121,6 +142,28 @@ export interface ChannelsDvrUpcomingRecording {
   skipped: boolean;
   /** Scheduled by a series pass, so it can be skipped; otherwise it can only be cancelled */
   fromPass: boolean;
+  /** Overlaps more recordings than its source has tuners; null when it fits */
+  conflict: TunerConflict | null;
+}
+
+/** A recording that finished in the last day. */
+export interface ChannelsDvrRecentRecording {
+  fileId: string;
+  jobId: string;
+  showId: string | null;
+  title: string;
+  episodeTitle: string | null;
+  seasonNumber: number | null;
+  episodeNumber: number | null;
+  channelNumber: string | null;
+  /** ISO times */
+  startedAt: string;
+  endedAt: string;
+  durationSec: number;
+  /** The length the job was scheduled for, padding included; null when unknown */
+  scheduledSec: number | null;
+  thumbPath: string | null;
+  issues: RecentRecordingIssue[];
 }
 
 /** What the alert monitor reads each minute. */
@@ -141,6 +184,8 @@ export interface ChannelsDvrSchedule {
   tuners: { inUse: number; total: number } | null;
   /** Recording disk space; null when Channels doesn't report it */
   disk: { freeBytes: number; totalBytes: number } | null;
+  /** Recordings finished in the last day, newest first; empty when the file list is unavailable */
+  recent: ChannelsDvrRecentRecording[];
 }
 
 export class ChannelsDvrClient implements IMediaServerClient {
@@ -720,18 +765,21 @@ export class ChannelsDvrClient implements IMediaServerClient {
     return jobs;
   }
 
-  /** Total tuners across the DVR's sources (`GET /devices`). */
-  private async getTunerTotal(): Promise<number | null> {
+  /**
+   * Total tuners across the DVR's sources, and each source's tuners and channels for the
+   * conflict check (`GET /devices`).
+   */
+  private async getTuners(): Promise<{ total: number | null; sources: TunerSource[] }> {
     const cached = tunersCache.get(this.baseUrl);
-    if (cached && cached.expiresAt > Date.now()) return cached.total;
+    if (cached && cached.expiresAt > Date.now()) return cached;
     const data = await fetchJson<unknown>(`${this.baseUrl}/devices`, {
       headers: { Accept: 'application/json' },
       service: 'channels-dvr',
       timeout: 10000,
     });
-    const total = parseTunerTotal(data);
-    tunersCache.set(this.baseUrl, { total, expiresAt: Date.now() + TUNERS_CACHE_TTL_MS });
-    return total;
+    const tuners = { total: parseTunerTotal(data), sources: parseTunerSources(data) };
+    tunersCache.set(this.baseUrl, { ...tuners, expiresAt: Date.now() + TUNERS_CACHE_TTL_MS });
+    return tuners;
   }
 
   /**
@@ -752,13 +800,19 @@ export class ChannelsDvrClient implements IMediaServerClient {
   async getSchedule(): Promise<ChannelsDvrSchedule> {
     const status = await this.getDvrStatus();
     const entries = parseDvrActivity(status);
-    const [jobs, tunerTotal] = await Promise.all([
+    const [jobs, tunerInfo, recentFiles] = await Promise.all([
       this.getJobs().catch(() => [] as ChannelsDvrJob[]),
-      this.getTunerTotal().catch(() => null),
+      this.getTuners().catch(() => null),
+      this.getRecentRecordings().catch(() => [] as RecentRecording[]),
     ]);
+    const tunerTotal = tunerInfo?.total ?? null;
     const recordings = await this.buildRecordings(entries, jobs);
 
-    const next = upcomingJobs(jobs, Date.now() / 1000, UPCOMING_WINDOW_SEC, UPCOMING_LIMIT);
+    const nowSec = Date.now() / 1000;
+    const next = upcomingJobs(jobs, nowSec, UPCOMING_WINDOW_SEC, UPCOMING_LIMIT);
+    // Every queued job counts, not just the ones shown, so a conflict with a recording further
+    // down the list (or one already running) still shows on the rows that are listed.
+    const conflicts = findTunerConflicts(jobs, tunerInfo?.sources ?? [], nowSec);
     const [guide, passJobIds] =
       next.length > 0
         ? await Promise.all([
@@ -789,6 +843,7 @@ export class ChannelsDvrClient implements IMediaServerClient {
           (channelNumber ? channelLogoPath(channelNumber) : null),
         skipped: job.skipped,
         fromPass: passJobIds.has(job.id),
+        conflict: conflicts.get(job.id) ?? null,
       };
     });
 
@@ -802,7 +857,39 @@ export class ChannelsDvrClient implements IMediaServerClient {
             ),
             total: tunerTotal,
           };
-    return { recordings, upcoming, tuners, disk: parseDisk(status) };
+    const recent = recentFiles.slice(0, RECENT_LIMIT).map((file): ChannelsDvrRecentRecording => ({
+      fileId: file.fileId,
+      jobId: file.jobId,
+      showId: file.showId,
+      title: file.title,
+      episodeTitle: file.episodeTitle,
+      seasonNumber: file.seasonNumber,
+      episodeNumber: file.episodeNumber,
+      channelNumber: file.channelNumber,
+      startedAt: new Date(file.startedSec * 1000).toISOString(),
+      endedAt: new Date(file.endedSec * 1000).toISOString(),
+      durationSec: file.durationSec,
+      scheduledSec: file.scheduledSec,
+      thumbPath:
+        channelsDvrArtworkPath(this.baseUrl, file.image) ??
+        (file.channelNumber ? channelLogoPath(file.channelNumber) : null),
+      issues: file.issues,
+    }));
+    return { recordings, upcoming, tuners, disk: parseDisk(status), recent };
+  }
+
+  /** Recordings finished in the last day (`GET /dvr/files`), newest first. */
+  private async getRecentRecordings(): Promise<RecentRecording[]> {
+    const cached = recentCache.get(this.baseUrl);
+    if (cached && cached.expiresAt > Date.now()) return cached.data;
+    const data = await fetchJson<unknown>(`${this.baseUrl}/dvr/files`, {
+      headers: { Accept: 'application/json' },
+      service: 'channels-dvr',
+      timeout: 30000,
+    });
+    const recent = recentRecordings(data, Date.now() / 1000, RECENT_WINDOW_SEC);
+    recentCache.set(this.baseUrl, { data: recent, expiresAt: Date.now() + RECENT_CACHE_TTL_MS });
+    return recent;
   }
 
   /**
@@ -854,6 +941,16 @@ export class ChannelsDvrClient implements IMediaServerClient {
           channelLogoPath(recording.channelNumber),
       };
     });
+  }
+
+  /** Each source's channel lineup (`GET /devices`), Virtual Channels left out. Read fresh. */
+  async getLineups(): Promise<LineupSource[]> {
+    const data = await fetchJson<unknown>(`${this.baseUrl}/devices`, {
+      headers: { Accept: 'application/json' },
+      service: 'channels-dvr',
+      timeout: 10000,
+    });
+    return parseLineups(data);
   }
 
   /**
@@ -1046,6 +1143,17 @@ export class ChannelsDvrClient implements IMediaServerClient {
     } catch {
       return false;
     }
+  }
+
+  /** "Check connection": reads each endpoint Tracearr uses, fresh, and reports each one. */
+  async runCheck(): Promise<ChannelsDvrCheck> {
+    return runChannelsDvrCheck((path) =>
+      fetchJson<unknown>(`${this.baseUrl}${path}`, {
+        headers: { Accept: 'application/json' },
+        service: 'channels-dvr',
+        timeout: 10000,
+      })
+    );
   }
 
   /** The server's build ("2026.11.11.2228"), from `GET /status`: `GET /dvr` doesn't carry it. */

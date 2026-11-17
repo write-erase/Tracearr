@@ -287,6 +287,35 @@
       "stable": "Stable releases",
       "prerelease": "Pre-releases",
       "hint": "Automatic follows pre-releases when this server runs one, and stable releases otherwise."
+    },
+    "dispatcharrUser": {
+      "label": "Dispatcharr user",
+      "hint": "If this server uses a Dispatcharr M3U link with an XC username in it, select that user in the dropdown. That user's Dispatcharr streams are then hidden, since they're this server fetching channels that already show as Channels DVR sessions. The same user in another player still shows.",
+      "placeholder": "Choose or type a user",
+      "notListed": "Not listed? Type the username in the search box.",
+      "none": "None",
+      "search": "Search or type a name",
+      "useTyped": "Use \"{{name}}\""
+    },
+    "dvrCheck": {
+      "button": "Check connection",
+      "running": "Checking…",
+      "hint": "Reads each part of Channels DVR that Tracearr uses, at the saved address.",
+      "saveFirst": "Save the new address before checking it.",
+      "failed": "Couldn't run the check: {{error}}",
+      "server": "Server",
+      "serverOk": "Channels DVR {{version}}",
+      "serverOkNoVersion": "Answering",
+      "activity": "Activity",
+      "activityOk_one": "{{count}} recording now",
+      "activityOk_other": "{{count}} recording now",
+      "disk": "Disk space",
+      "diskOk": "{{free}} free of {{total}}",
+      "jobs": "Scheduled recordings",
+      "jobsOk_one": "{{count}} scheduled",
+      "jobsOk_other": "{{count}} scheduled",
+      "lineup": "Channel lineup",
+      "lineupOk": "{{channels}} channels from {{sources}} sources"
     }
   },
   "mobile": {
