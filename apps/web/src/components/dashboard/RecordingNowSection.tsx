@@ -662,18 +662,18 @@ function UpcomingRow({
             className="flex items-center gap-1 truncate text-xs font-medium text-amber-600 dark:text-amber-400"
             title={t('dashboard.recording.conflictHint', {
               defaultValue:
-                '{{overlapping}} recordings overlap on {{source}}, which has {{tuners}} tuners, so one may not record. Skip or cancel one, or change its channel in Channels.',
+                '{{overlapping}} recordings overlap on {{source}}, which has {{count}} tuners. One of them may not record, so skip or cancel one to make room.',
               overlapping: job.conflict.overlapping,
               source: job.conflict.source,
-              tuners: job.conflict.tuners,
+              count: job.conflict.tuners,
             })}
             data-testid="tuner-conflict"
           >
             <AlertTriangle className="h-3 w-3 shrink-0" aria-hidden="true" />
             {t('dashboard.recording.conflict', {
-              defaultValue: 'Tuner conflict: {{overlapping}} at once, {{tuners}} tuners',
+              defaultValue: 'Tuner conflict: {{overlapping}} recordings, {{count}} tuners',
               overlapping: job.conflict.overlapping,
-              tuners: job.conflict.tuners,
+              count: job.conflict.tuners,
             })}
           </p>
         )}
@@ -700,15 +700,16 @@ function IssueBadge({ issue }: { issue: ChannelsDvrRecordingIssue }) {
   const hint =
     issue === 'interrupted'
       ? t('dashboard.recording.issueInterruptedHint', {
-          defaultValue: 'The stream dropped and Channels reconnected, so part of it is missing',
+          defaultValue: 'The stream dropped partway through, so part of the recording is missing.',
         })
       : issue === 'stoppedEarly'
         ? t('dashboard.recording.issueStoppedEarlyHint', {
             defaultValue:
-              'It stopped before the airing ended, by hand or because the stream failed',
+              'The recording stopped before the show ended, either by hand or because the stream failed.',
           })
         : t('dashboard.recording.issueStartedLateHint', {
-            defaultValue: 'It started after the airing did, so the beginning is missing',
+            defaultValue:
+              'The recording started after the show began, so the beginning is missing.',
           });
   return (
     <span
@@ -956,7 +957,7 @@ export function RecordingNowSection({
                     data-testid="recent-issue-count"
                   >
                     {t('dashboard.recording.recentIssues', {
-                      defaultValue: '{{count}} with problems',
+                      defaultValue: '{{count}} had problems',
                       count: recentIssues,
                     })}
                   </span>

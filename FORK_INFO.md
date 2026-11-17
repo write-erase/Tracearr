@@ -3,8 +3,8 @@
 ## November 16, 2026 — Channels DVR tuner conflicts and Recently Recorded
 
 **Tuner conflicts in Coming Up.** A queued recording that, together with the others overlapping
-it, needs more tuners than its source has gets an amber "Tuner conflict: 3 at once, 2 tuners" line
-(hover names the source and suggests skipping, cancelling or moving one).
+it, needs more tuners than its source has gets an amber "Tuner conflict: 3 recordings, 2 tuners"
+line (hover names the source and suggests skipping or cancelling one).
 
 - Sources come from `GET /devices` (`parseTunerSources`): each enabled source with a `TunerCount`,
   and its channels' `GuideNumber`s. Virtual Channels and sources with no count (TV Everywhere)
@@ -20,7 +20,7 @@ newest first (five shown, "+N more"), each with when it stopped, length, channel
 show's page in the Channels web UI. Badges say how it went: red **Interrupted** (`Corrupted`: the
 stream dropped and Channels reconnected), amber **Stopped early** (`Cancelled`: by hand or a failed
 stream) and **Started late** (`Delayed`). A short one shows "3 min of 30 min" (`Duration` against
-`JobDuration`). The heading counts the ones with problems.
+`JobDuration`). The heading counts how many had problems.
 
 - Read from `GET /dvr/files` (`channelsDvr/recent.ts`), at most once a minute per server (it lists
   the whole library). Recordings have a `JobID`; imports have an `ImportPath` and are left out, as
