@@ -70,7 +70,7 @@ Channels DVR does not provide individual user accounts, so Tracearr identifies v
 
 - `ghcr.io/write-erase/tracearr:latest` - standalone Tracearr with Dispatcharr and Channels DVR support, so you also need to deploy `timescale` and `redis`.
 - `ghcr.io/write-erase/tracearr:supervised-latest` - supervised Tracearr (database and Redis included) with Dispatcharr and Channels DVR support.
-- Pin a release with `ghcr.io/write-erase/tracearr:3.1.7-r3` or `ghcr.io/write-erase/tracearr:supervised-3.1.7-r3`.
+- Pin a release with `ghcr.io/write-erase/tracearr:3.1.7-r4` or `ghcr.io/write-erase/tracearr:supervised-3.1.7-r4`.
 
 These are built from the `main` branch for each release and are published for both AMD64 and ARM64.
 
