@@ -312,7 +312,7 @@ export const sessionRoutes: FastifyPluginAsync = async (app) => {
    */
   /**
    * GET /sessions/recordings - Channels DVR recordings in progress, recordings starting
-   * in the next day, and tuner usage
+   * in the next day, tuner usage, disk space and recordings finished in the last day
    *
    * Recordings are not viewing sessions: they are read live from each Channels DVR
    * server the user can see and never enter the session pipeline, history or stats.
@@ -351,13 +351,14 @@ export const sessionRoutes: FastifyPluginAsync = async (app) => {
             recordings: schedule.recordings.map((recording) => ({ ...recording, ...tag })),
             upcoming: schedule.upcoming.map((job) => ({ ...job, ...tag })),
             tuners: schedule.tuners ? [{ ...schedule.tuners, ...tag }] : [],
+            recent: schedule.recent.map((file) => ({ ...file, ...tag })),
             disks: schedule.disk
               ? [{ ...schedule.disk, ...tag, warnPercent: warnPercentFor(server.id) }]
               : [],
           };
         } catch (err) {
           app.log.debug({ serverId: server.id, err }, 'Channels DVR recordings unavailable');
-          return { recordings: [], upcoming: [], tuners: [], disks: [] };
+          return { recordings: [], upcoming: [], tuners: [], disks: [], recent: [] };
         }
       })
     );
@@ -368,6 +369,7 @@ export const sessionRoutes: FastifyPluginAsync = async (app) => {
         .sort((a, b) => a.startsAt.localeCompare(b.startsAt)),
       tuners: perServer.flatMap((s) => s.tuners),
       disks: perServer.flatMap((s) => s.disks),
+      recent: perServer.flatMap((s) => s.recent).sort((a, b) => b.endedAt.localeCompare(a.endedAt)),
     };
   });
 

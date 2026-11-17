@@ -3,7 +3,7 @@
  *
  * `GET /api/v1/jobs` lists every recording the DVR has queued, including the one running
  * now, with exact start and end times (epoch seconds). Finished jobs drop off the list.
- * `GET /devices` lists the tuner sources and how many tuners each has.
+ * `GET /devices` lists the tuner sources, how many tuners each has and the channels on each.
  */
 import type { ChannelsDvrActivityEntry } from './parser.js';
 
@@ -112,6 +112,99 @@ export function parseTunerTotal(data: unknown): number | null {
     }
   }
   return any ? total : null;
+}
+
+/** A tuner source from `GET /devices`: how many tuners it has and the channels it carries. */
+export interface TunerSource {
+  id: string;
+  name: string;
+  tuners: number;
+  /** Guide numbers on this source */
+  channels: Set<string>;
+}
+
+/**
+ * The sources a tuner conflict can happen on: those reporting a tuner count. Virtual Channels
+ * (no tuners of their own) and sources with no count, such as TV Everywhere, are left out.
+ */
+export function parseTunerSources(data: unknown): TunerSource[] {
+  if (!Array.isArray(data)) return [];
+  const sources: TunerSource[] = [];
+  for (const raw of data) {
+    if (!raw || typeof raw !== 'object') continue;
+    const device = raw as Record<string, unknown>;
+    if (device.Disabled === true) continue;
+    const id = str(device.DeviceID);
+    const tuners = num(device.TunerCount);
+    if (!id || id.toUpperCase() === 'VIRTUAL' || tuners === null || tuners <= 0) continue;
+    const channels = new Set<string>();
+    for (const channel of Array.isArray(device.Channels) ? device.Channels : []) {
+      if (!channel || typeof channel !== 'object') continue;
+      const number = (channel as { GuideNumber?: unknown }).GuideNumber;
+      if (typeof number === 'string' && number.trim()) channels.add(number.trim());
+      else if (typeof number === 'number' && Number.isFinite(number)) channels.add(String(number));
+    }
+    sources.push({ id, name: str(device.FriendlyName) ?? id, tuners, channels });
+  }
+  return sources;
+}
+
+/** More recordings than tuners at once on one source. */
+export interface TunerConflict {
+  /** The source's name, as Channels shows it */
+  source: string;
+  tuners: number;
+  /** The most recordings this job overlaps with at once on that source, itself included */
+  overlapping: number;
+}
+
+/**
+ * Jobs that, at some moment, need more tuners on their source than it has. A job's source is
+ * the first one carrying its first channel (the one Channels tries first). Skipped jobs and
+ * jobs already over are left out; one that ends exactly as another starts doesn't overlap it.
+ * Live viewers also take tuners, but they can't be known ahead, so only recordings count.
+ */
+export function findTunerConflicts(
+  jobs: ChannelsDvrJob[],
+  sources: TunerSource[],
+  nowSec: number
+): Map<string, TunerConflict> {
+  const conflicts = new Map<string, TunerConflict>();
+  for (const source of sources) {
+    const onSource = jobs.filter((job) => {
+      if (job.skipped || job.endSec <= nowSec) return false;
+      const channel = job.channels[0];
+      return channel !== undefined && sources.find((s) => s.channels.has(channel)) === source;
+    });
+    if (onSource.length <= source.tuners) continue;
+
+    // Sweep the start and end times; ends sort before starts at the same second.
+    const events = onSource.flatMap((job) => [
+      { at: job.startSec, start: true, job },
+      { at: job.endSec, start: false, job },
+    ]);
+    events.sort((a, b) => a.at - b.at || Number(a.start) - Number(b.start));
+    const active = new Set<ChannelsDvrJob>();
+    for (const event of events) {
+      if (!event.start) {
+        active.delete(event.job);
+        continue;
+      }
+      active.add(event.job);
+      if (active.size <= source.tuners) continue;
+      for (const job of active) {
+        const seen = conflicts.get(job.id)?.overlapping ?? 0;
+        if (active.size > seen) {
+          conflicts.set(job.id, {
+            source: source.name,
+            tuners: source.tuners,
+            overlapping: active.size,
+          });
+        }
+      }
+    }
+  }
+  return conflicts;
 }
 
 /**

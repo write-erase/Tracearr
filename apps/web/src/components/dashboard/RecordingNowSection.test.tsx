@@ -1,6 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
-import type { ChannelsDvrTunerUsage, ChannelsDvrUpcomingEntry } from '@tracearr/shared';
+import type {
+  ChannelsDvrRecentEntry,
+  ChannelsDvrTunerUsage,
+  ChannelsDvrUpcomingEntry,
+} from '@tracearr/shared';
 import type { Server } from '@tracearr/shared';
 import { RecordingNowSection, channelsVersionsFor } from './RecordingNowSection';
 
@@ -38,6 +42,7 @@ function upcoming(overrides: Partial<ChannelsDvrUpcomingEntry> = {}): ChannelsDv
     thumbPath: null,
     skipped: false,
     fromPass: false,
+    conflict: null,
     ...overrides,
   };
 }
@@ -182,6 +187,108 @@ describe('RecordingNowSection', () => {
     expect(screen.getByText('Show 4')).toBeTruthy();
     expect(screen.queryByText('Show 5')).toBeNull();
     expect(screen.getByText(/dashboard\.recording\.moreComingUp.*"count":2/)).toBeTruthy();
+  });
+});
+
+describe('Coming Up tuner conflicts', () => {
+  it('marks a queued recording that needs more tuners than its source has', () => {
+    render(
+      <RecordingNowSection
+        recordings={[]}
+        upcoming={[
+          upcoming({ conflict: { source: 'HDHomeRun', tuners: 2, overlapping: 3 } }),
+          upcoming({ jobId: 'other', title: 'Other' }),
+        ]}
+      />
+    );
+    const flags = screen.getAllByTestId('tuner-conflict');
+    expect(flags).toHaveLength(1);
+    expect(flags[0]?.textContent).toContain('"overlapping":3');
+    expect(flags[0]?.getAttribute('title')).toContain('HDHomeRun');
+  });
+
+  it('shows no conflict when everything fits', () => {
+    render(<RecordingNowSection recordings={[]} upcoming={[upcoming()]} />);
+    expect(screen.queryByTestId('tuner-conflict')).toBeNull();
+  });
+});
+
+describe('Recently Recorded', () => {
+  const recent = (overrides: Partial<ChannelsDvrRecentEntry> = {}): ChannelsDvrRecentEntry => ({
+    serverId: 'cdvr',
+    serverName: 'Channels',
+    fileId: '1353',
+    jobId: '1794874205-ch1',
+    showId: 'KOCO 5 News at 6pm',
+    title: 'KOCO 5 News at 6pm',
+    episodeTitle: null,
+    seasonNumber: null,
+    episodeNumber: null,
+    channelNumber: '1',
+    startedAt: new Date(2026, 10, 11, 11, 0).toISOString(),
+    endedAt: new Date(2026, 10, 11, 11, 30).toISOString(),
+    durationSec: 1800,
+    scheduledSec: 1800,
+    thumbPath: null,
+    issues: [],
+    ...overrides,
+  });
+
+  it('lists finished recordings, linked to the show in Channels DVR', () => {
+    render(
+      <RecordingNowSection
+        recordings={[]}
+        recent={[recent()]}
+        linkBases={{ cdvr: 'http://192.168.30.241:8089/' }}
+      />
+    );
+    const row = screen.getByTestId('recent-recording');
+    expect(row.querySelector('a')?.getAttribute('href')).toBe(
+      'http://192.168.30.241:8089/admin/shows/KOCO%205%20News%20at%206pm'
+    );
+    expect(screen.queryByTestId('recording-issue')).toBeNull();
+    expect(screen.queryByTestId('recent-issue-count')).toBeNull();
+  });
+
+  it('badges recordings that went wrong and counts them in the heading', () => {
+    render(
+      <RecordingNowSection
+        recordings={[]}
+        recent={[
+          recent({ issues: ['interrupted'] }),
+          recent({ fileId: '2', issues: ['stoppedEarly', 'startedLate'], durationSec: 180 }),
+          recent({ fileId: '3' }),
+        ]}
+      />
+    );
+    expect(
+      screen.getAllByTestId('recording-issue').map((b) => b.textContent?.split(':')[0])
+    ).toEqual([
+      'dashboard.recording.issueInterrupted',
+      'dashboard.recording.issueStoppedEarly',
+      'dashboard.recording.issueStartedLate',
+    ]);
+    expect(screen.getByTestId('recent-issue-count').textContent).toContain('"count":2');
+    // A short recording says how much of its scheduled time it got
+    expect(screen.getAllByTestId('recent-recording')[1]?.textContent).toContain(
+      'dashboard.recording.recordedOf'
+    );
+  });
+
+  it('shows five and says how many more', () => {
+    render(
+      <RecordingNowSection
+        recordings={[]}
+        recent={Array.from({ length: 7 }, (_, i) => recent({ fileId: String(i) }))}
+      />
+    );
+    expect(screen.getAllByTestId('recent-recording')).toHaveLength(5);
+    expect(screen.getByText(/dashboard\.recording\.moreRecent/).textContent).toContain('"count":2');
+  });
+
+  it('is left out when nothing finished in the last day', () => {
+    render(<RecordingNowSection recordings={[]} recent={[]} />);
+    expect(screen.queryByTestId('recent-recording')).toBeNull();
   });
 });
 

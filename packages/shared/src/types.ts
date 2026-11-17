@@ -3191,6 +3191,20 @@ export interface ChannelsDvrUpcomingEntry {
   skipped: boolean;
   /** Scheduled by a series pass, so it can be skipped; otherwise it can only be cancelled */
   fromPass: boolean;
+  /**
+   * More recordings overlap this one on its tuner source than the source has tuners, so one
+   * of them won't record. Null when it fits (or the source's tuner count isn't known).
+   */
+  conflict: ChannelsDvrTunerConflict | null;
+}
+
+/** A queued recording that, with the others overlapping it, needs more tuners than its source has. */
+export interface ChannelsDvrTunerConflict {
+  /** The tuner source's name in Channels */
+  source: string;
+  tuners: number;
+  /** The most recordings overlapping at once, this one included */
+  overlapping: number;
 }
 
 /** Tuners busy on one Channels DVR server: one per channel being watched live or recorded. */
@@ -3211,6 +3225,33 @@ export interface ChannelsDvrDiskUsage {
   warnPercent: number;
 }
 
+/** How a finished recording went: interrupted (a gap), stopped early, or started late. */
+export type ChannelsDvrRecordingIssue = 'interrupted' | 'stoppedEarly' | 'startedLate';
+
+/** A Channels DVR recording that finished in the last day, from its file in GET /dvr/files. */
+export interface ChannelsDvrRecentEntry {
+  serverId: string;
+  serverName: string;
+  fileId: string;
+  jobId: string;
+  /** The show's id in Channels, for /admin/shows/<id> */
+  showId: string | null;
+  title: string;
+  episodeTitle: string | null;
+  seasonNumber: number | null;
+  episodeNumber: number | null;
+  channelNumber: string | null;
+  /** ISO times: when recording started and stopped */
+  startedAt: string;
+  endedAt: string;
+  durationSec: number;
+  /** The length the job was scheduled for, padding included; null when unknown */
+  scheduledSec: number | null;
+  thumbPath: string | null;
+  /** Empty when it recorded cleanly; worst first */
+  issues: ChannelsDvrRecordingIssue[];
+}
+
 /** GET /sessions/recordings */
 export interface ChannelsDvrScheduleResponse {
   /** Recordings in progress */
@@ -3218,6 +3259,8 @@ export interface ChannelsDvrScheduleResponse {
   upcoming: ChannelsDvrUpcomingEntry[];
   tuners: ChannelsDvrTunerUsage[];
   disks: ChannelsDvrDiskUsage[];
+  /** Recordings finished in the last day, newest first across servers */
+  recent: ChannelsDvrRecentEntry[];
 }
 
 export interface MediaAvailabilityEntry {
