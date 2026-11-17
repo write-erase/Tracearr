@@ -59,6 +59,7 @@ function ServerDashboard({ actions }: { actions?: ReactNode }) {
       upcoming: schedule.upcoming.filter(selected),
       tuners: schedule.tuners.filter(selected),
       disks: schedule.disks.filter(selected),
+      recent: schedule.recent.filter(selected),
     };
   }, [schedule, channelsServerIds]);
   const { isConnected } = useSocket();
@@ -282,6 +283,7 @@ function ServerDashboard({ actions }: { actions?: ReactNode }) {
         upcoming={dvr?.upcoming}
         tuners={dvr?.tuners}
         disks={dvr?.disks}
+        recent={dvr?.recent}
         versions={channelsVersions}
         linkBases={channelsLinkBases}
         showServer={channelsServerIds.length > 1}
