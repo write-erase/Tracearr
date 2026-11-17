@@ -1,5 +1,21 @@
 # Tracearr Fork Information
 
+## November 17, 2026 — Release v3.1.7-r4
+
+The last release on upstream 3.1.7; the next merges upstream 3.2.0. It carries every entry from
+November 12 to 16 below that came after r3:
+
+- Channels DVR alerts: channel lineup changed, recording missed, recording started and finished
+- Channels DVR "Check connection" on the server's settings
+- Hiding a Channels DVR server's own Dispatcharr streams, with the "Dispatcharr user" picker
+- The dashboard's "Up to date" / "Update available" pill, noticed within a minute of an update
+- Tuner conflicts in Coming Up, and Recently Recorded
+- Dispatcharr's default port (9191) in the server URL example
+- This fork's links, defaults and update check pointing at write-erase
+
+r4 is the first release whose update check reads this fork's releases, so it's told about later
+ones. People on r1–r3 need to update to r4 by hand. The README's pinned example is `3.1.7-r4`.
+
 ## November 16, 2026 — Channels DVR tuner conflicts and Recently Recorded
 
 **Tuner conflicts in Coming Up.** A queued recording that, together with the others overlapping
