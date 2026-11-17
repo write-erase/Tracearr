@@ -1,6 +1,7 @@
 /**
  * Media-server versions: what a server reports about itself, what its vendor ships,
- * and which of the two is newer. Every feed is public and read without a token.
+ * and which of the two is newer. Every feed is public and read without a token; tofa
+ * publishes none, so its servers are asked through their own update check instead.
  */
 
 import { assertNever, type ServerType, type JellyfinEmbyServerType } from '@tracearr/shared';
@@ -35,9 +36,13 @@ export const SERVER_RELEASE_PAGES: Record<ServerType, string> = {
   plex: 'https://plex.tv/media-server-downloads',
   jellyfin: 'https://github.com/jellyfin/jellyfin/releases/latest',
   emby: 'https://github.com/MediaBrowser/Emby.Releases/releases/latest',
+  tofa: 'https://docs.tofa.tv/keep-your-server-updated.html',
   dispatcharr: 'https://github.com/Dispatcharr/Dispatcharr/releases/latest',
   channels_dvr: 'https://getchannels.com/releases/',
 };
+
+/** Server types whose vendor publishes a release feed. */
+export type FeedServerType = Exclude<ServerType, 'tofa'>;
 
 const FEED_TIMEOUT_MS = 10_000;
 // Two to four parts. `compareVersions` only reads three- and four-part versions, so a
@@ -56,6 +61,7 @@ function versionDigits(type: ServerType, version: string): string {
     case 'jellyfin':
       return version.replace(/^v/, '');
     case 'emby':
+    case 'tofa':
     case 'dispatcharr':
     case 'channels_dvr':
       return version;
@@ -66,7 +72,7 @@ function versionDigits(type: ServerType, version: string): string {
 
 /**
  * The comparable digits of a version: Plex appends a build hash, Jellyfin tags with a
- * leading `v`, Emby is already numeric. A two-part version gains a `.0` so the
+ * leading `v`, Emby and tofa are already numeric. A two-part version gains a `.0` so the
  * comparator can read it. Null when what is left is not two to four dotted numbers.
  */
 export function normalizeServerVersion(type: ServerType, raw: string): string | null {
@@ -158,7 +164,7 @@ export function channelsTrackFor(
 }
 
 /** The newest release the vendor publishes, normalized. Any failure reads as "unknown". */
-export async function latestVersionFor(type: ServerType): Promise<string | null> {
+export async function latestVersionFor(type: FeedServerType): Promise<string | null> {
   try {
     switch (type) {
       case 'plex':

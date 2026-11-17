@@ -1,5 +1,59 @@
 # Tracearr Fork Information
 
+## November 17, 2026 — Upstream 3.2.0, step 2: tofa and beta 1
+
+**Back up your database before pulling this `:dev`.** It runs upstream's migrations 0126–0131, and
+0127 changes how request ids are stored, so going back to r4 or an earlier `:dev` needs that
+backup. This fork adds no migrations of its own, so the numbering doesn't clash.
+
+Second of the 3.2.0 merges: connor's `v3.2.0-beta.1` (7 commits after step 1). That adds tofa as a
+sixth server type, a new first-run setup (pick the server, create the owner, connect, import),
+the refreshed theme, and the fixes in upstream's 3.2.0 release notes. The fork's types are ported
+through all of it:
+
+- Server types: `plex, jellyfin, emby, tofa, dispatcharr, channels_dvr`, the fork's types still
+  last. Error codes: Dispatcharr keeps `EXT_005` and Channels DVR `EXT_006`; tofa, which upstream
+  numbers `EXT_005`, is `EXT_007` here.
+- Profiles gain upstream's new fields (`displayName`, `hostStatsIdleSeconds`,
+  `serverHistoryImport`, `watchedThreshold`, `builtInRequests`, `guideImageHosts`, `itemLinks`).
+  Both fork types answer the way they behaved: no history import, Tracearr's own watched
+  setting, no built-in requests, links to the server's own address.
+- `memberSignIn` for both fork types is now upstream's `unavailable` (replaces the fork's `none`
+  from step 1). The server's PATCH now refuses turning member sign-in on for them, with upstream's
+  message, and the login page counts only types that have a sign-in.
+- Upstream's owner account linking (`ownerLinkProof`) gains a `none` proof for both fork types,
+  so they stay out of it, as in r4.
+- The fork's `syncsLibraryIncrementally` profile field from step 1 is gone. Upstream now picks
+  where a sync starts per type (`storedSyncCursor`), and both fork types get no cursor, so
+  Channels DVR still always runs a full scan that notices deleted episodes. The client interface
+  changed with it: `getLibraryItemsSince` takes a cursor and returns a change feed (`NOT_NEEDED`
+  from both fork clients), and both answer the new `getLibraryRevision` with `NOT_NEEDED`.
+- Adding a server moved into `services/serverCreate.ts`. Ported into it: Dispatcharr's
+  token-or-username+password sign-in, "Ignore anonymous streams", and the Dispatcharr auth mode
+  in the response. Dispatcharr (no library) is no longer marked as owing a first library sync, and
+  no library sync is queued for it.
+- The add-server form is now upstream's `useAddServer` hook and `AddServerFields`, shared by
+  Settings and first run. The Dispatcharr and Channels DVR fields moved into them, so both
+  types can also be picked during first-run setup. In Settings the dialog skips its new import
+  step for both, since neither has history to import.
+- The server row is upstream's redesign. Its realtime badge covers Channels DVR ("Polling") and
+  Dispatcharr (realtime, plugin issue and plugin update, as Jellyfin and Emby, with Dispatcharr
+  wording).
+- The update checker keeps Channels DVR's per-server stable/pre-release track and gains tofa's
+  per-server update check.
+- The image proxy is upstream's origin-based rewrite, with Dispatcharr's paths and TMDB art,
+  Channels DVR's guide logos and the uncropped poster resize carried into it.
+- Termination keeps the Channels DVR web player and remote-device refusals ahead of upstream's
+  new `stopRefusal`.
+- Live TV: upstream now names the program's show first with the channel under it (#1441). The
+  fork keeps channel first, program under it, for Jellyfin, Emby, Dispatcharr and Channels DVR, as
+  r4 shows it. Plex and tofa follow upstream.
+- Kept through upstream's web changes: the Dashboard's Dispatcharr and Channels DVR sections, the
+  Now Playing card's catch-up clocks, provider and speed labels, Channels DVR device logos and
+  terminate rules, the stream panel's speed beside the bitrate, the Live TV media type in
+  charts, and the sidebar's fork-update badge colors.
+- Not taken: upstream's `insiders`, `release` and `renovate` workflows, which this fork removed.
+
 ## November 17, 2026 — Upstream 3.2.0, step 1: server type cleanup (#1439)
 
 First of the 3.2.0 merges: connor's `main` through `f56409ebf` ("server type cleanup ahead of

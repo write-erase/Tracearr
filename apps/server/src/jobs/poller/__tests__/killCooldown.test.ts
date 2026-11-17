@@ -158,6 +158,7 @@ const serverRow = {
   type: 'jellyfin' as const,
   url: 'http://jf:8096',
   token: 't',
+  watchedRulePercent: null,
   createdAt: new Date(),
   updatedAt: new Date(),
 };

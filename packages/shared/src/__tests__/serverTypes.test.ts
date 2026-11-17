@@ -4,7 +4,14 @@ import { createServerSchema, serverTypeSchema } from '../schemas.js';
 
 describe('server types', () => {
   it('keeps the server types in order, the fork types last', () => {
-    expect(SERVER_TYPES).toEqual(['plex', 'jellyfin', 'emby', 'dispatcharr', 'channels_dvr']);
+    expect(SERVER_TYPES).toEqual([
+      'plex',
+      'jellyfin',
+      'emby',
+      'tofa',
+      'dispatcharr',
+      'channels_dvr',
+    ]);
     expect(serverTypeSchema.options).toEqual([...SERVER_TYPES]);
   });
 
@@ -21,6 +28,7 @@ describe('server types', () => {
     ['plex', false],
     ['jellyfin', true],
     ['emby', true],
+    ['tofa', true],
     ['dispatcharr', true],
     ['channels_dvr', true],
   ] as const)('a %s server accepts a public address: %s', (type, accepted) => {

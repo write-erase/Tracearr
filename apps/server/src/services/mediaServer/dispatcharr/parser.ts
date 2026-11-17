@@ -716,7 +716,7 @@ export function parseSessionsFromCatchupStats(
           id: user.id,
           username: user.username,
           ...(user.login ? { login: user.login } : {}),
-          thumb: user.thumb,
+          thumb: user.thumb ?? undefined,
         },
         media: {
           title: fallbackTitle,
@@ -823,7 +823,7 @@ export function parseSessionsFromVodStats(
         id: user.id,
         username: user.username,
         ...(user.login ? { login: user.login } : {}),
-        thumb: user.thumb,
+        thumb: user.thumb ?? undefined,
       },
       media: {
         title: mediaTitle,
@@ -1025,7 +1025,7 @@ export function parseSessionsFromChannels(
           id: user.id,
           username: user.username,
           ...(user.login ? { login: user.login } : {}),
-          thumb: user.thumb,
+          thumb: user.thumb ?? undefined,
         },
         media: {
           title: mediaTitle,

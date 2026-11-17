@@ -1,8 +1,9 @@
 /**
- * Server management routes - CRUD for Plex/Jellyfin/Emby servers
+ * Server management routes - CRUD for Plex/Jellyfin/Emby/tofa servers
  */
 
 import type { FastifyPluginAsync, FastifyReply } from 'fastify';
+import { APIError } from 'better-auth/api';
 import { eq, inArray, and, isNull } from 'drizzle-orm';
 import {
   createServerSchema,
@@ -19,28 +20,37 @@ import {
 } from '@tracearr/shared';
 import { db } from '../db/client.js';
 import { servers, plexAccounts, serverUsers, users } from '../db/schema.js';
-import { nonOwnerMayLoginThrough } from '../lib/authGuards.js';
+import {
+  assertOwnerKeepsALoginAfter,
+  nonOwnerMayLoginThrough,
+  type ServerAccountChange,
+} from '../lib/authGuards.js';
 import { revokeUnlessStillIn } from '../lib/revoke.js';
 import {
   PlexClient,
   JellyfinClient,
+  TofaClient,
   DispatcharrClient,
   ChannelsDvrClient,
   verifyServerAdmin,
 } from '../services/mediaServer/index.js';
+import { readServerFacts } from '../services/mediaServer/byServerType.js';
 import { getServerLiveStats, getServerResourceStats } from '../services/serverLiveStats.js';
 import { clearChannelsDvrRelayUsers } from '../services/channelsDvrRelays.js';
+import { createServer, startAddedServer } from '../services/serverCreate.js';
+import { deleteServer } from '../services/serverDelete.js';
 import { syncServer } from '../services/sync.js';
 import { sseManager } from '../services/sseManager.js';
 import { getCacheService } from '../services/cache.js';
 import { supportsMediaLibrary } from '@tracearr/shared';
 import { markServerHistorical, resumeServer } from '../services/historicalServers.js';
 import { liveServerCondition, HISTORICAL_EDIT_MESSAGE } from '../services/liveServers.js';
-import { enqueueLibrarySync, rebuildAutoSyncSchedules } from '../jobs/librarySyncQueue.js';
+import { enqueueLibrarySync } from '../jobs/librarySyncQueue.js';
 import { installedVersionOf } from '../jobs/serverUpdateChecker.js';
 import { publishServersChanged } from '../jobs/poller/database.js';
+import { followServerOnBuiltInRequestService } from '../services/requests/store.js';
 import { readServerIdentity, sharesKnownUsers } from '../services/serverIdentity.js';
-import { getSetting, rearmImportedHistoryLink } from '../services/settings.js';
+import { getSetting } from '../services/settings.js';
 import { buildServerAccessCondition, hasServerAccess } from '../utils/serverFiltering.js';
 import { serverOrderBy } from '../utils/serverOrder.js';
 
@@ -61,6 +71,16 @@ function normalizeDispatcharrAuth(input: {
   return !token && username && password
     ? DispatcharrClient.encodeCredentialToken(username, password)
     : token;
+}
+
+async function ownerLockout(change: ServerAccountChange): Promise<string | null> {
+  try {
+    await assertOwnerKeepsALoginAfter(change);
+    return null;
+  } catch (err) {
+    if (err instanceof APIError) return err.message;
+    throw err;
+  }
 }
 
 // Plex never reports INVALID_KEY, so one mapping serves all server types.
@@ -104,6 +124,7 @@ export const serverRoutes: FastifyPluginAsync = async (app) => {
         dispatcharrUser: servers.dispatcharrUser,
         historicalAt: servers.historicalAt,
         allowMemberLogin: servers.allowMemberLogin,
+        canStopStreams: servers.canStopStreams,
         createdAt: servers.createdAt,
         updatedAt: servers.updatedAt,
       })
@@ -194,8 +215,17 @@ export const serverRoutes: FastifyPluginAsync = async (app) => {
     }
     if (!adminCheck.success) return replyAdminCheckFailure(reply, adminCheck);
 
+    let serverFacts: Awaited<ReturnType<typeof readServerFacts>>;
+    try {
+      serverFacts = await readServerFacts(type, url, normalizedToken);
+    } catch (error) {
+      app.log.error({ err: error }, 'Failed to read server settings');
+      return reply.badRequest('Could not read the API key scopes from the server.');
+    }
+
     // For Plex servers, find the owning plex account to set plexAccountId
     let plexAccountId: string | undefined;
+    let machineIdentifier: string | null = null;
     switch (type) {
       case 'plex':
         try {
@@ -216,6 +246,26 @@ export const serverRoutes: FastifyPluginAsync = async (app) => {
           app.log.debug('Could not link Plex server to account at creation time');
         }
         break;
+      case 'tofa':
+        // Stored now, so tofa cloud's Add server already knows the server is connected.
+        try {
+          machineIdentifier = await new TofaClient({
+            url,
+            token: normalizedToken,
+          }).getServerIdentity();
+        } catch {
+          app.log.debug('Could not read the tofa server identity at creation time');
+        }
+        // tofa cloud may have connected the same server at another address
+        if (machineIdentifier) {
+          const [connected] = await db
+            .select({ id: servers.id })
+            .from(servers)
+            .where(and(eq(servers.type, type), eq(servers.machineIdentifier, machineIdentifier)))
+            .limit(1);
+          if (connected) return reply.conflict('This server is already connected');
+        }
+        break;
       case 'jellyfin':
       case 'emby':
       case 'dispatcharr':
@@ -225,83 +275,23 @@ export const serverRoutes: FastifyPluginAsync = async (app) => {
         assertNever(type);
     }
 
-    // Auto-assign a color based on server type and already-used colors
-    const existingColors = await db.select({ color: servers.color }).from(servers);
-    const color = pickServerColor(
+    const { server, requestServiceIds } = await createServer({
+      name,
       type,
-      existingColors.map((s) => s.color)
-    );
-
-    // Save server with plain text token (DB is localhost-only)
-    const inserted = await db
-      .insert(servers)
-      .values({
-        name,
-        type,
-        url,
-        token: normalizedToken,
-        ignoreAnonymousStreams,
-        publicUrl: publicUrl ?? null,
-        color,
-        plexAccountId, // Links Plex servers to their owning account (undefined for non-Plex)
-      })
-      .returning({
-        id: servers.id,
-        name: servers.name,
-        type: servers.type,
-        url: servers.url,
-        token: servers.token,
-        publicUrl: servers.publicUrl,
-        ignoreAnonymousStreams: servers.ignoreAnonymousStreams,
-        color: servers.color,
-        historicalAt: servers.historicalAt,
-        createdAt: servers.createdAt,
-        updatedAt: servers.updatedAt,
-      });
-
-    const server = inserted[0];
-    if (!server) {
-      return reply.internalServerError('Failed to create server');
-    }
-
-    await publishServersChanged();
-    rebuildAutoSyncSchedules().catch((error: unknown) => {
-      app.log.error(
-        { err: error, serverId: server.id },
-        'Auto-sync schedule failed for new server'
-      );
+      url,
+      token: normalizedToken,
+      ignoreAnonymousStreams,
+      publicUrl,
+      plexAccountId,
+      machineIdentifier,
+      facts: serverFacts,
     });
-
-    if (SERVER_PROFILES[server.type].linksImportedHistory) {
-      await rearmImportedHistoryLink({ keepProviderPass: false });
-    }
-
-    // Auto-sync users and libraries in background
-    syncServer(server.id, { syncUsers: true, syncLibraries: true })
-      .then((result) => {
-        app.log.info(
-          {
-            serverId: server.id,
-            usersAdded: result.usersAdded,
-            librariesSynced: result.librariesSynced,
-          },
-          'Auto-sync completed for new server'
-        );
-      })
-      .catch((error: unknown) => {
-        app.log.error({ err: error, serverId: server.id }, 'Auto-sync failed for new server');
-      });
-
-    // Start realtime (SSE) connection in background
-    sseManager.refresh().catch((error: unknown) => {
-      app.log.error({ err: error, serverId: server.id }, 'SSE refresh failed for new server');
-    });
+    await startAddedServer(server, requestServiceIds);
 
     return reply.status(201).send({
       ...server,
       dispatcharrAuthMode:
-        server.type === 'dispatcharr' ? getDispatcharrAuthMode(server.token) : undefined,
-      token: undefined,
+        server.type === 'dispatcharr' ? getDispatcharrAuthMode(normalizedToken) : undefined,
     });
   });
 
@@ -398,6 +388,7 @@ export const serverRoutes: FastifyPluginAsync = async (app) => {
         break;
       case 'jellyfin':
       case 'emby':
+      case 'tofa':
       case 'channels_dvr':
         break;
       default:
@@ -409,6 +400,12 @@ export const serverRoutes: FastifyPluginAsync = async (app) => {
     }
     if (newDispatcharrUser !== undefined && server.type !== 'channels_dvr') {
       return reply.badRequest('Only Channels DVR servers have a Dispatcharr user');
+    }
+    const profile = SERVER_PROFILES[server.type];
+    if (newAllowMemberLogin === true && profile.memberSignIn === 'unavailable') {
+      return reply.badRequest(
+        `${profile.displayName} has no sign-in Tracearr can call, so members cannot sign in through it`
+      );
     }
 
     const same = <T>(next: T | undefined, current: T): boolean =>
@@ -441,6 +438,7 @@ export const serverRoutes: FastifyPluginAsync = async (app) => {
         dispatcharrUser: server.dispatcharrUser,
         historicalAt: server.historicalAt,
         allowMemberLogin: server.allowMemberLogin,
+        canStopStreams: server.canStopStreams,
         createdAt: server.createdAt,
         updatedAt: server.updatedAt,
       };
@@ -453,6 +451,7 @@ export const serverRoutes: FastifyPluginAsync = async (app) => {
     }
 
     let backfilledIdentity: string | undefined;
+    let serverFacts: Awaited<ReturnType<typeof readServerFacts>> = {};
 
     if (urlChanging || keyChanging || authChanged) {
       // For Plex servers: Validate machineIdentifier if provided
@@ -471,6 +470,7 @@ export const serverRoutes: FastifyPluginAsync = async (app) => {
           break;
         case 'jellyfin':
         case 'emby':
+        case 'tofa':
         case 'dispatcharr':
         case 'channels_dvr':
           break;
@@ -536,6 +536,16 @@ export const serverRoutes: FastifyPluginAsync = async (app) => {
         }
         if (!server.machineIdentifier) backfilledIdentity = reachedIdentity;
       }
+
+      try {
+        serverFacts = await readServerFacts(server.type, effectiveUrl, token);
+      } catch (error) {
+        app.log.error(
+          { err: error, serverId: id, url: effectiveUrl },
+          'Failed to read server settings'
+        );
+        return reply.badRequest('Could not read the API key scopes from the server.');
+      }
     }
 
     // Build update object
@@ -550,8 +560,10 @@ export const serverRoutes: FastifyPluginAsync = async (app) => {
       allowMemberLogin?: boolean;
       updateTrack?: 'auto' | 'stable' | 'prerelease';
       dispatcharrUser?: string | null;
+      canStopStreams?: boolean;
+      watchedRulePercent?: number | null;
       updatedAt: Date;
-    } = { updatedAt: new Date() };
+    } = { ...serverFacts, updatedAt: new Date() };
     if (backfilledIdentity !== undefined) updatePayload.machineIdentifier = backfilledIdentity;
     if (newName !== undefined) updatePayload.name = newName;
     if (newUrl !== undefined) updatePayload.url = newUrl;
@@ -566,11 +578,8 @@ export const serverRoutes: FastifyPluginAsync = async (app) => {
     if (newUpdateTrack !== undefined) updatePayload.updateTrack = newUpdateTrack;
     if (newDispatcharrUser !== undefined) updatePayload.dispatcharrUser = newDispatcharrUser;
 
-    const updated = await db
-      .update(servers)
-      .set(updatePayload)
-      .where(eq(servers.id, id))
-      .returning({
+    const updated = await db.transaction(async (tx) => {
+      const rows = await tx.update(servers).set(updatePayload).where(eq(servers.id, id)).returning({
         id: servers.id,
         name: servers.name,
         type: servers.type,
@@ -583,9 +592,18 @@ export const serverRoutes: FastifyPluginAsync = async (app) => {
         color: servers.color,
         historicalAt: servers.historicalAt,
         allowMemberLogin: servers.allowMemberLogin,
+        canStopStreams: servers.canStopStreams,
         createdAt: servers.createdAt,
         updatedAt: servers.updatedAt,
       });
+      if (
+        SERVER_PROFILES[server.type].builtInRequests !== null &&
+        (newName !== undefined || newUrl !== undefined)
+      ) {
+        await followServerOnBuiltInRequestService(tx, id);
+      }
+      return rows;
+    });
 
     const result = updated[0];
     if (!result) {
@@ -740,15 +758,10 @@ export const serverRoutes: FastifyPluginAsync = async (app) => {
       return reply.notFound('Server not found');
     }
 
-    // Delete server (cascade will handle related records)
-    await db.delete(servers).where(eq(servers.id, id));
-    await publishServersChanged();
+    const lockout = await ownerLockout({ kind: 'deleteServer', serverId: id });
+    if (lockout) return reply.badRequest(lockout);
 
-    // Tear down the server's SSE connection in background
-    sseManager.refresh().catch((error: unknown) => {
-      app.log.error({ err: error, serverId: id }, 'SSE refresh failed after server delete');
-    });
-
+    await deleteServer(id);
     return { success: true };
   });
 
@@ -805,7 +818,7 @@ export const serverRoutes: FastifyPluginAsync = async (app) => {
             syncedAt: new Date().toISOString(),
           };
         }
-        librarySyncJobId = await enqueueLibrarySync(id, 'manual', authUser.userId);
+        librarySyncJobId = await enqueueLibrarySync(id, 'manual', { userId: authUser.userId });
         app.log.info({ serverId: id, jobId: librarySyncJobId }, 'Library sync job enqueued');
       } catch (err) {
         // Don't fail the whole sync if library sync can't be queued
@@ -881,6 +894,11 @@ export const serverRoutes: FastifyPluginAsync = async (app) => {
     const [server] = await db.select().from(servers).where(eq(servers.id, params.data.id)).limit(1);
     if (!server) {
       return reply.notFound('Server not found');
+    }
+
+    if (body.data.historical) {
+      const lockout = await ownerLockout({ kind: 'retireServer', serverId: server.id });
+      if (lockout) return reply.badRequest(lockout);
     }
 
     const updated = body.data.historical
@@ -1107,7 +1125,7 @@ export const serverRoutes: FastifyPluginAsync = async (app) => {
    * GET /servers/connection-status - Live SSE plugin connection state per server
    *
    * Returns per-server realtime/polling mode. Status is ephemeral runtime truth
-   * mirrored in Redis with a TTL — not persisted to the database. Servers with
+   * mirrored in Redis with a TTL, not persisted to the database. Servers with
    * no cached status are reported as polling (safe default).
    */
   app.get('/connection-status', readServers, async (request) => {
@@ -1134,7 +1152,7 @@ export const serverRoutes: FastifyPluginAsync = async (app) => {
         }
       }
 
-      // No cached status yet — default to polling (safe)
+      // No cached status yet, so default to polling (safe)
       result.push({
         serverId: server.id,
         serverName: server.name,

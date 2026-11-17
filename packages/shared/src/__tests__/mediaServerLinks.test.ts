@@ -3,6 +3,7 @@ import {
   buildMediaServerItemUrl,
   isPubliclyRoutableUrl,
   memberFacingUrl,
+  type MediaServerItemLinkInput,
 } from '../mediaServerLinks.js';
 
 const PLEX_MACHINE = '02aede436384ae67d1d1dc879dcd69f8504c27ca';
@@ -45,6 +46,52 @@ describe('buildMediaServerItemUrl', () => {
     );
   });
 
+  it('builds a tofa link through app.tofa.tv, whatever the server address', () => {
+    expect(
+      buildMediaServerItemUrl({
+        serverType: 'tofa',
+        baseUrl: 'http://media.example.com:33333/',
+        ratingKey: '4c2e8a1f-6b3d-4e97-a5c0-9d1f7b2e8a63',
+        mediaType: 'movie',
+      })
+    ).toBe('https://app.tofa.tv/media/4c2e8a1f-6b3d-4e97-a5c0-9d1f7b2e8a63');
+  });
+
+  it('opens a tofa episode or season on its show page by number', () => {
+    const episode: MediaServerItemLinkInput = {
+      serverType: 'tofa',
+      baseUrl: 'http://media.example.com:33333',
+      ratingKey: '9b7d3f1e-2c8a-4a65-b0e4-7f3c1d9a5e28',
+      mediaType: 'episode',
+      showRatingKey: '4c2e8a1f-6b3d-4e97-a5c0-9d1f7b2e8a63',
+      seasonNumber: 29,
+      episodeNumber: 2,
+    };
+    const show = 'https://app.tofa.tv/media/4c2e8a1f-6b3d-4e97-a5c0-9d1f7b2e8a63';
+    expect(buildMediaServerItemUrl(episode)).toBe(`${show}?season=29&episode=2`);
+    expect(buildMediaServerItemUrl({ ...episode, mediaType: 'season' })).toBe(`${show}?season=29`);
+    expect(buildMediaServerItemUrl({ ...episode, seasonNumber: 0 })).toBe(
+      `${show}?season=0&episode=2`
+    );
+    expect(buildMediaServerItemUrl({ ...episode, seasonNumber: null })).toBe(show);
+  });
+
+  it('links a tofa episode to its show, and not at all when the show is unknown', () => {
+    const episode: MediaServerItemLinkInput = {
+      serverType: 'tofa',
+      baseUrl: 'http://media.example.com:33333',
+      ratingKey: '9b7d3f1e-2c8a-4a65-b0e4-7f3c1d9a5e28',
+      mediaType: 'episode',
+    };
+    expect(
+      buildMediaServerItemUrl({
+        ...episode,
+        showRatingKey: '4c2e8a1f-6b3d-4e97-a5c0-9d1f7b2e8a63',
+      })
+    ).toBe('https://app.tofa.tv/media/4c2e8a1f-6b3d-4e97-a5c0-9d1f7b2e8a63');
+    expect(buildMediaServerItemUrl({ ...episode, showRatingKey: null })).toBeNull();
+  });
+
   it('does not double the slash when the configured url has a trailing one', () => {
     expect(
       buildMediaServerItemUrl({
@@ -80,7 +127,7 @@ describe('buildMediaServerItemUrl', () => {
         serverType: 'channels_dvr',
         baseUrl: 'http://192.168.30.241:8089/',
         ratingKey: '183880',
-        itemType: 'show',
+        mediaType: 'show',
       })
     ).toBe('http://192.168.30.241:8089/admin/shows/183880');
   });
@@ -91,7 +138,7 @@ describe('buildMediaServerItemUrl', () => {
         serverType: 'channels_dvr',
         baseUrl: 'http://192.168.30.241:8089',
         ratingKey: '1089',
-        itemType: 'episode',
+        mediaType: 'episode',
         showRatingKey: '183880',
       })
     ).toBe('http://192.168.30.241:8089/admin/shows/183880');
@@ -99,8 +146,10 @@ describe('buildMediaServerItemUrl', () => {
 
   it('falls back to the Channels DVR root for movies and episodes without a show', () => {
     const base = { serverType: 'channels_dvr' as const, baseUrl: 'http://cdvr:8089' };
-    expect(buildMediaServerItemUrl({ ...base, ratingKey: '900', itemType: 'movie' })).toBeNull();
-    expect(buildMediaServerItemUrl({ ...base, ratingKey: '1089', itemType: 'episode' })).toBeNull();
+    expect(buildMediaServerItemUrl({ ...base, ratingKey: '900', mediaType: 'movie' })).toBeNull();
+    expect(
+      buildMediaServerItemUrl({ ...base, ratingKey: '1089', mediaType: 'episode' })
+    ).toBeNull();
   });
 });
 

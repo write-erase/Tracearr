@@ -3,6 +3,7 @@ export const SERVER_CAPABILITIES: Record<ServerType, { mediaLibrary: boolean }> 
   plex: { mediaLibrary: true },
   jellyfin: { mediaLibrary: true },
   emby: { mediaLibrary: true },
+  tofa: { mediaLibrary: true },
   dispatcharr: { mediaLibrary: false },
   channels_dvr: { mediaLibrary: true },
 };

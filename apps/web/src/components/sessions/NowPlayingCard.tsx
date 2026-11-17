@@ -11,6 +11,7 @@ import {
   formatLocationCompact,
   getBufferedPercent,
   getDeviceDisplayName,
+  getMediaDisplay,
   getMediaLinks,
 } from '@/lib/utils';
 import { imageProxyUrl } from '@/lib/api';
@@ -41,7 +42,10 @@ interface NowPlayingCardProps {
 
 function getCardMediaDisplay(session: ActiveSession): { title: string; subtitle: string | null } {
   if (session.mediaType === 'live') {
-    if (session.server.type === 'plex') return { title: session.mediaTitle, subtitle: null };
+    // Plex and tofa name the program's show first, the channel under it (upstream #1441)
+    if (session.server.type === 'plex' || session.server.type === 'tofa') {
+      return getMediaDisplay(session);
+    }
     const channelTitle = session.channelTitle?.trim() || session.mediaTitle;
     const programTitle = session.mediaTitle?.trim() || null;
     const subtitle = programTitle && programTitle !== channelTitle ? programTitle : null;
@@ -115,12 +119,12 @@ export function NowPlayingCard({ session, onClick }: NowPlayingCardProps) {
   const { title, subtitle: mediaSubtitle } = getCardMediaDisplay(session);
   const mediaLinks = getMediaLinks(session);
   const { user } = useAuth();
-  const { t } = useTranslation(['common', 'pages']);
+  const { t } = useTranslation(['common', 'pages', 'settings']);
   const subtitle =
     session.mediaType === 'trailer'
       ? [t('pages:automations.options.trailer'), mediaSubtitle].filter(Boolean).join(' · ')
       : mediaSubtitle;
-  const { isMultiServer } = useServer();
+  const { isMultiServer, servers } = useServer();
   const [showTerminateDialog, setShowTerminateDialog] = useState(false);
   // Read when the tooltip opens: while playing, now plus what's left stays put.
   const [endsAt, setEndsAt] = useState<number | null>(null);
@@ -128,6 +132,8 @@ export function NowPlayingCard({ session, onClick }: NowPlayingCardProps) {
   // Only admin/owner can terminate sessions, and session must support termination
   // (some Plex clients like Plexamp don't provide the required Session.id)
   const canTerminate = (user?.role === 'admin' || user?.role === 'owner') && session.canTerminate;
+  const stopRefused =
+    servers.find((server) => server.id === session.serverId)?.canStopStreams === false;
 
   // Channels DVR stops playback by calling the Channels app on the device itself, which only
   // works on the local network. Remote sessions get a message instead of the dialog.
@@ -177,6 +183,7 @@ export function NowPlayingCard({ session, onClick }: NowPlayingCardProps) {
   const avatarUrl = getAvatarUrl(session.serverId, session.user.thumbUrl, 28) ?? undefined;
 
   const deviceName = getDeviceDisplayName(session);
+  const displayName = session.user.identityName ?? session.user.username;
   const isPaused = session.state === 'paused';
   const isDispatcharrLive =
     !isDispatcharrCatchup && session.server.type === 'dispatcharr' && session.mediaType === 'live';
@@ -267,7 +274,7 @@ export function NowPlayingCard({ session, onClick }: NowPlayingCardProps) {
             <div className="flex items-start justify-between gap-2">
               <div className="flex min-w-0 items-center gap-2">
                 <Avatar className="border-background h-7 w-7 shrink-0 border-2 shadow">
-                  <AvatarImage src={avatarUrl} alt={session.user.username} />
+                  <AvatarImage src={avatarUrl} alt={displayName} />
                   <AvatarFallback className="text-xs">
                     {/* Channels DVR "users" are devices with no picture: show the device maker's logo */}
                     {isChannelsDvr ? (
@@ -278,15 +285,12 @@ export function NowPlayingCard({ session, onClick }: NowPlayingCardProps) {
                         className="h-3.5 w-3.5"
                       />
                     ) : (
-                      session.user.username.slice(0, 2).toUpperCase()
+                      displayName.slice(0, 2).toUpperCase()
                     )}
                   </AvatarFallback>
                 </Avatar>
-                <span
-                  className="truncate text-sm font-medium"
-                  title={session.user.identityName ?? session.user.username}
-                >
-                  {session.user.identityName ?? session.user.username}
+                <span className="truncate text-sm font-medium" title={displayName}>
+                  {displayName}
                 </span>
               </div>
 
@@ -338,44 +342,57 @@ export function NowPlayingCard({ session, onClick }: NowPlayingCardProps) {
                 </div>
 
                 {/* Terminate button - admin/owner only */}
-                {canTerminate && (
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className={cn(
-                      'text-muted-foreground hover:bg-destructive/10 hover:text-destructive h-6 w-6',
-                      isPending && 'cursor-not-allowed opacity-50 hover:bg-transparent'
-                    )}
-                    aria-disabled={isPending || undefined}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      if (isChannelsWeb) {
-                        toast.error(webNotPossible);
-                        return;
+                {canTerminate &&
+                  (stopRefused ? (
+                    <span title={t('settings:servers.cannotStopStreams')}>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="text-muted-foreground pointer-events-none h-6 w-6"
+                        aria-label={t('settings:servers.cannotStopStreams')}
+                        disabled
+                      >
+                        <X className="h-4 w-4" />
+                      </Button>
+                    </span>
+                  ) : (
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className={cn(
+                        'text-muted-foreground hover:bg-destructive/10 hover:text-destructive h-6 w-6',
+                        isPending && 'cursor-not-allowed opacity-50 hover:bg-transparent'
+                      )}
+                      aria-disabled={isPending || undefined}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (isChannelsWeb) {
+                          toast.error(webNotPossible);
+                          return;
+                        }
+                        if (isRemoteChannels) {
+                          toast.error(remoteNotPossible);
+                          return;
+                        }
+                        if (isPending) {
+                          toast.info(pendingNotYet);
+                          return;
+                        }
+                        setShowTerminateDialog(true);
+                      }}
+                      title={
+                        isChannelsWeb
+                          ? webNotPossible
+                          : isRemoteChannels
+                            ? remoteNotPossible
+                            : isPending
+                              ? pendingNotYet
+                              : t('pages:terminateStream.title')
                       }
-                      if (isRemoteChannels) {
-                        toast.error(remoteNotPossible);
-                        return;
-                      }
-                      if (isPending) {
-                        toast.info(pendingNotYet);
-                        return;
-                      }
-                      setShowTerminateDialog(true);
-                    }}
-                    title={
-                      isChannelsWeb
-                        ? webNotPossible
-                        : isRemoteChannels
-                          ? remoteNotPossible
-                          : isPending
-                            ? pendingNotYet
-                            : t('pages:terminateStream.title')
-                    }
-                  >
-                    <X className="h-4 w-4" />
-                  </Button>
-                )}
+                    >
+                      <X className="h-4 w-4" />
+                    </Button>
+                  ))}
               </div>
             </div>
 
@@ -398,7 +415,7 @@ export function NowPlayingCard({ session, onClick }: NowPlayingCardProps) {
                 buffered={getBufferedPercent(session)}
                 className="h-1.5"
               />
-              <div className="text-muted-foreground flex justify-between gap-2 text-[10px]">
+              <div className="text-muted-foreground flex justify-between gap-2 text-xs tabular-nums">
                 <span className="shrink-0">
                   {isDispatcharrCatchup ? catchupStartLabel : formatDuration(estimatedProgressMs)}
                 </span>
@@ -413,7 +430,7 @@ export function NowPlayingCard({ session, onClick }: NowPlayingCardProps) {
                   {isDispatcharrCatchup ? (
                     catchupEndLabel
                   ) : isPaused || session.buffering ? (
-                    <span className="font-medium text-yellow-500">{dispatcharrStateLabel}</span>
+                    <span className="text-warning font-medium">{dispatcharrStateLabel}</span>
                   ) : dispatcharrLiveLabel ? (
                     dispatcharrLiveLabel
                   ) : remaining ? (
@@ -471,7 +488,7 @@ export function NowPlayingCard({ session, onClick }: NowPlayingCardProps) {
         onOpenChange={setShowTerminateDialog}
         sessionId={session.id}
         mediaTitle={title}
-        username={session.user.username}
+        username={displayName}
         showMessageField={!isChannelsDvr}
         targetIsDevice={isChannelsDvr}
       />

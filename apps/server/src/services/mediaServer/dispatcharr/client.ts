@@ -538,8 +538,16 @@ export class DispatcharrClient implements IMediaServerClient {
     return { items: [], totalCount: 0 };
   }
 
-  async getLibraryItemsSince(): Promise<{ items: MediaLibraryItem[]; totalCount: number }> {
-    return { items: [], totalCount: 0 };
+  async getLibraryItemsSince(): Promise<{
+    items: MediaLibraryItem[];
+    totalCount: number;
+    feed: NotNeeded;
+  }> {
+    return { items: [], totalCount: 0, feed: NOT_NEEDED };
+  }
+
+  async getLibraryRevision(): Promise<NotNeeded> {
+    return NOT_NEEDED;
   }
 
   async getLibraryLeavesSince(): Promise<{ items: MediaLibraryItem[]; totalCount: number }> {

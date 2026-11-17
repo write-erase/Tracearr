@@ -124,6 +124,11 @@ export type {
   // Playback Reporting import
   PlaybackReportingImportProgress,
   PlaybackReportingImportResult,
+  TofaImportProgress,
+  TofaImportResult,
+  ImportRetry,
+  LatestImportStatus,
+  ImportWaitingForLibrarySync,
   // Library sync
   LibrarySyncProgress,
   // Heavy ops coordination
@@ -608,6 +613,7 @@ export {
   // Playback Reporting import
   playbackReportingImportSchema,
   playbackReportingTestSchema,
+  tofaImportSchema,
   // Engagement tracking
   engagementTierSchema,
   userBehaviorTypeSchema,
@@ -950,7 +956,13 @@ export {
 } from './violations.js';
 
 // Media display utilities
-export { formatEpisodeLabel, isDirectAvatarUrl, type FormatEpisodeLabelOptions } from './media.js';
+export {
+  formatEpisodeLabel,
+  isDirectAvatarUrl,
+  isProxiableAvatarUrl,
+  namesShow,
+  type FormatEpisodeLabelOptions,
+} from './media.js';
 
 // Alphabet rail letters
 export { LETTER_RAIL_ALPHABET } from './catalogLetters.js';
@@ -1018,7 +1030,13 @@ export {
   isServerType,
   type JellyfinEmbyServerType,
 } from './serverTypes.js';
-export { SERVER_PROFILES, type ServerProfile } from './serverProfiles.js';
+export {
+  SERVER_PROFILES,
+  liveStatsGapSeconds,
+  ownerLinkProof,
+  type OwnerLinkProof,
+  type ServerProfile,
+} from './serverProfiles.js';
 
 // Server-scope selection (cache-key and query-param builders)
 export {
@@ -1037,9 +1055,10 @@ export {
   type MediaServerItemLinkInput,
 } from './mediaServerLinks.js';
 
-// Request tracking (Seerr)
+// Request tracking (Seerr and tofa)
 export {
   REQUEST_SERVICE_TYPES,
+  REQUEST_SERVICE_BUILT_IN,
   MEDIA_REQUEST_STATUSES,
   testRequestServiceSchema,
   createRequestServiceSchema,

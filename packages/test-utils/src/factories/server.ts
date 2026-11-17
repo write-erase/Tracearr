@@ -25,6 +25,7 @@ const DEFAULT_PORTS: Record<ServerType, number> = {
   plex: 32400,
   jellyfin: 8096,
   emby: 8920,
+  tofa: 33333,
   dispatcharr: 9191,
   channels_dvr: 8089,
 };

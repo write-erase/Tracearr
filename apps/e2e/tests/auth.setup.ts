@@ -1,6 +1,5 @@
 import { test as setup, expect } from '@playwright/test';
 import path from 'path';
-import { waitForAuthForm } from './helpers/auth.js';
 
 const STORAGE_STATE_PATH = path.resolve(import.meta.dirname, '../.auth/user.json');
 
@@ -11,18 +10,29 @@ const E2E_USER = {
   password: 'TestPassword123!',
 };
 
+// The backend can take a while to finish starting after its HTTP port opens.
 setup.setTimeout(120_000);
+
+// No server of this type is seeded, so the connect step offers Skip instead of Continue.
+const FIRST_RUN_SERVER = 'Emby';
 
 setup('authenticate', async ({ page }) => {
   await page.goto('/login');
 
   // The frontend can briefly show a startup screen while the backend finishes
-  // initializing DB/Redis-dependent services after the HTTP port is open.
-  await waitForAuthForm(page);
-
-  // Handle claim code gate if present (only shown on first-time setup when CLAIM_CODE is configured)
+  // initializing DB/Redis-dependent services after the HTTP port is open, so the
+  // first screen gets the same 90s waitForAuthForm allows elsewhere.
   const claimCodeInput = page.locator('#gate-claimCode');
-  if (await claimCodeInput.isVisible({ timeout: 2_000 }).catch(() => false)) {
+  const serverPicker = page.getByRole('radiogroup', { name: 'Which media server do you use?' });
+  const identifierInput = page.locator('#identifier');
+
+  await expect(
+    claimCodeInput.or(serverPicker).or(identifierInput),
+    'An owner who signed up without a password (Plex or tofa) leaves no password sign-in here; ' +
+      'start from a fresh database'
+  ).toBeVisible({ timeout: 90_000 });
+
+  if (await claimCodeInput.isVisible()) {
     const claimCode = process.env.CLAIM_CODE;
     if (!claimCode) {
       throw new Error(
@@ -32,32 +42,29 @@ setup('authenticate', async ({ page }) => {
     }
     await claimCodeInput.fill(claimCode);
     await page.getByRole('button', { name: 'Validate Claim Code' }).click();
-
-    // Wait for the gate to dismiss and the signup form to appear
-    await page.waitForSelector('#email', { timeout: 10_000 });
+    await expect(serverPicker).toBeVisible();
   }
 
-  // Determine if this is first-time setup (signup) or returning user (login)
-  const createAccountButton = page.getByRole('button', { name: 'Create Account' });
-  const signInButton = page.getByRole('button', { name: 'Sign In', exact: true });
+  if (await serverPicker.isVisible()) {
+    await page.getByRole('radio', { name: FIRST_RUN_SERVER }).click();
+    await page.getByRole('button', { name: 'Continue' }).click();
 
-  if (await createAccountButton.isVisible({ timeout: 2_000 }).catch(() => false)) {
-    // First-time setup — sign up as the first owner
     await page.locator('#name').fill(E2E_USER.name);
     await page.locator('#username').fill(E2E_USER.username);
     await page.locator('#email').fill(E2E_USER.email);
     await page.locator('#password').fill(E2E_USER.password);
-    await createAccountButton.click();
+    await page.getByRole('button', { name: 'Create Account' }).click();
+
+    await expect(page).toHaveURL(/\/setup\?type=emby$/, { timeout: 15_000 });
+    await page.getByRole('button', { name: 'Skip' }).click();
   } else {
-    // Existing database — log in with credentials
-    await page.locator('#identifier').fill(E2E_USER.email);
+    await identifierInput.fill(E2E_USER.email);
     await page.locator('#password').fill(E2E_USER.password);
-    await signInButton.click();
+    await page.getByRole('button', { name: 'Sign In', exact: true }).click();
   }
 
-  // Wait for redirect to dashboard (confirms auth succeeded)
   await expect(page).toHaveURL('/', { timeout: 15_000 });
 
-  // Save storage state (session is a cookie now, not a localStorage token)
+  // The session is a cookie, so storage state carries it to the other projects.
   await page.context().storageState({ path: STORAGE_STATE_PATH });
 });

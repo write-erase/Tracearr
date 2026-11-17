@@ -428,6 +428,7 @@ describe('Dispatcharr catch-up programme rollover', () => {
         type: 'dispatcharr' as const,
         url: 'http://dispatcharr.local',
         token: 'test-key',
+        watchedRulePercent: null,
         createdAt: new Date(),
         updatedAt: new Date(),
       };
