@@ -18,7 +18,7 @@ import {
   sortableKeyboardCoordinates,
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable';
-import type { Server } from '@tracearr/shared';
+import { SERVER_PROFILES, type Server, type ServerType } from '@tracearr/shared';
 import { Button } from '@/components/ui/button';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { EmptyState } from '@/components/ui/empty-state';
@@ -69,9 +69,7 @@ export function Connections() {
   const [historicalId, setHistoricalId] = useState<string | null>(null);
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [editServer, setEditServer] = useState<Server | null>(null);
-  const [serverType, setServerType] = useState<'plex' | 'jellyfin' | 'emby' | 'dispatcharr' | 'channels_dvr'>(
-    'plex'
-  );
+  const [serverType, setServerType] = useState<ServerType>('plex');
   const [dispatcharr, setDispatcharr] = useState(emptyDispatcharrForm);
   const [serverUrl, setServerUrl] = useState('');
   const [publicUrl, setPublicUrl] = useState('');
@@ -85,16 +83,18 @@ export function Connections() {
   const [plexAccounts, setPlexAccounts] = useState<PlexAccountOption[]>([]);
   const [selectedPlexAccountId, setSelectedPlexAccountId] = useState<string | null>(null);
 
+  const plexOAuth = SERVER_PROFILES[serverType].addServerAuth === 'plexOAuth';
+
   const sensors = useSensors(
     useSensor(PointerSensor),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
   );
 
   useEffect(() => {
-    if (user && !isOwner && serverType === 'plex') {
+    if (user && !isOwner && plexOAuth) {
       setServerType('jellyfin');
     }
-  }, [user, isOwner, serverType]);
+  }, [user, isOwner, plexOAuth]);
 
   const servers = Array.isArray(serversData)
     ? serversData
@@ -148,7 +148,7 @@ export function Connections() {
   };
 
   useEffect(() => {
-    if (showAddDialog && serverType === 'plex' && isOwner) {
+    if (showAddDialog && plexOAuth && isOwner) {
       void fetchPlexAccounts();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only on dialog open, not on serverType changes
@@ -196,14 +196,15 @@ export function Connections() {
   };
 
   const handleAddServer = async () => {
+    if (serverType === 'plex') return;
     const hasAuth =
       serverType === 'channels_dvr'
         ? true
         : serverType === 'dispatcharr'
-        ? dispatcharr.mode === 'token'
-          ? Boolean(dispatcharr.token.trim())
-          : Boolean(dispatcharr.username.trim()) && Boolean(dispatcharr.password)
-        : Boolean(apiKey);
+          ? dispatcharr.mode === 'token'
+            ? Boolean(dispatcharr.token.trim())
+            : Boolean(dispatcharr.username.trim()) && Boolean(dispatcharr.password)
+          : Boolean(apiKey);
     if (!serverUrl || !serverName || !hasAuth) {
       setConnectError(t('servers.allFieldsRequired'));
       return;
@@ -240,10 +241,10 @@ export function Connections() {
         resetAddForm();
         return;
       }
-      const connectFn =
-        serverType === 'jellyfin'
-          ? api.auth.connectJellyfinWithApiKey
-          : api.auth.connectEmbyWithApiKey;
+      const connectFn = {
+        jellyfin: api.auth.connectJellyfinWithApiKey,
+        emby: api.auth.connectEmbyWithApiKey,
+      }[serverType];
       await connectFn({
         serverUrl,
         serverName,
@@ -325,7 +326,10 @@ export function Connections() {
                   isDraggable={isOwner}
                   isOwner={isOwner}
                   requestService={
-                    isOwner && server.type !== 'dispatcharr' && server.type !== 'channels_dvr' && !requestServicesLoading
+                    isOwner &&
+                    server.type !== 'dispatcharr' &&
+                    server.type !== 'channels_dvr' &&
+                    !requestServicesLoading
                       ? { service: requestServices?.find((s) => s.serverId === server.id) }
                       : undefined
                   }
@@ -348,7 +352,7 @@ export function Connections() {
         onServerTypeChange={(newType) => {
           setServerType(newType);
           setConnectError(null);
-          if (newType === 'plex' && isOwner) {
+          if (SERVER_PROFILES[newType].addServerAuth === 'plexOAuth' && isOwner) {
             void fetchPlexAccounts();
           }
         }}

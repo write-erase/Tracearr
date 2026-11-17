@@ -24,7 +24,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { useServer } from '@/hooks/useServer';
 import { useServerColorMap } from '@/hooks/useServerColorMap';
 import { useSocket } from '@/hooks/useSocket';
-import { pickServerColor, serverLinkBase } from '@tracearr/shared';
+import { SERVER_PROFILES, pickServerColor, serverLinkBase } from '@tracearr/shared';
 import { formatWatchTime } from '@/lib/dateFormat';
 import { cn } from '@/lib/utils';
 
@@ -91,7 +91,7 @@ function ServerDashboard({ actions }: { actions?: ReactNode }) {
   // Single-server view: Plex always shows the section; Jellyfin/Emby show it
   // once the SSE plugin's server.stats samples start arriving
   const singleServer = !isMultiServer ? selectedServers[0] : undefined;
-  const singleIsPlex = singleServer?.type === 'plex';
+  const singleProfile = singleServer && SERVER_PROFILES[singleServer.type];
 
   // Multi-server view fans out to every selected server and overlays one
   // line per server that reports data. Servers without a stats source yet
@@ -117,7 +117,10 @@ function ServerDashboard({ actions }: { actions?: ReactNode }) {
   const showServerResources =
     !!singleServer &&
     !singleServer.historicalAt &&
-    (singleIsPlex || singleServer.type === 'dispatcharr' || (serverStats?.length ?? 0) > 0);
+    // Dispatcharr's section shows from the start, waiting for its metrics plugin's samples.
+    (singleProfile?.hostStats === 'plexStatistics' ||
+      singleProfile?.hostStats === 'dispatcharrPlugin' ||
+      (serverStats?.length ?? 0) > 0);
 
   const liveSelected = selectedServers.filter((s) => !s.historicalAt);
   const singleProcessLabel = singleServer
@@ -142,20 +145,25 @@ function ServerDashboard({ actions }: { actions?: ReactNode }) {
     (s) => s.statistics.length > 0 || s.bandwidth.length > 0
   );
   const showMultiServerResources =
-    isMultiServer && (hasAnyMultiData || liveSelected.some((s) => s.type === 'plex'));
-  // Dispatcharr shows bandwidth after its Metrics plugin supplies a valid sample.
+    isMultiServer &&
+    (hasAnyMultiData ||
+      liveSelected.some((s) => SERVER_PROFILES[s.type].hostStats === 'plexStatistics'));
+  // A server that reports bandwidth shows the chart; Dispatcharr only once its metrics plugin
+  // has sent a valid sample.
+  const showsBandwidth = (type: (typeof selectedServers)[number]['type'], samples: number) =>
+    SERVER_PROFILES[type].reportsBandwidth &&
+    (SERVER_PROFILES[type].hostStats !== 'dispatcharrPlugin' || samples > 0);
   const showBandwidthChart =
     (!!singleServer &&
       !singleServer.historicalAt &&
-      (singleIsPlex ||
-        (singleServer.type === 'dispatcharr' && (bandwidthStats?.length ?? 0) > 0))) ||
+      showsBandwidth(singleServer.type, bandwidthStats?.length ?? 0)) ||
     (isMultiServer &&
-      (liveSelected.some((s) => s.type === 'plex') ||
-        multiLiveStats.some(
-          (series) =>
-            liveSelected.find((server) => server.id === series.serverId)?.type === 'dispatcharr' &&
-            series.bandwidth.length > 0
-        )));
+      liveSelected.some((server) =>
+        showsBandwidth(
+          server.type,
+          multiLiveStats.find((series) => series.serverId === server.id)?.bandwidth.length ?? 0
+        )
+      ));
 
   const seriesMeta = useCallback(
     (serverId: string) => {

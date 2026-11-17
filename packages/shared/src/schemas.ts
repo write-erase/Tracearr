@@ -6,15 +6,13 @@ import { z } from 'zod';
 import { LOGIN_ACCESS, isValidTimezone } from './constants.js';
 import { listDateBoundSchema, listSortSchema } from './listQuery.js';
 import { PLAYBACK_DECISIONS } from './playbackDecision.js';
+import { SERVER_TYPES, assertNever } from './serverTypes.js';
 
 // ============================================================================
 // Shared Enum Constants
 // ============================================================================
 
-/** Server types supported by Tracearr */
-const SERVER_TYPES = ['plex', 'jellyfin', 'emby', 'dispatcharr', 'channels_dvr'] as const;
 export const serverTypeSchema = z.enum(SERVER_TYPES);
-export type ServerType = z.infer<typeof serverTypeSchema>;
 
 /** Media types for content filtering */
 const MEDIA_TYPES = ['movie', 'episode', 'track', 'live'] as const;
@@ -205,34 +203,49 @@ export const createServerSchema = z
     publicUrl: publicUrlSchema.optional(),
   })
   .superRefine((data, ctx) => {
-    if (data.type === 'dispatcharr') {
-      const hasToken = Boolean(data.token?.trim());
-      const hasUserPass = Boolean(data.username?.trim()) && Boolean(data.password);
-      if (!hasToken && !hasUserPass) {
-        ctx.addIssue({
-          code: 'custom',
-          message: 'Dispatcharr requires either token or username+password',
-          path: ['token'],
-        });
+    switch (data.type) {
+      case 'dispatcharr': {
+        const hasToken = Boolean(data.token?.trim());
+        const hasUserPass = Boolean(data.username?.trim()) && Boolean(data.password);
+        if (!hasToken && !hasUserPass) {
+          ctx.addIssue({
+            code: 'custom',
+            message: 'Dispatcharr requires either token or username+password',
+            path: ['token'],
+          });
+        }
+        return;
       }
-      return;
-    }
-
-    // Channels DVR's local API is unauthenticated, so there is no token to require.
-    if (data.type === 'channels_dvr') return;
-
-    if (!data.token?.trim()) {
-      ctx.addIssue({
-        code: 'custom',
-        message: 'Token is required',
-        path: ['token'],
-      });
+      // Channels DVR's local API is unauthenticated, so there is no token to require.
+      case 'channels_dvr':
+        return;
+      case 'plex':
+      case 'jellyfin':
+      case 'emby':
+        if (!data.token?.trim()) {
+          ctx.addIssue({ code: 'custom', message: 'Token is required', path: ['token'] });
+        }
+        return;
+      default:
+        assertNever(data.type);
     }
   })
-  .refine((data) => data.type !== 'plex' || data.publicUrl == null, {
-    message: PUBLIC_URL_PLEX_MESSAGE,
-    path: ['publicUrl'],
-  });
+  .refine(
+    (data) => {
+      switch (data.type) {
+        case 'plex':
+          return data.publicUrl == null;
+        case 'jellyfin':
+        case 'emby':
+        case 'dispatcharr':
+        case 'channels_dvr':
+          return true;
+        default:
+          return assertNever(data.type);
+      }
+    },
+    { message: PUBLIC_URL_PLEX_MESSAGE, path: ['publicUrl'] }
+  );
 
 export const apiKeyConnectSchema = z.object({
   serverUrl: z.url(),
@@ -1008,6 +1021,8 @@ export const updateSettingsSchema = z.object({
   preferredPosterServerId: z.uuid().nullable().optional(),
   // Members see anonymous counts of other people's activity
   memberServerActivity: z.boolean().optional(),
+  // Admins and members sign in only through SSO
+  memberSsoOnly: z.boolean().optional(),
 });
 
 // ============================================================================

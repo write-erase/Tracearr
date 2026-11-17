@@ -1,3 +1,5 @@
+import type { ServerType } from '@tracearr/shared';
+
 export interface HistoryRow {
   id: string;
   started_at: Date;
@@ -95,7 +97,7 @@ export function mapHistoryRow(row: HistoryRow) {
     server: {
       id: row.server_id,
       name: row.server_name,
-      type: row.server_type as 'plex' | 'jellyfin' | 'emby' | 'dispatcharr' | 'channels_dvr',
+      type: row.server_type as ServerType,
     },
     sessionKey: row.session_key,
     state: row.state,

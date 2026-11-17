@@ -19,6 +19,7 @@ import {
   type EngineAutomation,
   type Session,
   type StreamDetailFields,
+  type ServerType,
 } from '@tracearr/shared';
 import { and, desc, eq, gte, inArray, isNull, sql } from 'drizzle-orm';
 import { db } from '../../db/client.js';
@@ -41,6 +42,7 @@ import {
 import { isLocalSession } from '../../db/sessions/rules.js';
 import { clearDbWriteTracking } from './dbWriteThrottle.js';
 import { pickStreamDetailFields } from './sessionMapper.js';
+import { canTerminate } from './sessionIdentity.js';
 import {
   calculateStopDuration,
   checkWatchCompletion,
@@ -176,7 +178,7 @@ export interface BuildActiveSessionInput {
   server: {
     id: string;
     name: string;
-    type: 'plex' | 'jellyfin' | 'emby' | 'dispatcharr' | 'channels_dvr';
+    type: ServerType;
   };
 
   /** Optional overrides for update scenarios */
@@ -335,9 +337,8 @@ export function buildActiveSession(input: BuildActiveSessionInput): ActiveSessio
     user,
     server: { id: server.id, name: server.name, type: server.type },
 
-    // Termination capability - Plex requires Session.id, some clients (like Plexamp) don't provide it.
-    // Channels DVR shows the button for every session; remote ones are refused with a message on click.
-    canTerminate: server.type !== 'plex' || !!processed.plexSessionId,
+    // Termination capability - Plex requires Session.id, some clients (like Plexamp) don't provide it
+    canTerminate: canTerminate(server.type, processed.plexSessionId),
   };
 }
 
@@ -475,7 +476,7 @@ export function buildPendingActiveSession(pendingData: PendingSessionData): Acti
     server: { id: server.id, name: server.name, type: server.type },
 
     // Termination capability
-    canTerminate: server.type !== 'plex' || !!processed.plexSessionId,
+    canTerminate: canTerminate(server.type, processed.plexSessionId),
 
     // Unconfirmed; excludeUncountableSessions drops this from rule evaluation
     pending: true,

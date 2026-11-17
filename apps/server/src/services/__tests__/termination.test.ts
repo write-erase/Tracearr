@@ -48,6 +48,21 @@ import { getCacheService, getPubSubService } from '../cache.js';
 import { createMediaServerClient } from '../mediaServer/index.js';
 import { dispatchSessionStopped } from '../automations/events/producers.js';
 import { terminateSession } from '../termination.js';
+import {
+  fakeChannelsDvrClient,
+  fakeDispatcharrClient,
+  fakeEmbyClient,
+  fakeJellyfinClient,
+  fakePlexClient,
+} from '../../test/mediaServerFakes.js';
+
+const fakeClients = {
+  plex: fakePlexClient,
+  jellyfin: fakeJellyfinClient,
+  emby: fakeEmbyClient,
+  dispatcharr: fakeDispatcharrClient,
+  channels_dvr: fakeChannelsDvrClient,
+};
 
 // Type for the mock session findFirst function (returns partial session for tests)
 const mockSessionFindFirst = db.query.sessions.findFirst as ReturnType<typeof vi.fn>;
@@ -124,7 +139,9 @@ describe('terminateSession', () => {
     // Default: services are available
     vi.mocked(getCacheService).mockReturnValue(mockCacheService as never);
     vi.mocked(getPubSubService).mockReturnValue(mockPubSubService as never);
-    vi.mocked(createMediaServerClient).mockReturnValue(mockMediaClient as never);
+    vi.mocked(createMediaServerClient).mockImplementation((options) =>
+      fakeClients[options.type](mockMediaClient)
+    );
 
     // Setup default DB mocks
     mockDbUpdateChain();

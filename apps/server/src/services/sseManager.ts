@@ -17,13 +17,17 @@
 import { EventEmitter } from 'events';
 import {
   POLLING_INTERVALS,
+  SERVER_PROFILES,
   WS_EVENTS,
+  assertNever,
   type SSEConnectionState,
   type SSEConnectionStatus,
   type ServerConnectionStatus,
   type PluginFamily,
   type PluginIssue,
   type PlexPlaySessionNotification,
+  type ServerType,
+  type JellyfinEmbyServerType,
 } from '@tracearr/shared';
 import { registerService, unregisterService } from './serviceTracker.js';
 import { liveServers } from './liveServers.js';
@@ -53,6 +57,7 @@ import { recordTranscodePullEvent } from './downloads/transcodePull.js';
 import { getServerUserIdByExternalId } from '../jobs/poller/database.js';
 import { getRedis } from '../lib/redisShared.js';
 import { probeSsePlugin } from './mediaServer/shared/ssePluginProbe.js';
+import { isJellyfinEmby } from './mediaServer/index.js';
 import { broadcastToSessions } from '../websocket/index.js';
 import { isLeader } from './leaderLease.js';
 import { triggerServerPoll } from '../jobs/poller/index.js';
@@ -84,7 +89,7 @@ export interface SSEManagerEvents {
 interface ServerConnection {
   serverId: string;
   serverName: string;
-  serverType: 'plex' | 'jellyfin' | 'emby' | 'dispatcharr' | 'channels_dvr';
+  serverType: ServerType;
   // Retained for diagnosing a Jellyfin/Emby plugin endpoint reported as unsupported.
   url: string;
   token: string;
@@ -277,7 +282,7 @@ export class SSEManager extends EventEmitter {
   async addServer(
     serverId: string,
     serverName: string,
-    serverType: 'plex' | 'jellyfin' | 'emby' | 'dispatcharr' | 'channels_dvr',
+    serverType: ServerType,
     url: string,
     token: string,
     ignoreAnonymousStreams = true
@@ -313,44 +318,53 @@ export class SSEManager extends EventEmitter {
       };
 
       try {
-        if (serverType === 'plex') {
-          const eventSource = new PlexEventSource({
-            serverId,
-            serverName,
-            url,
-            token,
-          });
+        switch (serverType) {
+          case 'plex': {
+            const eventSource = new PlexEventSource({
+              serverId,
+              serverName,
+              url,
+              token,
+            });
 
-          this.setupPlexEventHandlers(eventSource, serverId, serverName);
-          connection.eventSource = eventSource;
-          await eventSource.connect();
-        } else if (serverType === 'dispatcharr') {
-          const realtime = new DispatcharrRealtimeConnector({
-            serverId,
-            serverName,
-            url,
-            token,
-            ignoreAnonymousStreams,
-          });
+            this.setupPlexEventHandlers(eventSource, serverId, serverName);
+            connection.eventSource = eventSource;
+            await eventSource.connect();
+            break;
+          }
+          case 'dispatcharr': {
+            const realtime = new DispatcharrRealtimeConnector({
+              serverId,
+              serverName,
+              url,
+              token,
+              ignoreAnonymousStreams,
+            });
 
-          this.setupDispatcharrRealtimeHandlers(realtime, serverId, serverName);
-          connection.dispatcharrRealtime = realtime;
-          connection.inFallback = realtime.isInFallback();
-          connection.state = realtime.isInFallback() ? 'fallback' : 'connecting';
-          await realtime.connect();
-        } else {
-          // Jellyfin/Emby: attempt plugin SSE connection
-          const eventSource = new JellyfinEmbyEventSource({
-            serverId,
-            serverName,
-            url,
-            serverType,
-            token,
-          });
+            this.setupDispatcharrRealtimeHandlers(realtime, serverId, serverName);
+            connection.dispatcharrRealtime = realtime;
+            connection.inFallback = realtime.isInFallback();
+            connection.state = realtime.isInFallback() ? 'fallback' : 'connecting';
+            await realtime.connect();
+            break;
+          }
+          case 'jellyfin':
+          case 'emby': {
+            const eventSource = new JellyfinEmbyEventSource({
+              serverId,
+              serverName,
+              url,
+              serverType,
+              token,
+            });
 
-          this.setupJellyfinEmbyEventHandlers(eventSource, serverId, serverName, serverType);
-          connection.eventSource = eventSource;
-          await eventSource.connect();
+            this.setupJellyfinEmbyEventHandlers(eventSource, serverId, serverName, serverType);
+            connection.eventSource = eventSource;
+            await eventSource.connect();
+            break;
+          }
+          default:
+            assertNever(serverType);
         }
       } catch (error) {
         // connect() threw before the connection was tracked in this.connections,
@@ -639,7 +653,7 @@ export class SSEManager extends EventEmitter {
   private buildConnectionStatus(
     serverId: string,
     serverName: string,
-    serverType: 'plex' | 'jellyfin' | 'emby' | 'dispatcharr' | 'channels_dvr',
+    serverType: ServerType,
     status: SSEConnectionStatus
   ): ServerConnectionStatus {
     const state = status.state;
@@ -652,8 +666,10 @@ export class SSEManager extends EventEmitter {
       state === 'connected' &&
       status.connectedAt !== null &&
       Date.now() - status.connectedAt.getTime() > 30_000;
+    const liveEvents = SERVER_PROFILES[serverType].liveEvents;
+    // Dispatcharr's metrics plugin reports its version the same way the Jellyfin/Emby one does.
     const pluginUpdateAvailable =
-      serverType !== 'plex' &&
+      (liveEvents === 'ssePlugin' || liveEvents === 'dispatcharrRealtime') &&
       latest !== null &&
       state === 'connected' &&
       (pluginVersion === null
@@ -724,7 +740,7 @@ export class SSEManager extends EventEmitter {
     eventSource: JellyfinEmbyEventSource,
     serverId: string,
     serverName: string,
-    serverType: 'jellyfin' | 'emby'
+    serverType: JellyfinEmbyServerType
   ): void {
     eventSource.on('session:event', (event: PluginSessionEvent) => {
       const connection = this.connections.get(serverId);
@@ -785,7 +801,7 @@ export class SSEManager extends EventEmitter {
   private publishJellyfinEmbyStatus(
     serverId: string,
     serverName: string,
-    serverType: 'jellyfin' | 'emby',
+    serverType: JellyfinEmbyServerType,
     status: SSEConnectionStatus
   ): void {
     const connectionStatus = this.buildConnectionStatus(serverId, serverName, serverType, status);
@@ -808,14 +824,7 @@ export class SSEManager extends EventEmitter {
    */
   private diagnoseUnsupported(serverId: string): void {
     const connection = this.connections.get(serverId);
-    if (
-      !connection ||
-      connection.serverType === 'plex' ||
-      connection.serverType === 'dispatcharr' ||
-      connection.serverType === 'channels_dvr'
-    ) {
-      return;
-    }
+    if (!connection || !isJellyfinEmby(connection.serverType)) return;
     if (this.pluginProbesInFlight.has(serverId)) return;
 
     const now = Date.now();
@@ -957,20 +966,38 @@ export class SSEManager extends EventEmitter {
       this.emit('fallback:deactivated', { serverId, serverName });
     }
 
-    // For Plex, also emit the legacy SSEConnectionStatus event
-    if (connection.serverType === 'plex') {
-      this.emit('connection:status', status);
-    }
+    // Plugin connections publish their status from their own state handler
+    const liveEvents = SERVER_PROFILES[connection.serverType].liveEvents;
+    switch (liveEvents) {
+      case 'plexWebsocket':
+        // Also emit the legacy SSEConnectionStatus event
+        this.emit('connection:status', status);
+        if (this.cacheService) {
+          const connStatus = this.buildConnectionStatus(
+            serverId,
+            serverName,
+            connection.serverType,
+            status
+          );
 
-    // Write Plex connection status to Redis too
-    if (connection.serverType === 'plex' && this.cacheService) {
-      const connStatus = this.buildConnectionStatus(serverId, serverName, 'plex', status);
+          this.cacheService
+            .setServerConnectionStatus(serverId, connStatus)
+            .catch((err: unknown) => {
+              console.error(
+                `[SSEManager] Failed to write connection status for ${serverName}:`,
+                err
+              );
+            });
 
-      this.cacheService.setServerConnectionStatus(serverId, connStatus).catch((err: unknown) => {
-        console.error(`[SSEManager] Failed to write connection status for ${serverName}:`, err);
-      });
-
-      broadcastToSessions(WS_EVENTS.SERVER_CONNECTION as 'server:connection', connStatus);
+          broadcastToSessions(WS_EVENTS.SERVER_CONNECTION as 'server:connection', connStatus);
+        }
+        break;
+      case 'ssePlugin':
+      case 'dispatcharrRealtime':
+      case 'poller':
+        break;
+      default:
+        assertNever(liveEvents);
     }
   }
 

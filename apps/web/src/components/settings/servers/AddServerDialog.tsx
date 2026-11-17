@@ -1,5 +1,6 @@
 import { useTranslation } from 'react-i18next';
 import { AlertTriangle, Loader2, Server as ServerIcon, XCircle } from 'lucide-react';
+import { SERVER_PROFILES, type ServerType } from '@tracearr/shared';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import {
@@ -25,6 +26,22 @@ import type { PlexDiscoveredServer } from '@/lib/api';
 import { SERVER_DIALOG_CONTENT_CLASS } from './dialogClasses';
 import { DispatcharrFields, type DispatcharrForm } from './DispatcharrFields';
 
+const DESCRIPTIONS = {
+  plex: 'servers.addServerDialogDescPlex',
+  jellyfin: 'servers.addServerDialogDescOther',
+  emby: 'servers.addServerDialogDescOther',
+} as const;
+
+const SERVER_URL_HELP = {
+  jellyfin: 'servers.serverUrlHelpJellyfin',
+  emby: 'servers.serverUrlHelpEmby',
+} as const;
+
+export const API_KEY_HELP = {
+  jellyfin: 'servers.apiKeyHelpJellyfin',
+  emby: 'servers.apiKeyHelpEmby',
+} as const;
+
 export type PlexDialogStep =
   'loading' | 'no-accounts' | 'select-account' | 'loading-servers' | 'no-servers' | 'select';
 
@@ -38,10 +55,8 @@ export interface AddServerDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   isOwner: boolean;
-  serverType: 'plex' | 'jellyfin' | 'emby' | 'dispatcharr' | 'channels_dvr';
-  onServerTypeChange: (
-    type: 'plex' | 'jellyfin' | 'emby' | 'dispatcharr' | 'channels_dvr'
-  ) => void;
+  serverType: ServerType;
+  onServerTypeChange: (type: ServerType) => void;
   dispatcharr?: DispatcharrForm;
   onDispatcharrChange?: (value: DispatcharrForm) => void;
   serverUrl: string;
@@ -132,6 +147,7 @@ export function AddServerDialog({
 }: AddServerDialogProps) {
   const { t } = useTranslation(['settings', 'common']);
   const showAccountPicker = plexAccounts.length > 1;
+  const auth = SERVER_PROFILES[serverType].addServerAuth;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -139,21 +155,18 @@ export function AddServerDialog({
         <DialogHeader>
           <DialogTitle>{t('servers.addServer')}</DialogTitle>
           <DialogDescription>
-            {serverType === 'plex'
-              ? t('servers.addServerDialogDescPlex')
-              : serverType === 'channels_dvr'
-                ? 'Connect a Channels DVR server.'
-                : t('servers.addServerDialogDescOther')}
+            {serverType === 'channels_dvr'
+              ? 'Connect a Channels DVR server.'
+              : serverType === 'dispatcharr'
+                ? t('servers.addServerDialogDescOther')
+                : t(DESCRIPTIONS[serverType])}
           </DialogDescription>
         </DialogHeader>
 
         <FieldGroup className="py-4">
           <Field className="max-w-sm">
             <FieldLabel htmlFor="server-type">{t('servers.serverType')}</FieldLabel>
-            <Select
-              value={serverType}
-              onValueChange={(v) => onServerTypeChange(v as AddServerDialogProps['serverType'])}
-            >
+            <Select value={serverType} onValueChange={(v) => onServerTypeChange(v as ServerType)}>
               <SelectTrigger id="server-type" className="w-full">
                 <SelectValue />
               </SelectTrigger>
@@ -167,7 +180,7 @@ export function AddServerDialog({
             </Select>
           </Field>
 
-          {serverType === 'plex' ? (
+          {auth === 'plexOAuth' && (
             <>
               {(plexStep === 'loading' || plexStep === 'loading-servers') && (
                 <div className="flex flex-col items-center justify-center gap-3 py-8">
@@ -247,7 +260,8 @@ export function AddServerDialog({
                 </>
               )}
             </>
-          ) : (
+          )}
+          {serverType !== 'plex' && (
             <>
               <Field>
                 <FieldLabel htmlFor="serverUrl">{t('servers.serverUrl')}</FieldLabel>
@@ -264,13 +278,11 @@ export function AddServerDialog({
                   onChange={(e) => onServerUrlChange(e.target.value)}
                 />
                 <FieldDescription>
-                  {serverType === 'jellyfin'
-                    ? t('servers.serverUrlHelpJellyfin')
-                    : serverType === 'dispatcharr'
-                      ? 'Dispatcharr base URL, for example http://dispatcharr.local:9191'
-                      : serverType === 'channels_dvr'
-                        ? 'The URL where your Channels DVR server is accessible'
-                        : t('servers.serverUrlHelpEmby')}
+                  {serverType === 'dispatcharr'
+                    ? 'Dispatcharr base URL, for example http://dispatcharr.local:9191'
+                    : serverType === 'channels_dvr'
+                      ? 'The URL where your Channels DVR server is accessible'
+                      : t(SERVER_URL_HELP[serverType])}
                 </FieldDescription>
               </Field>
 
@@ -312,11 +324,7 @@ export function AddServerDialog({
                     value={apiKey}
                     onChange={(e) => onApiKeyChange(e.target.value)}
                   />
-                  <FieldDescription>
-                    {serverType === 'jellyfin'
-                      ? t('servers.apiKeyHelpJellyfin')
-                      : t('servers.apiKeyHelpEmby')}
-                  </FieldDescription>
+                  <FieldDescription>{t(API_KEY_HELP[serverType])}</FieldDescription>
                 </Field>
               )}
 

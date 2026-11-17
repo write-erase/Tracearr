@@ -5,6 +5,7 @@ import type {
   NewsletterSendTrigger,
   NotificationPriority,
   ViolationWithDetails,
+  JellyfinEmbyServerType,
 } from '@tracearr/shared';
 import type { MediaQuality } from '../automations/types.js';
 import type { LineupSourceChange } from '../mediaServer/channelsDvr/lineup.js';
@@ -145,7 +146,7 @@ export type NotificationEvent =
       payload: {
         serverId: string;
         serverName: string;
-        serverType: string;
+        serverType: JellyfinEmbyServerType | 'dispatcharr';
         installedVersion: string | null;
         latestVersion: string;
         downloadUrl: string;

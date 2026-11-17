@@ -27,6 +27,7 @@ import type {
   EvaluationInputs,
   EvaluationServer,
   EvaluationServerUser,
+  PluginUpdateEvent,
   SessionRow,
   SessionStopReason,
   SessionWatchedEvent,
@@ -354,7 +355,7 @@ export async function dispatchServerHealthById(
 }
 
 export async function dispatchPluginUpdate(args: {
-  server: EvaluationServer;
+  server: PluginUpdateEvent['server'];
   installedVersion: string | null;
   latestVersion: string;
   downloadUrl: string;

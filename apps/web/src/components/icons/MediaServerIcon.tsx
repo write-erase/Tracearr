@@ -1,9 +1,6 @@
-import { Server } from 'lucide-react';
+import { assertNever, type ServerType } from '@tracearr/shared';
 import { cn } from '@/lib/utils';
 import { BASE_URL } from '@/lib/basePath';
-
-// Import server type from shared
-import type { ServerType } from '@tracearr/shared';
 
 interface MediaServerIconProps {
   /** Server type: 'plex', 'jellyfin', 'emby', 'dispatcharr', or 'channels_dvr' */
@@ -16,25 +13,20 @@ interface MediaServerIconProps {
 
 /**
  * Displays the appropriate icon for a media server type.
- * Falls back to generic Server icon if type is unknown.
  */
 export function MediaServerIcon({ type, className, alt }: MediaServerIconProps) {
-  const iconPath = getIconPath(type);
-
-  if (!iconPath) {
-    // Fallback to generic server icon
-    return <Server className={className} />;
-  }
-
   return (
-    <img src={iconPath} alt={alt ?? `${type} server`} className={cn('object-contain', className)} />
+    <img
+      src={getIconPath(type)}
+      alt={alt ?? `${type} server`}
+      className={cn('object-contain', className)}
+    />
   );
 }
 
-function getIconPath(type: ServerType): string | null {
+function getIconPath(type: ServerType): string {
   const base = BASE_URL;
-  const normalizedType = String(type).trim().toLowerCase();
-  switch (normalizedType) {
+  switch (type) {
     case 'plex':
       return `${base}images/servers/plex.png`;
     case 'jellyfin':
@@ -46,9 +38,6 @@ function getIconPath(type: ServerType): string | null {
     case 'channels_dvr':
       return `${base}images/servers/channels-dvr.svg`;
     default:
-      if (normalizedType.includes('dispatch')) {
-        return `${base}images/servers/dispatcharr.png`;
-      }
-      return null;
+      return assertNever(type);
   }
 }

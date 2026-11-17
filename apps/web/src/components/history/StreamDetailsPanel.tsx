@@ -13,6 +13,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { cn } from '@/lib/utils';
 import {
   PLAYBACK_DECISION_LABEL_KEYS,
+  SERVER_PROFILES,
   formatBitrate,
   formatMediaTech,
   formatResolutionDisplay,
@@ -301,7 +302,6 @@ export function StreamDetailsPanel({
   const transcodeReasons = transcodeInfo?.reasons ?? [];
   const videoTranscodeReasons = filterTranscodeReasons(transcodeReasons, 'video');
   const audioTranscodeReasons = filterTranscodeReasons(transcodeReasons, 'audio');
-  const showUnavailableBitrateTooltip = serverType === 'jellyfin' || serverType === 'emby';
 
   return (
     <div className="space-y-3">
@@ -374,7 +374,7 @@ export function StreamDetailsPanel({
                   // Show N/A with tooltip for Jellyfin/Emby transcodes without stream bitrate
                   videoDecision === 'transcode' &&
                   !streamVideoDetails?.bitrate &&
-                  showUnavailableBitrateTooltip ? (
+                  !SERVER_PROFILES[serverType].reportsTranscodeTrackBitrates ? (
                     <UnavailableBitrate />
                   ) : (
                     formatBitrate(streamVideoDetails?.bitrate ?? sourceVideoDetails?.bitrate)
@@ -462,7 +462,7 @@ export function StreamDetailsPanel({
                 // Show N/A with tooltip for Jellyfin/Emby transcodes without stream bitrate
                 audioDecision === 'transcode' &&
                 !streamAudioDetails?.bitrate &&
-                showUnavailableBitrateTooltip ? (
+                !SERVER_PROFILES[serverType].reportsTranscodeTrackBitrates ? (
                   <UnavailableBitrate />
                 ) : (
                   formatBitrate(streamAudioDetails?.bitrate ?? sourceAudioDetails?.bitrate)

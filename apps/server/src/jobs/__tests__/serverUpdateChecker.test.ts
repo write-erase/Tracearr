@@ -49,9 +49,19 @@ import {
   startServerUpdateChecker,
   stopServerUpdateChecker,
 } from '../serverUpdateChecker.js';
+import {
+  fakeChannelsDvrClient,
+  fakeJellyfinClient,
+  fakePlexClient,
+} from '../../test/mediaServerFakes.js';
 
 const mockLatestVersionFor = vi.mocked(latestVersionFor);
 const mockLatestChannelsVersions = vi.mocked(latestChannelsVersions);
+const fakeClients = {
+  plex: fakePlexClient,
+  jellyfin: fakeJellyfinClient,
+  channels_dvr: fakeChannelsDvrClient,
+};
 
 const JELLYFIN = {
   id: 's1',
@@ -75,7 +85,9 @@ describe('runServerUpdateCheck', () => {
     mockGetSettings.mockResolvedValue({ serverUpdateCheckEnabled: true });
     mockServerRows.mockResolvedValue([JELLYFIN]);
     mockGetSoftwareVersion.mockResolvedValue('10.11.11');
-    mockCreateClient.mockReturnValue({ getSoftwareVersion: mockGetSoftwareVersion });
+    mockCreateClient.mockImplementation((options: { type: keyof typeof fakeClients }) =>
+      fakeClients[options.type]({ getSoftwareVersion: mockGetSoftwareVersion })
+    );
     mockLatestVersionFor.mockResolvedValue('10.11.12');
   });
 

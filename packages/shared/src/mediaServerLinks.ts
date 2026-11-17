@@ -11,7 +11,7 @@
  * Null means a required identifier is missing; link to the server root.
  */
 
-import type { ServerType } from './types.js';
+import { assertNever, type ServerType } from './serverTypes.js';
 
 export interface MediaServerItemLinkInput {
   serverType: ServerType;
@@ -69,8 +69,11 @@ export function buildMediaServerItemUrl({
         itemType === 'show' ? ratingKey : itemType === 'episode' ? showRatingKey : null;
       return showId ? `${root}/admin/shows/${encodeURIComponent(showId)}` : null;
     }
-    default:
+    // Dispatcharr has no library pages to link to.
+    case 'dispatcharr':
       return null;
+    default:
+      return assertNever(serverType);
   }
 }
 

@@ -15,6 +15,7 @@ import {
   POSTER_IMAGE_SIZE,
   SQUARE_POSTER_SIZE,
   TIME_MS,
+  assertNever,
   isDirectAvatarUrl,
 } from '@tracearr/shared';
 import { db } from '../db/client.js';
@@ -22,6 +23,7 @@ import { servers, libraryItems } from '../db/schema.js';
 import { assertSafeProbeUrl, SsrfBlockedError } from '../utils/ssrf.js';
 import { getChannelLogoUrl, parseChannelLogoPath } from './mediaServer/channelsDvr/logos.js';
 import { cacheWriteAllowed, noteCacheWrite } from './imageCacheGuard.js';
+import { mediaBrowserTokenHeader } from './mediaServer/shared/baseMediaServerClient.js';
 
 // libvips defaults its thread pool to the core count, so one background
 // precache walk can own every core of a small box. Inputs are server-resized
@@ -466,64 +468,67 @@ export function buildUpstreamRequest(
     throw new SsrfBlockedError(`Not a media server image path: ${imagePath}`);
   }
 
-  // Dispatcharr's channel-logo endpoint expects the request contract used by
-  // the provider itself: the configured server URL and no proxy-added
-  // headers. In particular, do not send the generic Accept header or any
-  // authentication header through the public image proxy.
-  if (server.type === 'dispatcharr') {
-    return { imageUrl: `${baseUrl}${imagePath}`, headers: {} };
-  }
-
-  // Channels DVR has no authentication on the local network, so send nothing
-  // beyond Accept. Its preview frames are not resizable via query parameters.
-  if (server.type === 'channels_dvr') {
-    return { imageUrl: `${baseUrl}${imagePath}`, headers: { Accept: 'image/*' } };
-  }
-
   const headers: Record<string, string> = { Accept: 'image/*' };
 
-  if (server.type === 'plex') {
-    // Plex image URLs are relative paths like /library/metadata/123/thumb/456
-    if (resize && !resize.preserveAspectRatio) {
-      // Plex's photo transcoder resizes and caches server-side - a 240px
-      // poster arrives as ~20KB instead of the multi-MB original. upscale=0
-      // keeps small sources untouched; minSize=1 fills the requested box.
-      const params = new URLSearchParams({
-        width: String(resize.width),
-        height: String(resize.height),
-        minSize: '1',
-        upscale: '0',
-        url: imagePath,
-        'X-Plex-Token': server.token,
-      });
-      return { imageUrl: `${baseUrl}/photo/:/transcode?${params.toString()}`, headers };
+  switch (server.type) {
+    // Dispatcharr's channel-logo endpoint expects the request contract used by
+    // the provider itself: the configured server URL and no proxy-added
+    // headers. In particular, do not send the generic Accept header or any
+    // authentication header through the public image proxy.
+    case 'dispatcharr':
+      return { imageUrl: `${baseUrl}${imagePath}`, headers: {} };
+    // Channels DVR has no authentication on the local network, so send nothing
+    // beyond Accept. Its preview frames are not resizable via query parameters.
+    case 'channels_dvr':
+      return { imageUrl: `${baseUrl}${imagePath}`, headers };
+    case 'plex': {
+      // Plex image URLs are relative paths like /library/metadata/123/thumb/456
+      if (resize && !resize.preserveAspectRatio) {
+        // Plex's photo transcoder resizes and caches server-side - a 240px
+        // poster arrives as ~20KB instead of the multi-MB original. upscale=0
+        // keeps small sources untouched; minSize=1 fills the requested box.
+        const params = new URLSearchParams({
+          width: String(resize.width),
+          height: String(resize.height),
+          minSize: '1',
+          upscale: '0',
+          url: imagePath,
+          'X-Plex-Token': server.token,
+        });
+        return { imageUrl: `${baseUrl}/photo/:/transcode?${params.toString()}`, headers };
+      }
+      const separator = imagePath.includes('?') ? '&' : '?';
+      return {
+        imageUrl: `${baseUrl}${imagePath}${separator}X-Plex-Token=${server.token}`,
+        headers,
+      };
     }
-    const separator = imagePath.includes('?') ? '&' : '?';
-    return { imageUrl: `${baseUrl}${imagePath}${separator}X-Plex-Token=${server.token}`, headers };
+    case 'jellyfin':
+    case 'emby': {
+      // imagePath includes the full endpoint
+      Object.assign(headers, mediaBrowserTokenHeader(server.type, server.token));
+      if (resize) {
+        // Both accept max-dimension params on image endpoints and cache the
+        // result. Constrain only the target's long axis so the cover crop below
+        // always has enough pixels where it matters; sharp still normalizes to
+        // the exact box, but it decodes a thumbnail instead of the original.
+        // Posters fit within both bounds without cropping (preserveAspectRatio).
+        const separator = imagePath.includes('?') ? '&' : '?';
+        const dimension = resize.preserveAspectRatio
+          ? `maxWidth=${resize.width}&maxHeight=${resize.height}`
+          : resize.height >= resize.width
+            ? `maxHeight=${resize.height}`
+            : `maxWidth=${resize.width}`;
+        return {
+          imageUrl: `${baseUrl}${imagePath}${separator}${dimension}&quality=90`,
+          headers,
+        };
+      }
+      return { imageUrl: `${baseUrl}${imagePath}`, headers };
+    }
+    default:
+      return assertNever(server.type);
   }
-
-  // Jellyfin/Emby - imagePath should include the full endpoint
-  if (server.type === 'jellyfin') {
-    headers['Authorization'] = `MediaBrowser Token="${server.token}"`;
-  } else {
-    headers['X-Emby-Token'] = server.token;
-  }
-  if (resize) {
-    // Both accept max-dimension params and cache the result. Posters fit
-    // within both bounds without cropping. Other images retain the long-axis
-    // constraint so their cover resize has enough pixels.
-    const separator = imagePath.includes('?') ? '&' : '?';
-    const dimension = resize.preserveAspectRatio
-      ? `maxWidth=${resize.width}&maxHeight=${resize.height}`
-      : resize.height >= resize.width
-        ? `maxHeight=${resize.height}`
-        : `maxWidth=${resize.width}`;
-    return {
-      imageUrl: `${baseUrl}${imagePath}${separator}${dimension}&quality=90`,
-      headers,
-    };
-  }
-  return { imageUrl: `${baseUrl}${imagePath}`, headers };
 }
 
 interface MissPipelineArgs {
@@ -557,8 +562,13 @@ export function _resetServerRowCacheForTests(): void {
 }
 
 async function getConfiguredDispatcharrServers(): Promise<(typeof servers.$inferSelect)[]> {
-  if (dispatcharrServerCache && Date.now() - dispatcharrServerCache.at < SERVER_ROW_TTL_MS) return dispatcharrServerCache.rows;
-  const rows = await db.select().from(servers).where(and(eq(servers.type, 'dispatcharr'), isNull(servers.historicalAt))).limit(100);
+  if (dispatcharrServerCache && Date.now() - dispatcharrServerCache.at < SERVER_ROW_TTL_MS)
+    return dispatcharrServerCache.rows;
+  const rows = await db
+    .select()
+    .from(servers)
+    .where(and(eq(servers.type, 'dispatcharr'), isNull(servers.historicalAt)))
+    .limit(100);
   dispatcharrServerCache = { rows, at: Date.now() };
   return rows;
 }
@@ -622,13 +632,21 @@ async function runMissPipeline(args: MissPipelineArgs): Promise<ProxyResult> {
     if (logoChannel !== null) {
       const dispatcharrServers = await getConfiguredDispatcharrServers();
       const trustedOrigins = dispatcharrServers.flatMap((item) => {
-        try { return [new URL(item.url).origin]; } catch { return []; }
+        try {
+          return [new URL(item.url).origin];
+        } catch {
+          return [];
+        }
       });
       const logoUrl = await getChannelLogoUrl(server.url, logoChannel, trustedOrigins);
       if (!logoUrl) throw new Error(`No guide logo for Channels DVR channel ${logoChannel}`);
       const target = new URL(logoUrl);
       const trustedServer = dispatcharrServers.find((item) => {
-        try { return new URL(item.url).origin === target.origin; } catch { return false; }
+        try {
+          return new URL(item.url).origin === target.origin;
+        } catch {
+          return false;
+        }
       });
       candidates = trustedServer
         ? [buildUpstreamRequest(trustedServer, `${target.pathname}${target.search}`)]
