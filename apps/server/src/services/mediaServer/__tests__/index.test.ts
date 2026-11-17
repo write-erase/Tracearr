@@ -26,6 +26,7 @@ import {
   JellyfinClient,
   EmbyClient,
   DispatcharrClient,
+  TofaClient,
   type IMediaServerClient,
   type MediaSession,
   type MediaUser,
@@ -84,6 +85,17 @@ describe('createMediaServerClient', () => {
 
     expect(client).toBeInstanceOf(DispatcharrClient);
     expect(client.serverType).toBe('dispatcharr');
+  });
+
+  it('should create TofaClient for type "tofa"', () => {
+    const client = createMediaServerClient({
+      type: 'tofa',
+      url: 'http://tofa.local:33333',
+      token: 'encrypted-token',
+    });
+
+    expect(client).toBeInstanceOf(TofaClient);
+    expect(client.serverType).toBe('tofa');
   });
 
   it('should throw error for unknown server type', () => {
@@ -152,6 +164,7 @@ describe('per-server decisions', () => {
   it('isJellyfinEmby is false for plex', () => {
     expect(isJellyfinEmby('plex')).toBe(false);
     expect(isJellyfinEmby('emby')).toBe(true);
+    expect(isJellyfinEmby('tofa')).toBe(false);
   });
 
   it('creates the client class named by the server type', () => {
@@ -166,14 +179,17 @@ describe('per-server decisions', () => {
       .spyOn(JellyfinClient, 'verifyServerAdmin')
       .mockResolvedValue({ success: true });
     const emby = vi.spyOn(EmbyClient, 'verifyServerAdmin').mockResolvedValue({ success: true });
+    const tofa = vi.spyOn(TofaClient, 'verifyServerAdmin').mockResolvedValue({ success: true });
 
     await verifyServerAdmin('plex', 'p', 'http://plex');
     await verifyServerAdmin('jellyfin', 'j', 'http://jellyfin');
     await verifyServerAdmin('emby', 'e', 'http://emby');
+    await verifyServerAdmin('tofa', 't', 'http://tofa');
 
     expect(plex).toHaveBeenCalledExactlyOnceWith('p', 'http://plex');
     expect(jellyfin).toHaveBeenCalledExactlyOnceWith('j', 'http://jellyfin');
     expect(emby).toHaveBeenCalledExactlyOnceWith('e', 'http://emby');
+    expect(tofa).toHaveBeenCalledExactlyOnceWith('t', 'http://tofa');
   });
 
   it('logs a token out through the class for the server type', async () => {
@@ -203,6 +219,7 @@ describe('IMediaServerClient Interface Compliance', () => {
       plex: 'http://plex.local:32400',
       jellyfin: 'http://jellyfin.local:8096',
       emby: 'http://emby.local:8096',
+      tofa: 'http://tofa.local:33333',
       dispatcharr: 'http://dispatcharr.local:9191',
       channels_dvr: 'http://channels.local:8089',
     };

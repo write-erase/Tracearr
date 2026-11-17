@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { fireEvent, render, screen } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { setTimeFormat } from '@/lib/dateFormat';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router';
@@ -22,9 +22,8 @@ vi.mock('react-i18next', () => ({
   }),
 }));
 
-vi.mock('@/hooks/useAuth', () => ({
-  useAuth: () => ({ user: { role: 'member' } }),
-}));
+const auth = vi.hoisted(() => ({ role: 'member' }));
+vi.mock('@/hooks/useAuth', () => ({ useAuth: () => ({ user: auth }) }));
 
 vi.mock('@/hooks/useServer', () => ({
   useServer: () => ({
@@ -32,6 +31,7 @@ vi.mock('@/hooks/useServer', () => ({
     selectedServers: [{ id: 'server-1', color: null }],
     selectedServerIds: ['server-1'],
     selectedServerId: 'server-1',
+    servers: [{ id: 'server-2', canStopStreams: false }],
   }),
 }));
 
@@ -55,6 +55,7 @@ function makeSession(overrides: Partial<ActiveSession> = {}): ActiveSession {
     serverId: 'server-1',
     serverUserId: 'user-1',
     sessionKey: 'sk-1',
+    profileName: null,
     state: 'playing',
     mediaType: 'live',
     mediaTitle: 'Morning News',
@@ -143,7 +144,8 @@ function makeSession(overrides: Partial<ActiveSession> = {}): ActiveSession {
 function getProgressTranslatePercent(container: HTMLElement): number | null {
   const indicator = container.querySelector<HTMLElement>('[style*="translateX"]');
   const transform = indicator?.style.transform ?? '';
-  const match = transform.match(/translateX\(-([0-9.]+)%\)/);
+  // A full bar is translateX(-0%), which newer jsdom writes back as translateX(0%)
+  const match = transform.match(/translateX\(-?([0-9.]+)%\)/);
   return match?.[1] ? Number(match[1]) : null;
 }
 
@@ -716,5 +718,45 @@ describe('NowPlayingCard title links', () => {
 
     fireEvent.click(screen.getByText('alice'));
     expect(onClick).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('NowPlayingCard stop button', () => {
+  beforeEach(() => {
+    auth.role = 'owner';
+  });
+  afterEach(() => {
+    auth.role = 'member';
+  });
+
+  it('holds the stop with the reason when the server key cannot stop streams', () => {
+    renderCard({
+      canTerminate: true,
+      serverId: 'server-2',
+      server: { id: 'server-2', name: 'Den', type: 'tofa' },
+    });
+    expect(
+      screen.getByRole('button', { name: 'settings:servers.cannotStopStreams' })
+    ).toBeDisabled();
+    expect(screen.queryByTitle('pages:terminateStream.title')).not.toBeInTheDocument();
+  });
+
+  it('offers the stop for live TV on tofa', () => {
+    renderCard({
+      canTerminate: true,
+      mediaType: 'live',
+      serverId: 'server-3',
+      server: { id: 'server-3', name: 'Attic', type: 'tofa' },
+    });
+    expect(screen.getByTitle('pages:terminateStream.title')).toBeEnabled();
+  });
+
+  it('offers the stop for live TV on Plex', () => {
+    renderCard({
+      canTerminate: true,
+      mediaType: 'live',
+      server: { id: 'server-1', name: 'Basement', type: 'plex' },
+    });
+    expect(screen.getByTitle('pages:terminateStream.title')).toBeEnabled();
   });
 });

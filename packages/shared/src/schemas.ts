@@ -177,7 +177,7 @@ const permissiveUrlSchema = z.string().refine(
   { message: 'Invalid URL. Must start with http:// or https:// followed by a hostname' }
 );
 
-export const PUBLIC_URL_PLEX_MESSAGE = 'Public address applies to Jellyfin and Emby servers only';
+export const PUBLIC_URL_PLEX_MESSAGE = 'Plex servers take no public address';
 
 /** Same rules as externalUrl, except a bare host gets https: the address leaves the LAN. Empty clears it. */
 export const publicUrlSchema = z.preprocess((val) => {
@@ -222,6 +222,7 @@ export const createServerSchema = z
       case 'plex':
       case 'jellyfin':
       case 'emby':
+      case 'tofa':
         if (!data.token?.trim()) {
           ctx.addIssue({ code: 'custom', message: 'Token is required', path: ['token'] });
         }
@@ -237,6 +238,7 @@ export const createServerSchema = z
           return data.publicUrl == null;
         case 'jellyfin':
         case 'emby':
+        case 'tofa':
         case 'dispatcharr':
         case 'channels_dvr':
           return true;
@@ -974,7 +976,13 @@ const nullableStringSchema = (maxLength?: number) =>
 // Settings schemas
 export const updateSettingsSchema = z.object({
   loginMethods: z
-    .object({ local: z.boolean(), plex: z.boolean(), oidc: z.boolean(), member: z.boolean() })
+    .object({
+      local: z.boolean(),
+      plex: z.boolean(),
+      oidc: z.boolean(),
+      tofa: z.boolean(),
+      member: z.boolean(),
+    })
     .partial()
     .optional(),
   // Display preferences
@@ -1208,6 +1216,10 @@ export const playbackReportingImportSchema = z.object({
 });
 
 export const playbackReportingTestSchema = z.object({
+  serverId: uuidSchema,
+});
+
+export const tofaImportSchema = z.object({
   serverId: uuidSchema,
 });
 

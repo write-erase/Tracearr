@@ -6,12 +6,12 @@
  */
 
 import { eq } from 'drizzle-orm';
-import type { ServerType } from '@tracearr/shared';
+import { assertNever, type ServerType } from '@tracearr/shared';
 import { db } from '../db/client.js';
 import { servers } from '../db/schema.js';
 import { dispatchServerUpdate } from '../services/automations/events/producers.js';
 import { publishServersChanged } from './poller/database.js';
-import { createMediaServerClient } from '../services/mediaServer/index.js';
+import { createMediaServerClient, TofaClient } from '../services/mediaServer/index.js';
 import { liveServers } from '../services/liveServers.js';
 import { getSettings } from '../services/settings.js';
 import { createLogger } from '../utils/logger.js';
@@ -25,6 +25,7 @@ import {
   latestVersionFor,
   normalizeServerVersion,
   type ChannelsLatestVersions,
+  type FeedServerType,
 } from '../utils/serverVersions.js';
 
 const logger = createLogger('ServerUpdate');
@@ -92,7 +93,8 @@ export async function installedVersionOf(server: CheckedServer): Promise<string 
 
 /**
  * The newest release for this server: one per type, except Channels DVR, where each server
- * follows its own track (stable or pre-release) and so has its own "latest".
+ * follows its own track (stable or pre-release) and so has its own "latest", and tofa, where each
+ * server reports the update waiting for it.
  */
 type LatestFor = (installed: string | null) => {
   version: string | null;
@@ -109,6 +111,22 @@ function channelsLatestFor(server: CheckedServer, versions: ChannelsLatestVersio
         track === 'prerelease' ? CHANNELS_PRERELEASE_NOTES : SERVER_RELEASE_PAGES.channels_dvr,
     };
   };
+}
+
+async function tofaUpdateVersion(server: CheckedServer): Promise<string | null> {
+  try {
+    const client = new TofaClient({ url: server.url, token: server.token, id: server.id });
+    const found = await client.getUpdateVersion();
+    return found ? normalizeServerVersion(server.type, found) : null;
+  } catch (error) {
+    logger.warn(`${server.name}: could not read its update state`, { error });
+    return null;
+  }
+}
+
+/** One release for every server of the type, whatever each runs. */
+function sameForAll(type: ServerType, version: string | null): LatestFor {
+  return () => ({ version, releaseUrl: SERVER_RELEASE_PAGES[type] });
 }
 
 /**
@@ -185,22 +203,32 @@ export async function runServerUpdateCheck(scope: CheckScope = 'all'): Promise<v
           : server.type !== 'channels_dvr'
     );
 
-    // The vendor feed is per type, not per server: read it once however many servers share it.
-    const latestByType = new Map<ServerType, Promise<string | null>>();
+    // A vendor feed is per type, not per server: read it once however many servers share it.
+    const feeds = new Map<FeedServerType, Promise<string | null>>();
     let channels: Promise<ChannelsLatestVersions> | null = null;
     let changed = false;
     for (const server of rows) {
-      if (server.type === 'channels_dvr') {
-        channels ??= latestChannelsVersions();
-        const versions = await channels;
-        if (await checkServer(server, channelsLatestFor(server, versions))) changed = true;
-        continue;
+      let latestFor: LatestFor;
+      switch (server.type) {
+        case 'channels_dvr':
+          channels ??= latestChannelsVersions();
+          latestFor = channelsLatestFor(server, await channels);
+          break;
+        case 'tofa':
+          latestFor = sameForAll(server.type, await tofaUpdateVersion(server));
+          break;
+        case 'plex':
+        case 'jellyfin':
+        case 'emby':
+        case 'dispatcharr':
+          latestFor = sameForAll(
+            server.type,
+            await feeds.getOrInsertComputed(server.type, latestVersionFor)
+          );
+          break;
+        default:
+          return assertNever(server.type);
       }
-      const latest = await latestByType.getOrInsertComputed(server.type, latestVersionFor);
-      const latestFor: LatestFor = () => ({
-        version: latest,
-        releaseUrl: SERVER_RELEASE_PAGES[server.type],
-      });
       if (await checkServer(server, latestFor)) changed = true;
     }
     if (changed) await announceVersionChange();

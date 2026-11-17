@@ -1,7 +1,7 @@
 /**
  * Media Server Client Module
  *
- * Provides a unified interface for Plex and Jellyfin media server integrations.
+ * Provides a unified interface for Plex, Jellyfin, Emby and tofa media server integrations.
  * Use the factory function to create clients based on server type.
  *
  * @example
@@ -23,6 +23,7 @@ import { JellyfinClient } from './jellyfin/client.js';
 import { EmbyClient } from './emby/client.js';
 import { DispatcharrClient } from './dispatcharr/client.js';
 import { ChannelsDvrClient } from './channelsDvr/client.js';
+import { TofaClient } from './tofa/client.js';
 import type { IMediaServerClient, MediaServerConfig, CreateClientOptions } from './types.js';
 
 // ============================================================================
@@ -66,6 +67,8 @@ export function createMediaServerClient(options: CreateClientOptions): IMediaSer
       return new DispatcharrClient(config);
     case 'channels_dvr':
       return new ChannelsDvrClient(config);
+    case 'tofa':
+      return new TofaClient(config);
     default:
       return assertNever(options.type);
   }
@@ -93,6 +96,7 @@ export function isJellyfinEmby(type: ServerType): type is JellyfinEmbyServerType
       return true;
     case 'emby':
       return true;
+    case 'tofa':
     case 'dispatcharr':
     case 'channels_dvr':
       return false;
@@ -132,6 +136,8 @@ export async function verifyServerAdmin(type: ServerType, token: string, url: st
             message: check.message,
           };
     }
+    case 'tofa':
+      return TofaClient.verifyServerAdmin(token, url);
     default:
       return assertNever(type);
   }
@@ -175,6 +181,7 @@ export { JellyfinClient } from './jellyfin/client.js';
 export { EmbyClient } from './emby/client.js';
 export { DispatcharrClient } from './dispatcharr/client.js';
 export { ChannelsDvrClient } from './channelsDvr/client.js';
+export { TofaClient } from './tofa/client.js';
 
 // Plex-specific types
 export type { PlexServerResource, PlexServerConnection } from './plex/parser.js';

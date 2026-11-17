@@ -34,6 +34,7 @@ export const ErrorCodes = {
   JELLYFIN_ERROR: 'EXT_002',
   GEOIP_ERROR: 'EXT_003',
   EMBY_ERROR: 'EXT_004',
+  TOFA_ERROR: 'EXT_007',
   DISPATCHARR_ERROR: 'EXT_005',
   CHANNELS_DVR_ERROR: 'EXT_006',
 } as const;

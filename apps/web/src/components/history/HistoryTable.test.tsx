@@ -38,6 +38,7 @@ function makeSession(overrides: Partial<SessionWithDetails> = {}): SessionWithDe
     serverId: 'server-1',
     serverUserId: 'user-1',
     sessionKey: 'sk-1',
+    profileName: null,
     state: 'stopped',
     mediaType: 'movie',
     mediaTitle: 'Very Long Movie Name That Should Be Truncated On Mobile Layout',

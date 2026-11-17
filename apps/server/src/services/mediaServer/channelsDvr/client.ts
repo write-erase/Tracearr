@@ -1253,14 +1253,23 @@ export class ChannelsDvrClient implements IMediaServerClient {
   }
 
   // Channels DVR cannot filter by date, so an incremental sync would download the whole list
-  // anyway and could not notice deleted episodes. Its profile turns incremental syncs off
-  // (syncsLibraryIncrementally), so every sync is a full scan; these are never called.
-  async getLibraryItemsSince(): Promise<{ items: MediaLibraryItem[]; totalCount: number }> {
+  // anyway and could not notice deleted episodes. Library sync gives Channels DVR no cursor
+  // (storedSyncCursor), so every sync is a full scan; these are never called.
+  async getLibraryItemsSince(): Promise<{
+    items: MediaLibraryItem[];
+    totalCount: number;
+    feed: NotNeeded;
+  }> {
     throw new Error('Channels DVR has no incremental library listing');
   }
 
   async getLibraryLeavesSince(): Promise<{ items: MediaLibraryItem[]; totalCount: number }> {
     throw new Error('Channels DVR has no incremental library listing');
+  }
+
+  // A full scan reads no revision: Channels DVR numbers no library changes.
+  async getLibraryRevision(): Promise<NotNeeded> {
+    return NOT_NEEDED;
   }
 
   /** Channels lists every recording it has, so an item missing from the listing is gone. */

@@ -123,8 +123,8 @@ export function pickLiveSessionFields(processed: ProcessedSession): Partial<Sess
     mediaType: processed.mediaType,
     mediaTitle: processed.mediaTitle,
     grandparentTitle: processed.grandparentTitle || null,
-    seasonNumber: processed.mediaType === 'episode' ? processed.seasonNumber : null,
-    episodeNumber: processed.mediaType === 'episode' ? processed.episodeNumber : null,
+    seasonNumber: processed.seasonNumber,
+    episodeNumber: processed.episodeNumber,
     year: processed.year || null,
     thumbPath: processed.thumbPath || null,
     totalDurationMs: processed.totalDurationMs || null,
@@ -201,8 +201,9 @@ export function mapMediaSession(session: MediaSession, serverType: ServerType): 
     serverVersionKey: session.serverVersionKey ?? null,
     // User data
     externalUserId: session.user.id,
-    username: session.user.username || 'Unknown',
+    username: session.user.username,
     userThumb: session.user.thumb ?? '',
+    profileName: session.user.profileName ?? null,
     mediaTitle: session.media.title,
     mediaType,
     // Enhanced media metadata
@@ -223,6 +224,7 @@ export function mapMediaSession(session: MediaSession, serverType: ServerType): 
     discNumber: session.music?.discNumber ?? null,
     // Connection info
     ipAddress,
+    relayed: session.network.relayed,
     playerName: session.player.name?.slice(0, 255) ?? '',
     deviceId: session.player.deviceId?.slice(0, 255),
     ...(serverType === 'dispatcharr'
@@ -314,6 +316,7 @@ export function mapSessionRow(
     geoAsnNumber: s.geoAsnNumber,
     geoAsnOrganization: s.geoAsnOrganization,
     isLocal: isLocalSession(s),
+    profileName: s.profileName,
     playerName: s.playerName,
     deviceId: s.deviceId,
     ...(s.dispatcharrDeviceId != null || s.dispatcharrUserAgent != null
