@@ -1,5 +1,25 @@
 # Tracearr Fork Information
 
+## November 16, 2026 — Channels DVR "Up to date" pill, and updates noticed within a minute
+
+- The dashboard's Channels DVR version pill now always shows once both versions are known: green
+  "Up to date" (hover: "Running …, the latest release"), or "Update available" as before. With
+  several Channels servers selected each pill names its server. Owners and admins only, as before;
+  no pill while a version is unknown (server not read yet, or server update checks turned off).
+  `channelsUpdatesFor`/`ChannelsDvrUpdate` became `channelsVersionsFor`/`ChannelsDvrVersion`
+  (with `updateAvailable`), and the card's `updates` prop became `versions`.
+- Faster clearing: after installing an update the pill used to wait for the hourly check.
+  `runChannelsUpdateWatch` now runs every minute (first at 45 s) on the leader, but only asks
+  Channels DVR servers whose row has an update waiting (`latestVersion` newer than `version`),
+  one `GET /status` each. When the version it reads differs from the stored one, the server gets
+  a full check (feeds read again, since the track can follow the installed build). A server
+  restarting mid-update answers nothing and is asked again the next minute. Skipped while a run is
+  still going, and off with the server update check setting.
+- Open dashboards now hear about it: whenever a check stores a different version or latest version
+  (any server type, hourly, 6-hourly or the minute watch), it publishes `servers:changed` once per
+  run, so the server list refetches. Before, a new version only showed after a page reload or the
+  list's 5-minute stale time plus a refocus.
+
 ## November 15, 2026 — Pick the Channels DVR "Dispatcharr user" from a list
 
 - The Channels DVR "Dispatcharr user" field is now a dropdown of Dispatcharr's XC users, read live
@@ -169,7 +189,8 @@ Channels DVR (`latestVersionFor` returns null), so its version never got an "upd
 - No Channels-specific automation: the shared "Media server update" template and trigger cover it.
   Settings text and template keywords now name Channels DVR alongside Plex, Jellyfin and Emby.
 - Dashboard: an "Update available" pill on the Channels DVR card (next to tuners and disk), shown
-  only while one is waiting (`channelsUpdatesFor`, from the server list's versions), linking to the
+  only while one is waiting (`channelsUpdatesFor`, from the server list's versions; since Nov 16 it
+  also shows "Up to date", see above), linking to the
   server's web UI where it's installed; owners and admins only, since that UI usually has no login of its own.
 
 ## November 12, 2026 — Skip a series-pass airing from Coming Up

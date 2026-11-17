@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import {
   CalendarClock,
   CircleArrowUp,
+  CircleCheck,
   CircleDot,
   ExternalLink,
   HardDrive,
@@ -46,8 +47,8 @@ interface RecordingNowSectionProps {
   tuners?: ChannelsDvrTunerUsage[];
   /** Recording disk space on each Channels DVR server */
   disks?: ChannelsDvrDiskUsage[];
-  /** Channels DVR servers with a newer release on the track they follow */
-  updates?: ChannelsDvrUpdate[];
+  /** Each Channels DVR server's installed version against the newest on the track it follows */
+  versions?: ChannelsDvrVersion[];
   /** Server id -> the address to open the Channels DVR web UI at */
   linkBases?: Record<string, string>;
   /** Show which server each recording is on */
@@ -271,12 +272,14 @@ function TunerPill({ usage, showServer }: { usage: ChannelsDvrTunerUsage; showSe
  * "186.6 GB free", amber when space is low. Binary units, as Channels shows them. Low means
  * below the highest enabled disk alert's percentage for this server, or 10% with none.
  */
-/** A Channels DVR server with a newer release waiting. */
-export interface ChannelsDvrUpdate {
+/** A Channels DVR server's installed version, and the newest release on the track it follows. */
+export interface ChannelsDvrVersion {
   serverId: string;
   serverName: string;
   installed: string;
   latest: string;
+  /** The latest release is newer than the installed one */
+  updateAvailable: boolean;
 }
 
 /** Both versions are three or four dotted numbers; a missing part reads as zero. */
@@ -292,70 +295,91 @@ function isNewerVersion(latest: string, installed: string): boolean {
 }
 
 /**
- * The Channels DVR servers the update checker found a newer release for. Each server's
+ * Every Channels DVR server the update checker has read both versions for. Each server's
  * `latestVersion` is already the newest on the track it follows (stable or pre-release).
+ * A server missing either version (unreachable so far, or update checks turned off) is left out.
  */
-export function channelsUpdatesFor(servers: Server[]): ChannelsDvrUpdate[] {
+export function channelsVersionsFor(servers: Server[]): ChannelsDvrVersion[] {
   return servers.flatMap((server) =>
-    server.type === 'channels_dvr' &&
-    server.version &&
-    server.latestVersion &&
-    isNewerVersion(server.latestVersion, server.version)
+    server.type === 'channels_dvr' && server.version && server.latestVersion
       ? [
           {
             serverId: server.id,
             serverName: server.name,
             installed: server.version,
             latest: server.latestVersion,
+            updateAvailable: isNewerVersion(server.latestVersion, server.version),
           },
         ]
       : []
   );
 }
 
-/** Shown only while an update is waiting; opens the Channels DVR web UI, where it's installed. */
-function UpdatePill({
-  update,
+/**
+ * "Update available" while a newer release is waiting, otherwise a green "Up to date". Either
+ * opens the Channels DVR web UI, where updates are installed.
+ */
+function VersionPill({
+  version,
   showServer,
   linkBase,
 }: {
-  update: ChannelsDvrUpdate;
+  version: ChannelsDvrVersion;
   showServer: boolean;
   linkBase?: string;
 }) {
   const { t } = useTranslation('pages');
-  const label = showServer
-    ? t('dashboard.recording.updateOnServer', {
-        defaultValue: '{{server}}: update available',
-        server: update.serverName,
+  const { updateAvailable } = version;
+  const label = updateAvailable
+    ? showServer
+      ? t('dashboard.recording.updateOnServer', {
+          defaultValue: '{{server}}: update available',
+          server: version.serverName,
+        })
+      : t('dashboard.recording.update', { defaultValue: 'Update available' })
+    : showServer
+      ? t('dashboard.recording.upToDateOnServer', {
+          defaultValue: '{{server}}: up to date',
+          server: version.serverName,
+        })
+      : t('dashboard.recording.upToDate', { defaultValue: 'Up to date' });
+  const hint = updateAvailable
+    ? t('dashboard.recording.updateHint', {
+        defaultValue: '{{latest}} is available (running {{installed}})',
+        latest: version.latest,
+        installed: version.installed,
       })
-    : t('dashboard.recording.update', { defaultValue: 'Update available' });
-  const hint = t('dashboard.recording.updateHint', {
-    defaultValue: '{{latest}} is available (running {{installed}})',
-    latest: update.latest,
-    installed: update.installed,
-  });
-  const className =
-    'bg-primary/15 text-primary inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium';
+    : t('dashboard.recording.upToDateHint', {
+        defaultValue: 'Running {{installed}}, the latest release',
+        installed: version.installed,
+      });
+  const className = cn(
+    'inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium',
+    updateAvailable
+      ? 'bg-primary/15 text-primary'
+      : 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400'
+  );
+  const Icon = updateAvailable ? CircleArrowUp : CircleCheck;
   const content = (
     <>
-      <CircleArrowUp className="h-3 w-3" aria-hidden="true" />
+      <Icon className="h-3 w-3" aria-hidden="true" />
       {label}
     </>
   );
+  const testId = updateAvailable ? 'dvr-update' : 'dvr-up-to-date';
   return linkBase ? (
     <a
       href={linkBase.replace(/\/+$/, '')}
       target="_blank"
       rel="noopener noreferrer"
-      className={cn(className, 'hover:bg-primary/25')}
+      className={cn(className, updateAvailable ? 'hover:bg-primary/25' : 'hover:bg-emerald-500/25')}
       title={hint}
-      data-testid="dvr-update"
+      data-testid={testId}
     >
       {content}
     </a>
   ) : (
-    <span className={className} title={hint} data-testid="dvr-update">
+    <span className={className} title={hint} data-testid={testId}>
       {content}
     </span>
   );
@@ -621,7 +645,7 @@ export function RecordingNowSection({
   upcoming = [],
   tuners = [],
   disks = [],
-  updates = [],
+  versions = [],
   linkBases = {},
   showServer = false,
 }: RecordingNowSectionProps) {
@@ -645,12 +669,12 @@ export function RecordingNowSection({
             {disks.map((usage) => (
               <DiskPill key={usage.serverId} usage={usage} showServer={showServer} />
             ))}
-            {updates.map((update) => (
-              <UpdatePill
-                key={update.serverId}
-                update={update}
+            {versions.map((version) => (
+              <VersionPill
+                key={version.serverId}
+                version={version}
                 showServer={showServer}
-                linkBase={linkBases[update.serverId]}
+                linkBase={linkBases[version.serverId]}
               />
             ))}
           </CardTitle>
