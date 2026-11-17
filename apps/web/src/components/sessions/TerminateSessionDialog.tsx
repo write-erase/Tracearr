@@ -18,10 +18,10 @@ interface TerminateSessionDialogProps {
   onOpenChange: (open: boolean) => void;
   sessionId: string;
   mediaTitle: string;
-  username: string;
+  name: string;
   /** Hide the "message to user" field for servers that can't display it (e.g. Channels DVR) */
   showMessageField?: boolean;
-  /** The session has no user account, only a device (e.g. Channels DVR): name the device, no @ */
+  /** The session has no user account, only a device (e.g. Channels DVR): name the device */
   targetIsDevice?: boolean;
 }
 
@@ -34,7 +34,7 @@ export function TerminateSessionDialog({
   onOpenChange,
   sessionId,
   mediaTitle,
-  username,
+  name,
   showMessageField = true,
   targetIsDevice = false,
 }: TerminateSessionDialogProps) {
@@ -70,10 +70,10 @@ export function TerminateSessionDialog({
             {targetIsDevice
               ? t('terminateStream.stopMediaOnDevice', {
                   mediaTitle,
-                  deviceName: username,
+                  deviceName: name,
                   defaultValue: 'Stop "{{mediaTitle}}" on {{deviceName}}?',
                 })
-              : t('terminateStream.stopMedia', { mediaTitle, username })}
+              : t('terminateStream.stopMediaFor', { mediaTitle, name })}
           </DialogDescription>
         </DialogHeader>
         {showMessageField && (
