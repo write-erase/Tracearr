@@ -1,3 +1,4 @@
+import { SERVER_PROFILES } from '@tracearr/shared';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('../../../utils/http.js', () => ({ fetchJson: vi.fn(), fetchText: vi.fn() }));
@@ -169,10 +170,13 @@ describe('Channels DVR library client', () => {
     expect(items[0]?.fileSize).toBeUndefined();
   });
 
-  it('has no incremental sync, so every sync is a full scan that catches deletions', () => {
-    const c = client() as unknown as Record<string, unknown>;
-    expect(c.getLibraryItemsSince).toBeUndefined();
-    expect(c.getLibraryLeavesSince).toBeUndefined();
+  it('has no incremental sync, so every sync is a full scan that catches deletions', async () => {
+    expect(SERVER_PROFILES.channels_dvr.syncsLibraryIncrementally).toBe(false);
+    const c = client();
+    await expect(c.getLibraryItemsSince('tv', new Date())).rejects.toThrow(/no incremental/);
+    await expect(c.getLibraryLeavesSince('tv', new Date())).rejects.toThrow(/no incremental/);
+    // A full listing is the whole library, so nothing missing from it is still there.
+    expect(await c.findExistingRatingKeys()).toEqual(new Set());
   });
 
   it('fetches each list once while a sync pages through it', async () => {

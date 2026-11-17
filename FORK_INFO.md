@@ -1,5 +1,45 @@
 # Tracearr Fork Information
 
+## November 17, 2026 — Upstream 3.2.0, step 1: server type cleanup (#1439)
+
+First of the 3.2.0 merges: connor's `main` through `f56409ebf` ("server type cleanup ahead of
+new servers", plus the two commits before it). Upstream now defines server types once
+(`packages/shared/src/serverTypes.ts`), describes each type's behavior in `SERVER_PROFILES`
+(`serverProfiles.ts`), and branches with exhaustive `switch`es ending in `assertNever` instead of
+"Plex, else Jellyfin/Emby". Dispatcharr and Channels DVR are ported into all three:
+
+- `SERVER_TYPES` includes `dispatcharr` and `channels_dvr` (the old `ServerType` unions in
+  `types.ts`, `schemas.ts`, `db/schema.ts` and test-utils are gone, as upstream did).
+- Profiles: where upstream branched Plex against everything else, both fork types keep the
+  "everything else" side they had (composite session keys, sessionKey termination, email from
+  the username, player name counts toward the device). New profile values for what they do
+  differently: `liveEvents` `dispatcharrRealtime` / `poller`, `hostStats` `dispatcharrPlugin` /
+  `channelsSystem`, `addServerAuth` `dispatcharr` / `urlOnly`, `memberSignIn` `none`.
+- New profile field `syncsLibraryIncrementally` (Channels DVR and Dispatcharr false): upstream now
+  calls `getLibraryItemsSince` unconditionally, where Channels DVR used to opt out of incremental
+  syncs by not having it.
+- Two deliberate changes: `userIdsIdentifyInstall` is false for both (Dispatcharr ids are small
+  integers and Channels viewers are device names, so a shared id proves nothing; it was true by
+  being "not Plex"), and external service errors gain `CHANNELS_DVR_ERROR` (`EXT_006`).
+- Every media server client must now answer every `IMediaServerClient` method. Dispatcharr and
+  Channels DVR gain the ones they lacked: `NOT_NEEDED` for seasons, albums and file checks, empty
+  answers for Dispatcharr's library methods (it has no library), and `getLibraryItemsSince` /
+  `getLibraryLeavesSince` on Channels DVR that throw (never called, see above).
+  `findExistingRatingKeys` on Channels DVR says nothing is still there, which is what its absence
+  meant before: an item missing from a full listing is gone.
+- `verifyServerAdmin` moved into `mediaServer/index.ts` with the Dispatcharr and Channels DVR
+  checks from `routes/servers.ts`. Route tests mock it instead of each client.
+- Kept fork behavior through upstream's rewrites: Dispatcharr's 5-minute kill cooldown, Channels
+  DVR's immediate stops, its device-IP termination and Dispatcharr catch-up termination, the
+  Dispatcharr metrics plugin dialog, plugin update checks and notification text, Dispatcharr's
+  resource and bandwidth charts, Channels DVR `/system` sampling, Dispatcharr user sync, the
+  image proxy's Dispatcharr/Channels requests and `preserveAspectRatio` resizing, and the
+  Add/Edit server forms for both types.
+- Places upstream now limits to Jellyfin/Emby that the fork had open to "not Plex" were checked
+  one by one. Restored: the server row's connection status line (Channels DVR "Polling mode",
+  Dispatcharr's realtime state) and Dispatcharr's plugin update check. Left as upstream: the
+  newsletter readiness list and member sign-in, which never applied to the fork types.
+
 ## November 17, 2026 — Release v3.1.7-r4
 
 The last release on upstream 3.1.7; the next merges upstream 3.2.0. It carries every entry from

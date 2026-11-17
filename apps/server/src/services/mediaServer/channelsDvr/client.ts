@@ -4,13 +4,16 @@ import { applyPauseState } from './playbackState.js';
 import { readDeviceStatuses } from './deviceStatus.js';
 import { channelsDvrArtworkPath, isChannelsDvrItemId } from './artwork.js';
 import { parseChannelsDvrStreamDetails } from './streamDetails.js';
-import type {
-  IMediaServerClient,
-  MediaLibrary,
-  MediaLibraryItem,
-  MediaServerConfig,
-  MediaSession,
-  MediaUser,
+import {
+  NOT_NEEDED,
+  type DownloadSourceDescription,
+  type IMediaServerClient,
+  type NotNeeded,
+  type MediaLibrary,
+  type MediaLibraryItem,
+  type MediaServerConfig,
+  type MediaSession,
+  type MediaUser,
 } from '../types.js';
 import {
   channelsDvrUserId,
@@ -1249,9 +1252,57 @@ export class ChannelsDvrClient implements IMediaServerClient {
     return ChannelsDvrClient.page(items, options);
   }
 
-  // No getLibraryItemsSince/getLibraryLeavesSince: Channels DVR cannot filter by date, so
-  // an incremental sync would download the whole list anyway and could not notice deleted
-  // episodes. Without them every Channels sync is a full scan, which also removes deletions.
+  // Channels DVR cannot filter by date, so an incremental sync would download the whole list
+  // anyway and could not notice deleted episodes. Its profile turns incremental syncs off
+  // (syncsLibraryIncrementally), so every sync is a full scan; these are never called.
+  async getLibraryItemsSince(): Promise<{ items: MediaLibraryItem[]; totalCount: number }> {
+    throw new Error('Channels DVR has no incremental library listing');
+  }
+
+  async getLibraryLeavesSince(): Promise<{ items: MediaLibraryItem[]; totalCount: number }> {
+    throw new Error('Channels DVR has no incremental library listing');
+  }
+
+  /** Channels lists every recording it has, so an item missing from the listing is gone. */
+  async findExistingRatingKeys(): Promise<Set<string>> {
+    return new Set();
+  }
+
+  // Shows and episodes only: no seasons or albums as items of their own, and no trash to check.
+  async getLibrarySeasons(): Promise<NotNeeded> {
+    return NOT_NEEDED;
+  }
+
+  async getLibrarySeasonsSince(): Promise<NotNeeded> {
+    return NOT_NEEDED;
+  }
+
+  async getLibraryAlbums(): Promise<NotNeeded> {
+    return NOT_NEEDED;
+  }
+
+  async getLibraryAlbumsSince(): Promise<NotNeeded> {
+    return NOT_NEEDED;
+  }
+
+  async checkFilesExist(): Promise<NotNeeded> {
+    return NOT_NEEDED;
+  }
+
+  /** Item links need no server id; Channels DVR's links are built from the server URL. */
+  async getServerIdentity(): Promise<string | null> {
+    return null;
+  }
+
+  /** Downloads are Plex, Jellyfin and Emby only, so there is nothing to describe. */
+  async describeDownloadSource(): Promise<DownloadSourceDescription> {
+    return {
+      version: null,
+      delivered: null,
+      device: { deviceId: null, playerName: null, product: null, platform: null },
+      ipAddress: null,
+    };
+  }
 
   /** Every episode in the TV library. Movies and videos have no leaves. */
   async getLibraryLeaves(

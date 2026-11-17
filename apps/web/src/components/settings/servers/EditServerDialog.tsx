@@ -1,7 +1,12 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Loader2 } from 'lucide-react';
-import { SERVER_COLOR_PALETTE, pickServerColor, serverLocationsSchema } from '@tracearr/shared';
+import {
+  SERVER_COLOR_PALETTE,
+  SERVER_PROFILES,
+  pickServerColor,
+  serverLocationsSchema,
+} from '@tracearr/shared';
 import type { Server, ServerUpdateTrack } from '@tracearr/shared';
 import { Button } from '@/components/ui/button';
 import {
@@ -24,12 +29,14 @@ import {
 import { ColorSwatchPicker } from '@/components/settings/shared/ColorSwatchPicker';
 import { PlexServerSelector } from '@/components/auth/PlexServerSelector';
 import { api } from '@/lib/api';
+import { isJellyfinEmby } from '@/lib/serverType';
 import { cn } from '@/lib/utils';
 import {
   usePlexServerConnections,
   useServerLocations,
   useUpdateServerLocations,
 } from '@/hooks/queries';
+import { API_KEY_HELP } from './AddServerDialog';
 import { SERVER_DIALOG_CONTENT_CLASS } from './dialogClasses';
 import { ChannelsDvrCheckPanel } from './ChannelsDvrCheckPanel';
 import { DispatcharrUserField } from './DispatcharrUserField';
@@ -81,10 +88,10 @@ export function EditServerDialog({
   const [editUpdateTrack, setEditUpdateTrack] = useState<ServerUpdateTrack>('auto');
   const [editDispatcharrUser, setEditDispatcharrUser] = useState('');
   const [seededServer, setSeededServer] = useState<Server | null>(null);
-  const isPlexServer = server?.type === 'plex';
   const isDispatcharr = server?.type === 'dispatcharr';
   const isChannelsDvr = server?.type === 'channels_dvr';
   const [dispatcharr, setDispatcharr] = useState(emptyDispatcharrForm);
+  const plexOAuth = !!server && SERVER_PROFILES[server.type].addServerAuth === 'plexOAuth';
   const locked = !!server?.historicalAt;
   const {
     data: locationData,
@@ -97,7 +104,7 @@ export function EditServerDialog({
   const [locationsSeededFor, setLocationsSeededFor] = useState<string | null>(null);
 
   const { data: connectionsData, isLoading: isLoadingConnections } = usePlexServerConnections(
-    isPlexServer && !locked ? server?.id : undefined
+    plexOAuth && !locked ? server?.id : undefined
   );
 
   // Re-seed from the server prop each time the dialog opens for one, rather than in an
@@ -150,7 +157,7 @@ export function EditServerDialog({
   const hasNameChange = server ? editName.trim() !== server.name : false;
   const hasUrlChange = server && !locked ? manualUrl.trim() !== server.url : false;
   const hasPublicUrlChange =
-    server && !isPlexServer && !isDispatcharr && !isChannelsDvr
+    server && isJellyfinEmby(server.type)
       ? manualPublicUrl.trim() !== (server.publicUrl ?? '')
       : false;
   const hasColorChange = server ? editColor !== (server.color ?? '') : false;
@@ -167,9 +174,7 @@ export function EditServerDialog({
       ? Boolean(dispatcharr.token.trim())
       : Boolean(dispatcharr.username.trim()) && Boolean(dispatcharr.password));
   const hasApiKeyChange =
-    server && !isPlexServer && !isDispatcharr && !isChannelsDvr && !locked
-      ? editApiKey.trim().length > 0
-      : false;
+    server && isJellyfinEmby(server.type) && !locked ? editApiKey.trim().length > 0 : false;
   const hasUpdateTrackChange = isChannelsDvr && editUpdateTrack !== (server?.updateTrack ?? 'auto');
   // Only a Dispatcharr server in Tracearr has streams to hide, so the field needs one.
   const hasDispatcharr = servers.some((s) => s.type === 'dispatcharr');
@@ -233,7 +238,7 @@ export function EditServerDialog({
             />
           </Field>
 
-          {isPlexServer ? (
+          {plexOAuth && (
             <Field>
               <FieldTitle>{t('servers.serverUrl')}</FieldTitle>
               {isLoadingConnections ? (
@@ -280,7 +285,8 @@ export function EditServerDialog({
                 </>
               )}
             </Field>
-          ) : (
+          )}
+          {!plexOAuth && (
             <>
               <Field>
                 <FieldLabel htmlFor="edit-url">{t('servers.serverUrl')}</FieldLabel>
@@ -299,7 +305,7 @@ export function EditServerDialog({
                 />
                 {locked && <FieldDescription>{t('servers.resumeFirst')}</FieldDescription>}
               </Field>
-              {!isDispatcharr && !isChannelsDvr && (
+              {isJellyfinEmby(server.type) && (
                 <>
                   <Field>
                     <FieldLabel htmlFor="edit-public-url">{t('servers.publicUrl')}</FieldLabel>
@@ -318,16 +324,12 @@ export function EditServerDialog({
                       type="password"
                       autoComplete="off"
                       value={editApiKey}
-                      disabled={locked}
                       onChange={(e) => setEditApiKey(e.target.value)}
                       placeholder={t('servers.apiKeyKeepCurrent')}
+                      disabled={locked}
                     />
                     <FieldDescription>
-                      {locked
-                        ? t('servers.resumeFirst')
-                        : server.type === 'jellyfin'
-                          ? t('servers.apiKeyHelpJellyfin')
-                          : t('servers.apiKeyHelpEmby')}
+                      {locked ? t('servers.resumeFirst') : t(API_KEY_HELP[server.type])}
                     </FieldDescription>
                   </Field>
                 </>

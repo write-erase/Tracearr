@@ -1,10 +1,11 @@
 import { eq } from 'drizzle-orm';
+import type { ServerType } from '@tracearr/shared';
 import { db } from '../../db/client.js';
 import { servers } from '../../db/schema.js';
 
 export async function findServerByMachineId(
   machineId: string
-): Promise<{ id: string; type: 'plex' | 'jellyfin' | 'emby' } | null> {
+): Promise<{ id: string; type: ServerType } | null> {
   const rows = await db
     .select({ id: servers.id, type: servers.type })
     .from(servers)
@@ -16,7 +17,7 @@ export async function findServerByMachineId(
     : null;
 }
 
-export async function serverTypeById(id: string): Promise<'plex' | 'jellyfin' | 'emby' | null> {
+export async function serverTypeById(id: string): Promise<ServerType | null> {
   const rows = await db
     .select({ type: servers.type })
     .from(servers)

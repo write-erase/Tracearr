@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { type ReactNode, useState, useEffect } from 'react';
 import { useLocation, useNavigate, useSearchParams, type Location } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { useQueryClient } from '@tanstack/react-query';
@@ -17,7 +17,12 @@ import { api, BASE_URL } from '@/lib/api';
 import { dropUserData } from '@/lib/queryCache';
 import { useSetupStatus } from '@/hooks/queries/useSetup';
 import { isNotPermitted, toastNotPermitted } from '@/lib/signInRefusal';
-import { SIGN_IN_ERROR_CODES, type PlexDiscoveredServer, type SetupStatus } from '@tracearr/shared';
+import {
+  SERVER_PROFILES,
+  SIGN_IN_ERROR_CODES,
+  type PlexDiscoveredServer,
+  type SetupStatus,
+} from '@tracearr/shared';
 import { LogoIcon } from '@/components/brand/Logo';
 import { PlexServerSelector } from '@/components/auth/PlexServerSelector';
 import { AuthFormError } from '@/components/auth/AuthFormError';
@@ -32,6 +37,7 @@ const DEFAULT_AUTH_METHODS: SetupStatus['authMethods'] = {
   oidc: false,
   oidcProviderName: null,
   member: false,
+  ssoOnly: false,
 };
 
 type AuthStep = 'initial' | 'plex-waiting' | 'server-select';
@@ -459,12 +465,15 @@ export function Login() {
     );
   }
 
-  const memberServers = memberLoginServers.filter((server) => server.type !== 'plex');
+  const memberServers = memberLoginServers.filter(
+    (server) => SERVER_PROFILES[server.type].memberSignIn === 'serverPassword'
+  );
   // authMethods.plex is the owner's own Plex sign-in; a member's Plex server arrives in the
   // member list and signs in through the same button.
   const showPlex =
     authMethods.plex ||
-    (authMethods.member && memberLoginServers.some((server) => server.type === 'plex'));
+    (authMethods.member &&
+      memberLoginServers.some((server) => SERVER_PROFILES[server.type].memberSignIn === 'plexTv'));
   const showMember = authMethods.member && !needsSetup && memberServers.length > 0;
   const hasPrimaryMethods = showPlex || authMethods.oidc;
   const hasFormMethods = authMethods.local || showMember;
@@ -571,7 +580,7 @@ export function Login() {
   const memberLogin = <MemberLogin servers={memberServers} onSignedIn={finishSignIn} />;
 
   // Two forms with a password field each would stack into a long page on a phone
-  let formArea = (
+  let formArea: ReactNode = authMethods.ssoOnly ? null : (
     <p className="text-muted-foreground text-center text-sm">
       {t('pages:login.localDisabledHint')}
     </p>

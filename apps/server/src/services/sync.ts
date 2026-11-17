@@ -8,6 +8,7 @@
 import { eq, and, isNull, isNotNull, inArray, notInArray } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import type pg from 'pg';
+import { assertNever, type JellyfinEmbyServerType } from '@tracearr/shared';
 import { createRawPgClient, db, type Executor } from '../db/client.js';
 import * as schema from '../db/schema.js';
 import { servers, serverUsers } from '../db/schema.js';
@@ -301,7 +302,7 @@ async function syncPlexUsers(
  */
 async function syncMediaServerUsers(
   serverId: string,
-  serverType: 'jellyfin' | 'emby' | 'dispatcharr',
+  serverType: JellyfinEmbyServerType | 'dispatcharr',
   serverUrl: string,
   token: string,
   ignoreAnonymousStreams = true
@@ -393,26 +394,30 @@ export async function syncServer(
 
   // Sync users
   if (options.syncUsers) {
-    if (server.type === 'plex') {
-      const userResult = await syncPlexUsers(serverId, token, serverUrl);
-      result.usersAdded = userResult.added;
-      result.usersUpdated = userResult.updated;
-      result.usersSkipped = userResult.skipped;
-      result.usersRemoved = userResult.removed;
-      result.usersRestored = userResult.restored;
-      result.errors.push(...userResult.errors);
-    } else if (
-      server.type === 'jellyfin' ||
-      server.type === 'emby' ||
-      server.type === 'dispatcharr'
-    ) {
-      const userResult = await syncMediaServerUsers(
-        serverId,
-        server.type,
-        serverUrl,
-        server.token,
-        server.ignoreAnonymousStreams
-      );
+    let userResult: Awaited<ReturnType<typeof syncPlexUsers>> | null;
+    switch (server.type) {
+      case 'plex':
+        userResult = await syncPlexUsers(serverId, token, serverUrl);
+        break;
+      case 'jellyfin':
+      case 'emby':
+      case 'dispatcharr':
+        userResult = await syncMediaServerUsers(
+          serverId,
+          server.type,
+          serverUrl,
+          token,
+          server.ignoreAnonymousStreams
+        );
+        break;
+      // Channels DVR has no user accounts; the poller creates a viewer per device name.
+      case 'channels_dvr':
+        userResult = null;
+        break;
+      default:
+        return assertNever(server.type);
+    }
+    if (userResult) {
       result.usersAdded = userResult.added;
       result.usersUpdated = userResult.updated;
       result.usersSkipped = userResult.skipped;

@@ -4,6 +4,7 @@ import type {
   Session,
   TriggerType as CatalogTriggerType,
   ViolationSeverity,
+  JellyfinEmbyServerType,
 } from '@tracearr/shared';
 import type { db } from '../../../db/client.js';
 import type { sessions } from '../../../db/schema.js';
@@ -192,7 +193,8 @@ export interface ServerUpEvent extends BaseEvent {
 
 export interface PluginUpdateEvent extends BaseEvent {
   type: 'plugin.update_available';
-  server: EvaluationServer;
+  /** Dispatcharr's metrics plugin updates too (fork) */
+  server: EvaluationServer & { type: JellyfinEmbyServerType | 'dispatcharr' };
   installedVersion: string | null;
   latestVersion: string;
   downloadUrl: string;

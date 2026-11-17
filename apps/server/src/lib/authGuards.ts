@@ -1,6 +1,12 @@
 import { APIError } from 'better-auth/api';
 import { and, eq, inArray, isNotNull, isNull, sql } from 'drizzle-orm';
-import { SIGN_IN_ERROR_CODES, canLogin, isStaff, type LoginMethods } from '@tracearr/shared';
+import {
+  SIGN_IN_ERROR_CODES,
+  canLogin,
+  isStaff,
+  type LoginMethods,
+  type ServerType,
+} from '@tracearr/shared';
 import { db } from '../db/client.js';
 import { authAccounts, servers, serverUsers, users } from '../db/schema.js';
 import { getOwnerUser } from '../services/userService.js';
@@ -250,7 +256,13 @@ export const openToMemberSignIn = sql`(
   )
 )`;
 
-export async function hasOpenServer(type: 'plex' | 'jellyfin' | 'emby'): Promise<boolean> {
+/** SSO-only closes every Plex, Jellyfin and Emby sign-in except the owner's own Plex account. */
+export async function mediaSignInClosed(): Promise<boolean> {
+  return (await getSetting('memberSsoOnly')) === true;
+}
+
+export async function hasOpenServer(type: ServerType): Promise<boolean> {
+  if (await mediaSignInClosed()) return false;
   const [server] = await db
     .select({ id: servers.id })
     .from(servers)
@@ -260,7 +272,7 @@ export async function hasOpenServer(type: 'plex' | 'jellyfin' | 'emby'): Promise
 }
 
 export async function usableLoginMethods(): Promise<LoginMethods> {
-  const [methods, owner, [memberServer], [anyPassword]] = await Promise.all([
+  const [methods, owner, [memberServer], [anyPassword], mediaClosed] = await Promise.all([
     getSetting('loginMethods'),
     getOwnerUser(),
     db
@@ -279,6 +291,7 @@ export async function usableLoginMethods(): Promise<LoginMethods> {
       .from(authAccounts)
       .where(and(eq(authAccounts.providerId, 'credential'), isNotNull(authAccounts.password)))
       .limit(1),
+    mediaSignInClosed(),
   ]);
   const credentials = owner ? await ownerCredentials(owner.id) : NO_CREDENTIALS;
   // The save-time guard cannot see an OIDC env var removed or a Plex row lost later. When the
@@ -290,7 +303,7 @@ export async function usableLoginMethods(): Promise<LoginMethods> {
     oidc: oidcConfigured && (methods.oidc || (ownerLockedOut && credentials.oidc)),
     // The login page offers every switched-on server whatever the global switch says; the rule,
     // once the media server accepted the person, decides who gets in and who is told no.
-    member: !!memberServer,
+    member: !!memberServer && !mediaClosed,
   };
 }
 

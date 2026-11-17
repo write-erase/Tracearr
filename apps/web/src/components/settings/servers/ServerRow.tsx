@@ -45,6 +45,7 @@ import { RequestServiceLine } from '@/components/settings/request-services';
 import { TooltipIconButton } from '@/components/settings/shared/TooltipIconButton';
 import { cn } from '@/lib/utils';
 import { formatDate } from '@/lib/dateFormat';
+import { isJellyfinEmby } from '@/lib/serverType';
 
 const PLUGIN_ISSUES = ['blocked', 'restart_required', 'malfunctioned'];
 
@@ -251,9 +252,9 @@ export function ServerRow({
         </Item>
       </TooltipProvider>
 
-      {server.type !== 'plex' && server.type !== 'channels_dvr' && realtimeDialog && (
+      {(isJellyfinEmby(server.type) || server.type === 'dispatcharr') && realtimeDialog && (
         <RealtimeSetupDialog
-          server={server}
+          serverType={server.type}
           open
           onClose={() => setRealtimeDialog(null)}
           mode={realtimeDialog}

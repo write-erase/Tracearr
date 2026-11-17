@@ -12,9 +12,10 @@ import {
   pickServerColor,
   setServerHistoricalSchema,
   PUBLIC_URL_PLEX_MESSAGE,
+  SERVER_PROFILES,
+  assertNever,
   type ServerConnectionStatus,
   type ServerDownReason,
-  type ServerType,
 } from '@tracearr/shared';
 import { db } from '../db/client.js';
 import { servers, plexAccounts, serverUsers, users } from '../db/schema.js';
@@ -23,9 +24,9 @@ import { revokeUnlessStillIn } from '../lib/revoke.js';
 import {
   PlexClient,
   JellyfinClient,
-  EmbyClient,
   DispatcharrClient,
   ChannelsDvrClient,
+  verifyServerAdmin,
 } from '../services/mediaServer/index.js';
 import { getServerLiveStats, getServerResourceStats } from '../services/serverLiveStats.js';
 import { clearChannelsDvrRelayUsers } from '../services/channelsDvrRelays.js';
@@ -60,35 +61,6 @@ function normalizeDispatcharrAuth(input: {
   return !token && username && password
     ? DispatcharrClient.encodeCredentialToken(username, password)
     : token;
-}
-
-async function verifyServerAdmin(type: ServerType, token: string, url: string) {
-  if (type === 'plex') return PlexClient.verifyServerAdmin(token, url);
-  if (type === 'jellyfin') return JellyfinClient.verifyServerAdmin(token, url);
-  if (type === 'emby') return EmbyClient.verifyServerAdmin(token, url);
-
-  // Dispatcharr and Channels DVR report no error codes, so a failure is treated as
-  // "could not connect", which replyAdminCheckFailure maps to 503 like d4rk's code did.
-  if (type === 'channels_dvr') {
-    const reachable = await new ChannelsDvrClient({ url, token }).testConnection();
-    return reachable
-      ? { success: true as const }
-      : {
-          success: false as const,
-          code: JellyfinClient.AdminVerifyError.CONNECTION_FAILED,
-          message:
-            'Could not read the Channels DVR /dvr status. Check the URL and port (default 8089).',
-        };
-  }
-
-  const check = await DispatcharrClient.verifyServerAdmin(token, url);
-  return check.success
-    ? { success: true as const }
-    : {
-        success: false as const,
-        code: JellyfinClient.AdminVerifyError.CONNECTION_FAILED,
-        message: check.message,
-      };
 }
 
 // Plex never reports INVALID_KEY, so one mapping serves all server types.
@@ -224,27 +196,33 @@ export const serverRoutes: FastifyPluginAsync = async (app) => {
 
     // For Plex servers, find the owning plex account to set plexAccountId
     let plexAccountId: string | undefined;
-    if (type === 'plex') {
-      try {
-        const accountInfo = await PlexClient.getAccountInfo(normalizedToken);
-        const matchingAccount = await db
-          .select({ id: plexAccounts.id })
-          .from(plexAccounts)
-          .where(
-            and(
-              eq(plexAccounts.userId, authUser.userId),
-              eq(plexAccounts.plexAccountId, accountInfo.id)
+    switch (type) {
+      case 'plex':
+        try {
+          const accountInfo = await PlexClient.getAccountInfo(normalizedToken);
+          const [matchingAccount] = await db
+            .select({ id: plexAccounts.id })
+            .from(plexAccounts)
+            .where(
+              and(
+                eq(plexAccounts.userId, authUser.userId),
+                eq(plexAccounts.plexAccountId, accountInfo.id)
+              )
             )
-          )
-          .limit(1);
-
-        if (matchingAccount.length > 0) {
-          plexAccountId = matchingAccount[0]!.id;
+            .limit(1);
+          plexAccountId = matchingAccount?.id;
+        } catch {
+          // Non-fatal: server will be orphaned but auto-repair can fix it later
+          app.log.debug('Could not link Plex server to account at creation time');
         }
-      } catch {
-        // Non-fatal: server will be orphaned but auto-repair can fix it later
-        app.log.debug('Could not link Plex server to account at creation time');
-      }
+        break;
+      case 'jellyfin':
+      case 'emby':
+      case 'dispatcharr':
+      case 'channels_dvr':
+        break;
+      default:
+        assertNever(type);
     }
 
     // Auto-assign a color based on server type and already-used colors
@@ -294,7 +272,7 @@ export const serverRoutes: FastifyPluginAsync = async (app) => {
       );
     });
 
-    if (server.type === 'plex') {
+    if (SERVER_PROFILES[server.type].linksImportedHistory) {
       await rearmImportedHistoryLink({ keepProviderPass: false });
     }
 
@@ -399,18 +377,31 @@ export const serverRoutes: FastifyPluginAsync = async (app) => {
       return reply.badRequest('Dispatcharr update requires a complete token or username+password');
     }
     const verifiedToken = normalizedToken ?? undefined;
-    if (server.type === 'dispatcharr' && newApiKey !== undefined) {
-      return reply.badRequest(
-        'Dispatcharr authentication uses token or username+password, not apiKey'
-      );
-    }
 
-    if (server.type === 'plex' && newPublicUrl !== undefined) {
-      return reply.badRequest(PUBLIC_URL_PLEX_MESSAGE);
-    }
-
-    if (server.type === 'plex' && newApiKey !== undefined) {
-      return reply.badRequest('Plex servers sign in through plex.tv and have no API key to change');
+    switch (server.type) {
+      case 'plex':
+        if (newPublicUrl !== undefined) {
+          return reply.badRequest(PUBLIC_URL_PLEX_MESSAGE);
+        }
+        if (newApiKey !== undefined) {
+          return reply.badRequest(
+            'Plex servers sign in through plex.tv and have no API key to change'
+          );
+        }
+        break;
+      case 'dispatcharr':
+        if (newApiKey !== undefined) {
+          return reply.badRequest(
+            'Dispatcharr authentication uses token or username+password, not apiKey'
+          );
+        }
+        break;
+      case 'jellyfin':
+      case 'emby':
+      case 'channels_dvr':
+        break;
+      default:
+        assertNever(server.type);
     }
 
     if (newUpdateTrack !== undefined && server.type !== 'channels_dvr') {
@@ -464,16 +455,27 @@ export const serverRoutes: FastifyPluginAsync = async (app) => {
     let backfilledIdentity: string | undefined;
 
     if (urlChanging || keyChanging || authChanged) {
-      if (
-        server.type === 'plex' &&
-        clientIdentifier &&
-        server.machineIdentifier &&
-        server.machineIdentifier !== clientIdentifier
-      ) {
-        return reply.badRequest(
-          'Server mismatch: The selected connection belongs to a different server. ' +
-            'Please select a connection for the correct server.'
-        );
+      // For Plex servers: Validate machineIdentifier if provided
+      switch (server.type) {
+        case 'plex':
+          if (
+            clientIdentifier &&
+            server.machineIdentifier &&
+            server.machineIdentifier !== clientIdentifier
+          ) {
+            return reply.badRequest(
+              'Server mismatch: The selected connection belongs to a different server. ' +
+                'Please select a connection for the correct server.'
+            );
+          }
+          break;
+        case 'jellyfin':
+        case 'emby':
+        case 'dispatcharr':
+        case 'channels_dvr':
+          break;
+        default:
+          assertNever(server.type);
       }
 
       const token = verifiedToken as string;
@@ -928,7 +930,7 @@ export const serverRoutes: FastifyPluginAsync = async (app) => {
     }
 
     // Reads Plex's own statistics endpoint; Jellyfin and Emby are served by /live-stats
-    if (server.type !== 'plex') {
+    if (SERVER_PROFILES[server.type].hostStats !== 'plexStatistics') {
       return reply.badRequest('Server statistics are only available for Plex servers');
     }
 

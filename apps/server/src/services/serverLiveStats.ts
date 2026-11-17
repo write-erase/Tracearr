@@ -10,7 +10,10 @@ import {
   CACHE_TTL,
   liveStatsRetentionSeconds,
   REDIS_KEYS,
+  SERVER_PROFILES,
   SERVER_STATS_CONFIG,
+  assertNever,
+  type ServerType,
 } from '@tracearr/shared';
 import type { ServerBandwidthDataPoint, ServerResourceDataPoint } from '@tracearr/shared';
 import { fetchSystemStats } from './mediaServer/channelsDvr/system.js';
@@ -19,7 +22,7 @@ import type { PlexBandwidthStats, PlexStatisticsDataPoint } from './mediaServer/
 
 interface ServerRow {
   id: string;
-  type: string;
+  type: ServerType;
   url: string;
   token: string;
 }
@@ -330,27 +333,46 @@ export async function sampleChannelsDvrStats(
 }
 
 export async function getServerLiveStats(redis: Redis, server: ServerRow) {
-  if (server.type === 'channels_dvr') {
-    await sampleChannelsDvrStats(redis, server);
+  const hostStats = SERVER_PROFILES[server.type].hostStats;
+  switch (hostStats) {
+    case 'plexStatistics':
+      return getPlexLiveStats(redis, server);
+    case 'ssePlugin':
+      return {
+        statistics: await getPluginServerStats(redis, server.id),
+        bandwidth: [],
+        bandwidthSamples: [],
+        bandwidthAccounts: [],
+        bandwidthDevices: [],
+      };
+    case 'dispatcharrPlugin': {
+      const [statistics, bandwidth] = await Promise.all([
+        getPluginServerStats(redis, server.id),
+        getPluginServerBandwidthStats(redis, server.id),
+      ]);
+      return {
+        statistics,
+        bandwidth,
+        bandwidthSamples: [],
+        bandwidthAccounts: [],
+        bandwidthDevices: [],
+      };
+    }
+    case 'channelsSystem':
+      await sampleChannelsDvrStats(redis, server);
+      return {
+        statistics: await getPluginServerStats(redis, server.id),
+        bandwidth: [],
+        bandwidthSamples: [],
+        bandwidthAccounts: [],
+        bandwidthDevices: [],
+      };
+    default:
+      return assertNever(hostStats);
   }
+}
 
-  if (server.type !== 'plex') {
-    const [statistics, bandwidth] = await Promise.all([
-      getPluginServerStats(redis, server.id),
-      server.type === 'dispatcharr'
-        ? getPluginServerBandwidthStats(redis, server.id)
-        : Promise.resolve([]),
-    ]);
-
-    return {
-      statistics,
-      bandwidth,
-      bandwidthSamples: [],
-      bandwidthAccounts: [],
-      bandwidthDevices: [],
-    };
-  }
-
+async function getPlexLiveStats(redis: Redis, server: PlexServerRow) {
   const [statistics, bandwidthStats] = await Promise.all([
     getServerResourceStats(redis, server),
     getServerBandwidthStats(redis, server),
