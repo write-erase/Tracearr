@@ -1,5 +1,23 @@
 # Tracearr Fork Information
 
+## November 18, 2026 — Release v3.2.1-r1
+
+The first release on upstream 3.2 (connor's stable `v3.2.0` and `v3.2.1`). It carries every entry
+from November 17 to 18 below that came after r4:
+
+- Upstream's server type cleanup, with Dispatcharr and Channels DVR ported into it
+- tofa as a sixth server type, the guided first-run setup (Dispatcharr and Channels DVR can be
+  added there too), single sign-on only, the refreshed theme and upstream's 3.2.0 fixes
+- Merged people's pictures from their accounts, tofa growth backfill per server, the stop
+  dialog without the `@`, and the 3.2.1 tofa session fix
+- Kept for the fork: Live TV shows the channel first, program under it, on Jellyfin, Emby,
+  Dispatcharr and Channels DVR; Channels DVR's stop dialog names the device and has no message
+  field; neither fork type offers history import or member sign-in
+
+**Back up your database before updating.** It runs upstream's migrations 0126–0132; 0127 changes
+how request ids are stored, so going back to r4 needs that backup. People on r4 are told about
+this release by the update check. The README's pinned example is `3.2.1-r1`.
+
 ## November 18, 2026 — Upstream 3.2.1
 
 No new migrations, so no backup is needed beyond the usual. Run `pnpm install` after pulling:
