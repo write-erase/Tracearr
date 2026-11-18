@@ -1,5 +1,24 @@
 # Tracearr Fork Information
 
+## November 18, 2026 — Upstream 3.2.1
+
+No new migrations, so no backup is needed beyond the usual. Run `pnpm install` after pulling:
+dependencies changed.
+
+Connor's `main` at `a0037ccf6` (8 commits after step 3): the stable `v3.2.0` and `v3.2.1`.
+
+- tofa: a play stays one session when tofa briefly stops describing it, instead of turning into
+  a second untitled one. Only tofa fills in its media later, and both fork types use composite
+  session identity, so Dispatcharr and Channels DVR sessions are unchanged.
+- Dependency bumps (better-auth 1.7.20, `@fastify/jwt`, bullmq, i18next, Scalar), with the unused
+  `@fastify/swagger` and `@fastify/swagger-ui` dropped. The fork never used either.
+- Public API docs: took connor's version of the base path line, which the fork had changed only
+  to avoid a non-null assertion. Both versions do the same thing.
+- Stable 3.2.0 and 3.2.1 release notes, and the Helm chart synced to 3.2.1.
+- `cut-release` gains connor's announce switch. It only writes a line in the tag message for
+  `release.yml`, which this fork removed.
+- Not taken: upstream's `release` workflow changes.
+
 ## November 17, 2026 — Upstream 3.2.0, step 3: up to beta 3
 
 **Back up your database before pulling this `:dev`.** It runs upstream's migration 0132
