@@ -1,8 +1,9 @@
 /**
- * Server management routes - CRUD for Plex/Jellyfin/Emby servers
+ * Server management routes - CRUD for Plex/Jellyfin/Emby/tofa servers
  */
 
 import type { FastifyPluginAsync, FastifyReply } from 'fastify';
+import { APIError } from 'better-auth/api';
 import { eq, inArray, and, isNull } from 'drizzle-orm';
 import {
   createServerSchema,
@@ -12,34 +13,44 @@ import {
   pickServerColor,
   setServerHistoricalSchema,
   PUBLIC_URL_PLEX_MESSAGE,
+  SERVER_PROFILES,
+  assertNever,
   type ServerConnectionStatus,
   type ServerDownReason,
-  type ServerType,
 } from '@tracearr/shared';
 import { db } from '../db/client.js';
 import { servers, plexAccounts, serverUsers, users } from '../db/schema.js';
-import { nonOwnerMayLoginThrough } from '../lib/authGuards.js';
+import {
+  assertOwnerKeepsALoginAfter,
+  nonOwnerMayLoginThrough,
+  type ServerAccountChange,
+} from '../lib/authGuards.js';
 import { revokeUnlessStillIn } from '../lib/revoke.js';
 import {
   PlexClient,
   JellyfinClient,
-  EmbyClient,
+  TofaClient,
   DispatcharrClient,
   ChannelsDvrClient,
+  verifyServerAdmin,
 } from '../services/mediaServer/index.js';
+import { readServerFacts } from '../services/mediaServer/byServerType.js';
 import { getServerLiveStats, getServerResourceStats } from '../services/serverLiveStats.js';
 import { clearChannelsDvrRelayUsers } from '../services/channelsDvrRelays.js';
+import { createServer, startAddedServer } from '../services/serverCreate.js';
+import { deleteServer } from '../services/serverDelete.js';
 import { syncServer } from '../services/sync.js';
 import { sseManager } from '../services/sseManager.js';
 import { getCacheService } from '../services/cache.js';
 import { supportsMediaLibrary } from '@tracearr/shared';
 import { markServerHistorical, resumeServer } from '../services/historicalServers.js';
 import { liveServerCondition, HISTORICAL_EDIT_MESSAGE } from '../services/liveServers.js';
-import { enqueueLibrarySync, rebuildAutoSyncSchedules } from '../jobs/librarySyncQueue.js';
+import { enqueueLibrarySync } from '../jobs/librarySyncQueue.js';
 import { installedVersionOf } from '../jobs/serverUpdateChecker.js';
 import { publishServersChanged } from '../jobs/poller/database.js';
+import { followServerOnBuiltInRequestService } from '../services/requests/store.js';
 import { readServerIdentity, sharesKnownUsers } from '../services/serverIdentity.js';
-import { getSetting, rearmImportedHistoryLink } from '../services/settings.js';
+import { getSetting } from '../services/settings.js';
 import { buildServerAccessCondition, hasServerAccess } from '../utils/serverFiltering.js';
 import { serverOrderBy } from '../utils/serverOrder.js';
 
@@ -62,33 +73,14 @@ function normalizeDispatcharrAuth(input: {
     : token;
 }
 
-async function verifyServerAdmin(type: ServerType, token: string, url: string) {
-  if (type === 'plex') return PlexClient.verifyServerAdmin(token, url);
-  if (type === 'jellyfin') return JellyfinClient.verifyServerAdmin(token, url);
-  if (type === 'emby') return EmbyClient.verifyServerAdmin(token, url);
-
-  // Dispatcharr and Channels DVR report no error codes, so a failure is treated as
-  // "could not connect", which replyAdminCheckFailure maps to 503 like d4rk's code did.
-  if (type === 'channels_dvr') {
-    const reachable = await new ChannelsDvrClient({ url, token }).testConnection();
-    return reachable
-      ? { success: true as const }
-      : {
-          success: false as const,
-          code: JellyfinClient.AdminVerifyError.CONNECTION_FAILED,
-          message:
-            'Could not read the Channels DVR /dvr status. Check the URL and port (default 8089).',
-        };
+async function ownerLockout(change: ServerAccountChange): Promise<string | null> {
+  try {
+    await assertOwnerKeepsALoginAfter(change);
+    return null;
+  } catch (err) {
+    if (err instanceof APIError) return err.message;
+    throw err;
   }
-
-  const check = await DispatcharrClient.verifyServerAdmin(token, url);
-  return check.success
-    ? { success: true as const }
-    : {
-        success: false as const,
-        code: JellyfinClient.AdminVerifyError.CONNECTION_FAILED,
-        message: check.message,
-      };
 }
 
 // Plex never reports INVALID_KEY, so one mapping serves all server types.
@@ -132,6 +124,7 @@ export const serverRoutes: FastifyPluginAsync = async (app) => {
         dispatcharrUser: servers.dispatcharrUser,
         historicalAt: servers.historicalAt,
         allowMemberLogin: servers.allowMemberLogin,
+        canStopStreams: servers.canStopStreams,
         createdAt: servers.createdAt,
         updatedAt: servers.updatedAt,
       })
@@ -222,108 +215,83 @@ export const serverRoutes: FastifyPluginAsync = async (app) => {
     }
     if (!adminCheck.success) return replyAdminCheckFailure(reply, adminCheck);
 
+    let serverFacts: Awaited<ReturnType<typeof readServerFacts>>;
+    try {
+      serverFacts = await readServerFacts(type, url, normalizedToken);
+    } catch (error) {
+      app.log.error({ err: error }, 'Failed to read server settings');
+      return reply.badRequest('Could not read the API key scopes from the server.');
+    }
+
     // For Plex servers, find the owning plex account to set plexAccountId
     let plexAccountId: string | undefined;
-    if (type === 'plex') {
-      try {
-        const accountInfo = await PlexClient.getAccountInfo(normalizedToken);
-        const matchingAccount = await db
-          .select({ id: plexAccounts.id })
-          .from(plexAccounts)
-          .where(
-            and(
-              eq(plexAccounts.userId, authUser.userId),
-              eq(plexAccounts.plexAccountId, accountInfo.id)
+    let machineIdentifier: string | null = null;
+    switch (type) {
+      case 'plex':
+        try {
+          const accountInfo = await PlexClient.getAccountInfo(normalizedToken);
+          const [matchingAccount] = await db
+            .select({ id: plexAccounts.id })
+            .from(plexAccounts)
+            .where(
+              and(
+                eq(plexAccounts.userId, authUser.userId),
+                eq(plexAccounts.plexAccountId, accountInfo.id)
+              )
             )
-          )
-          .limit(1);
-
-        if (matchingAccount.length > 0) {
-          plexAccountId = matchingAccount[0]!.id;
+            .limit(1);
+          plexAccountId = matchingAccount?.id;
+        } catch {
+          // Non-fatal: server will be orphaned but auto-repair can fix it later
+          app.log.debug('Could not link Plex server to account at creation time');
         }
-      } catch {
-        // Non-fatal: server will be orphaned but auto-repair can fix it later
-        app.log.debug('Could not link Plex server to account at creation time');
-      }
+        break;
+      case 'tofa':
+        // Stored now, so tofa cloud's Add server already knows the server is connected.
+        try {
+          machineIdentifier = await new TofaClient({
+            url,
+            token: normalizedToken,
+          }).getServerIdentity();
+        } catch {
+          app.log.debug('Could not read the tofa server identity at creation time');
+        }
+        // tofa cloud may have connected the same server at another address
+        if (machineIdentifier) {
+          const [connected] = await db
+            .select({ id: servers.id })
+            .from(servers)
+            .where(and(eq(servers.type, type), eq(servers.machineIdentifier, machineIdentifier)))
+            .limit(1);
+          if (connected) return reply.conflict('This server is already connected');
+        }
+        break;
+      case 'jellyfin':
+      case 'emby':
+      case 'dispatcharr':
+      case 'channels_dvr':
+        break;
+      default:
+        assertNever(type);
     }
 
-    // Auto-assign a color based on server type and already-used colors
-    const existingColors = await db.select({ color: servers.color }).from(servers);
-    const color = pickServerColor(
+    const { server, requestServiceIds } = await createServer({
+      name,
       type,
-      existingColors.map((s) => s.color)
-    );
-
-    // Save server with plain text token (DB is localhost-only)
-    const inserted = await db
-      .insert(servers)
-      .values({
-        name,
-        type,
-        url,
-        token: normalizedToken,
-        ignoreAnonymousStreams,
-        publicUrl: publicUrl ?? null,
-        color,
-        plexAccountId, // Links Plex servers to their owning account (undefined for non-Plex)
-      })
-      .returning({
-        id: servers.id,
-        name: servers.name,
-        type: servers.type,
-        url: servers.url,
-        token: servers.token,
-        publicUrl: servers.publicUrl,
-        ignoreAnonymousStreams: servers.ignoreAnonymousStreams,
-        color: servers.color,
-        historicalAt: servers.historicalAt,
-        createdAt: servers.createdAt,
-        updatedAt: servers.updatedAt,
-      });
-
-    const server = inserted[0];
-    if (!server) {
-      return reply.internalServerError('Failed to create server');
-    }
-
-    await publishServersChanged();
-    rebuildAutoSyncSchedules().catch((error: unknown) => {
-      app.log.error(
-        { err: error, serverId: server.id },
-        'Auto-sync schedule failed for new server'
-      );
+      url,
+      token: normalizedToken,
+      ignoreAnonymousStreams,
+      publicUrl,
+      plexAccountId,
+      machineIdentifier,
+      facts: serverFacts,
     });
-
-    if (server.type === 'plex') {
-      await rearmImportedHistoryLink({ keepProviderPass: false });
-    }
-
-    // Auto-sync users and libraries in background
-    syncServer(server.id, { syncUsers: true, syncLibraries: true })
-      .then((result) => {
-        app.log.info(
-          {
-            serverId: server.id,
-            usersAdded: result.usersAdded,
-            librariesSynced: result.librariesSynced,
-          },
-          'Auto-sync completed for new server'
-        );
-      })
-      .catch((error: unknown) => {
-        app.log.error({ err: error, serverId: server.id }, 'Auto-sync failed for new server');
-      });
-
-    // Start realtime (SSE) connection in background
-    sseManager.refresh().catch((error: unknown) => {
-      app.log.error({ err: error, serverId: server.id }, 'SSE refresh failed for new server');
-    });
+    await startAddedServer(server, requestServiceIds);
 
     return reply.status(201).send({
       ...server,
       dispatcharrAuthMode:
-        server.type === 'dispatcharr' ? getDispatcharrAuthMode(server.token) : undefined,
-      token: undefined,
+        server.type === 'dispatcharr' ? getDispatcharrAuthMode(normalizedToken) : undefined,
     });
   });
 
@@ -399,18 +367,32 @@ export const serverRoutes: FastifyPluginAsync = async (app) => {
       return reply.badRequest('Dispatcharr update requires a complete token or username+password');
     }
     const verifiedToken = normalizedToken ?? undefined;
-    if (server.type === 'dispatcharr' && newApiKey !== undefined) {
-      return reply.badRequest(
-        'Dispatcharr authentication uses token or username+password, not apiKey'
-      );
-    }
 
-    if (server.type === 'plex' && newPublicUrl !== undefined) {
-      return reply.badRequest(PUBLIC_URL_PLEX_MESSAGE);
-    }
-
-    if (server.type === 'plex' && newApiKey !== undefined) {
-      return reply.badRequest('Plex servers sign in through plex.tv and have no API key to change');
+    switch (server.type) {
+      case 'plex':
+        if (newPublicUrl !== undefined) {
+          return reply.badRequest(PUBLIC_URL_PLEX_MESSAGE);
+        }
+        if (newApiKey !== undefined) {
+          return reply.badRequest(
+            'Plex servers sign in through plex.tv and have no API key to change'
+          );
+        }
+        break;
+      case 'dispatcharr':
+        if (newApiKey !== undefined) {
+          return reply.badRequest(
+            'Dispatcharr authentication uses token or username+password, not apiKey'
+          );
+        }
+        break;
+      case 'jellyfin':
+      case 'emby':
+      case 'tofa':
+      case 'channels_dvr':
+        break;
+      default:
+        assertNever(server.type);
     }
 
     if (newUpdateTrack !== undefined && server.type !== 'channels_dvr') {
@@ -418,6 +400,12 @@ export const serverRoutes: FastifyPluginAsync = async (app) => {
     }
     if (newDispatcharrUser !== undefined && server.type !== 'channels_dvr') {
       return reply.badRequest('Only Channels DVR servers have a Dispatcharr user');
+    }
+    const profile = SERVER_PROFILES[server.type];
+    if (newAllowMemberLogin === true && profile.memberSignIn === 'unavailable') {
+      return reply.badRequest(
+        `${profile.displayName} has no sign-in Tracearr can call, so members cannot sign in through it`
+      );
     }
 
     const same = <T>(next: T | undefined, current: T): boolean =>
@@ -450,6 +438,7 @@ export const serverRoutes: FastifyPluginAsync = async (app) => {
         dispatcharrUser: server.dispatcharrUser,
         historicalAt: server.historicalAt,
         allowMemberLogin: server.allowMemberLogin,
+        canStopStreams: server.canStopStreams,
         createdAt: server.createdAt,
         updatedAt: server.updatedAt,
       };
@@ -462,18 +451,31 @@ export const serverRoutes: FastifyPluginAsync = async (app) => {
     }
 
     let backfilledIdentity: string | undefined;
+    let serverFacts: Awaited<ReturnType<typeof readServerFacts>> = {};
 
     if (urlChanging || keyChanging || authChanged) {
-      if (
-        server.type === 'plex' &&
-        clientIdentifier &&
-        server.machineIdentifier &&
-        server.machineIdentifier !== clientIdentifier
-      ) {
-        return reply.badRequest(
-          'Server mismatch: The selected connection belongs to a different server. ' +
-            'Please select a connection for the correct server.'
-        );
+      // For Plex servers: Validate machineIdentifier if provided
+      switch (server.type) {
+        case 'plex':
+          if (
+            clientIdentifier &&
+            server.machineIdentifier &&
+            server.machineIdentifier !== clientIdentifier
+          ) {
+            return reply.badRequest(
+              'Server mismatch: The selected connection belongs to a different server. ' +
+                'Please select a connection for the correct server.'
+            );
+          }
+          break;
+        case 'jellyfin':
+        case 'emby':
+        case 'tofa':
+        case 'dispatcharr':
+        case 'channels_dvr':
+          break;
+        default:
+          assertNever(server.type);
       }
 
       const token = verifiedToken as string;
@@ -534,6 +536,16 @@ export const serverRoutes: FastifyPluginAsync = async (app) => {
         }
         if (!server.machineIdentifier) backfilledIdentity = reachedIdentity;
       }
+
+      try {
+        serverFacts = await readServerFacts(server.type, effectiveUrl, token);
+      } catch (error) {
+        app.log.error(
+          { err: error, serverId: id, url: effectiveUrl },
+          'Failed to read server settings'
+        );
+        return reply.badRequest('Could not read the API key scopes from the server.');
+      }
     }
 
     // Build update object
@@ -548,8 +560,10 @@ export const serverRoutes: FastifyPluginAsync = async (app) => {
       allowMemberLogin?: boolean;
       updateTrack?: 'auto' | 'stable' | 'prerelease';
       dispatcharrUser?: string | null;
+      canStopStreams?: boolean;
+      watchedRulePercent?: number | null;
       updatedAt: Date;
-    } = { updatedAt: new Date() };
+    } = { ...serverFacts, updatedAt: new Date() };
     if (backfilledIdentity !== undefined) updatePayload.machineIdentifier = backfilledIdentity;
     if (newName !== undefined) updatePayload.name = newName;
     if (newUrl !== undefined) updatePayload.url = newUrl;
@@ -564,11 +578,8 @@ export const serverRoutes: FastifyPluginAsync = async (app) => {
     if (newUpdateTrack !== undefined) updatePayload.updateTrack = newUpdateTrack;
     if (newDispatcharrUser !== undefined) updatePayload.dispatcharrUser = newDispatcharrUser;
 
-    const updated = await db
-      .update(servers)
-      .set(updatePayload)
-      .where(eq(servers.id, id))
-      .returning({
+    const updated = await db.transaction(async (tx) => {
+      const rows = await tx.update(servers).set(updatePayload).where(eq(servers.id, id)).returning({
         id: servers.id,
         name: servers.name,
         type: servers.type,
@@ -581,9 +592,18 @@ export const serverRoutes: FastifyPluginAsync = async (app) => {
         color: servers.color,
         historicalAt: servers.historicalAt,
         allowMemberLogin: servers.allowMemberLogin,
+        canStopStreams: servers.canStopStreams,
         createdAt: servers.createdAt,
         updatedAt: servers.updatedAt,
       });
+      if (
+        SERVER_PROFILES[server.type].builtInRequests !== null &&
+        (newName !== undefined || newUrl !== undefined)
+      ) {
+        await followServerOnBuiltInRequestService(tx, id);
+      }
+      return rows;
+    });
 
     const result = updated[0];
     if (!result) {
@@ -738,15 +758,10 @@ export const serverRoutes: FastifyPluginAsync = async (app) => {
       return reply.notFound('Server not found');
     }
 
-    // Delete server (cascade will handle related records)
-    await db.delete(servers).where(eq(servers.id, id));
-    await publishServersChanged();
+    const lockout = await ownerLockout({ kind: 'deleteServer', serverId: id });
+    if (lockout) return reply.badRequest(lockout);
 
-    // Tear down the server's SSE connection in background
-    sseManager.refresh().catch((error: unknown) => {
-      app.log.error({ err: error, serverId: id }, 'SSE refresh failed after server delete');
-    });
-
+    await deleteServer(id);
     return { success: true };
   });
 
@@ -803,7 +818,7 @@ export const serverRoutes: FastifyPluginAsync = async (app) => {
             syncedAt: new Date().toISOString(),
           };
         }
-        librarySyncJobId = await enqueueLibrarySync(id, 'manual', authUser.userId);
+        librarySyncJobId = await enqueueLibrarySync(id, 'manual', { userId: authUser.userId });
         app.log.info({ serverId: id, jobId: librarySyncJobId }, 'Library sync job enqueued');
       } catch (err) {
         // Don't fail the whole sync if library sync can't be queued
@@ -881,6 +896,11 @@ export const serverRoutes: FastifyPluginAsync = async (app) => {
       return reply.notFound('Server not found');
     }
 
+    if (body.data.historical) {
+      const lockout = await ownerLockout({ kind: 'retireServer', serverId: server.id });
+      if (lockout) return reply.badRequest(lockout);
+    }
+
     const updated = body.data.historical
       ? await markServerHistorical(server)
       : await resumeServer(server);
@@ -928,7 +948,7 @@ export const serverRoutes: FastifyPluginAsync = async (app) => {
     }
 
     // Reads Plex's own statistics endpoint; Jellyfin and Emby are served by /live-stats
-    if (server.type !== 'plex') {
+    if (SERVER_PROFILES[server.type].hostStats !== 'plexStatistics') {
       return reply.badRequest('Server statistics are only available for Plex servers');
     }
 
@@ -1105,7 +1125,7 @@ export const serverRoutes: FastifyPluginAsync = async (app) => {
    * GET /servers/connection-status - Live SSE plugin connection state per server
    *
    * Returns per-server realtime/polling mode. Status is ephemeral runtime truth
-   * mirrored in Redis with a TTL — not persisted to the database. Servers with
+   * mirrored in Redis with a TTL, not persisted to the database. Servers with
    * no cached status are reported as polling (safe default).
    */
   app.get('/connection-status', readServers, async (request) => {
@@ -1132,7 +1152,7 @@ export const serverRoutes: FastifyPluginAsync = async (app) => {
         }
       }
 
-      // No cached status yet — default to polling (safe)
+      // No cached status yet, so default to polling (safe)
       result.push({
         serverId: server.id,
         serverName: server.name,

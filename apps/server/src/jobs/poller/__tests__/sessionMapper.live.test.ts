@@ -69,12 +69,6 @@ describe('pickLiveSessionFields', () => {
     expect('id' in live).toBe(false);
   });
 
-  it('nulls season and episode for non-episode media', () => {
-    const live = pickLiveSessionFields({ ...processed, mediaType: 'movie' });
-    expect(live.seasonNumber).toBeNull();
-    expect(live.episodeNumber).toBeNull();
-  });
-
   it('keeps Dispatcharr Catch-up classification and EPG timing on live updates', () => {
     const live = pickLiveSessionFields({
       ...processed,

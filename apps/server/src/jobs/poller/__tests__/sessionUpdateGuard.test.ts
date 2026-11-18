@@ -156,6 +156,7 @@ vi.mock('../violations.js', () => ({ broadcastViolations: vi.fn() }));
 
 import { initializePoller, processServerSessions, triggerServerPoll } from '../processor.js';
 import { getActiveAutomations } from '../database.js';
+import { fakeJellyfinClient } from '../../../test/mediaServerFakes.js';
 
 const EXISTING_SESSION_ID = 'session-1';
 
@@ -244,9 +245,11 @@ describe('poller session update guard against stop races', () => {
     vi.clearAllMocks();
     mockUpdateWhere.mockResolvedValue([]);
 
-    mockCreateMediaServerClient.mockReturnValue({
-      getSessions: vi.fn().mockResolvedValue([{}]),
-    });
+    mockCreateMediaServerClient.mockReturnValue(
+      fakeJellyfinClient({
+        getSessions: vi.fn().mockResolvedValue([{}]),
+      })
+    );
     mockMapMediaSession.mockReturnValue(processedSession());
     mockBuildActiveSession.mockReturnValue({ id: EXISTING_SESSION_ID, sessionKey: 'sess-key-1' });
     mockBatchFindActiveSessionsByComposite.mockResolvedValue(
@@ -335,9 +338,11 @@ describe('poller rediscovered-session guard against stop races', () => {
     vi.clearAllMocks();
     mockUpdateWhere.mockResolvedValue([]);
 
-    mockCreateMediaServerClient.mockReturnValue({
-      getSessions: vi.fn().mockResolvedValue([{}]),
-    });
+    mockCreateMediaServerClient.mockReturnValue(
+      fakeJellyfinClient({
+        getSessions: vi.fn().mockResolvedValue([{}]),
+      })
+    );
     mockMapMediaSession.mockReturnValue(processedSession());
     mockBuildActiveSession.mockReturnValue({ id: EXISTING_SESSION_ID, sessionKey: 'sess-key-1' });
     mockFindActiveSession.mockResolvedValue(existingSessionRow());
@@ -423,6 +428,7 @@ describe('Dispatcharr catch-up programme rollover', () => {
         type: 'dispatcharr' as const,
         url: 'http://dispatcharr.local',
         token: 'test-key',
+        watchedRulePercent: null,
         createdAt: new Date(),
         updatedAt: new Date(),
       };

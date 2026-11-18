@@ -1,5 +1,159 @@
 # Tracearr Fork Information
 
+## November 18, 2026 — Release v3.2.1-r1
+
+The first release on upstream 3.2 (connor's stable `v3.2.0` and `v3.2.1`). It carries every entry
+from November 17 to 18 below that came after r4:
+
+- Upstream's server type cleanup, with Dispatcharr and Channels DVR ported into it
+- tofa as a sixth server type, the guided first-run setup (Dispatcharr and Channels DVR can be
+  added there too), single sign-on only, the refreshed theme and upstream's 3.2.0 fixes
+- Merged people's pictures from their accounts, tofa growth backfill per server, the stop
+  dialog without the `@`, and the 3.2.1 tofa session fix
+- Kept for the fork: Live TV shows the channel first, program under it, on Jellyfin, Emby,
+  Dispatcharr and Channels DVR; Channels DVR's stop dialog names the device and has no message
+  field; neither fork type offers history import or member sign-in
+
+**Back up your database before updating.** It runs upstream's migrations 0126–0132; 0127 changes
+how request ids are stored, so going back to r4 needs that backup. People on r4 are told about
+this release by the update check. The README's pinned example is `3.2.1-r1`.
+
+## November 18, 2026 — Upstream 3.2.1
+
+No new migrations, so no backup is needed beyond the usual. Run `pnpm install` after pulling:
+dependencies changed.
+
+Connor's `main` at `a0037ccf6` (8 commits after step 3): the stable `v3.2.0` and `v3.2.1`.
+
+- tofa: a play stays one session when tofa briefly stops describing it, instead of turning into
+  a second untitled one. Only tofa fills in its media later, and both fork types use composite
+  session identity, so Dispatcharr and Channels DVR sessions are unchanged.
+- Dependency bumps (better-auth 1.7.20, `@fastify/jwt`, bullmq, i18next, Scalar), with the unused
+  `@fastify/swagger` and `@fastify/swagger-ui` dropped. The fork never used either.
+- Public API docs: took connor's version of the base path line, which the fork had changed only
+  to avoid a non-null assertion. Both versions do the same thing.
+- Stable 3.2.0 and 3.2.1 release notes, and the Helm chart synced to 3.2.1.
+- `cut-release` gains connor's announce switch. It only writes a line in the tag message for
+  `release.yml`, which this fork removed.
+- Not taken: upstream's `release` workflow changes.
+
+## November 17, 2026 — Upstream 3.2.0, step 3: up to beta 3
+
+**Back up your database before pulling this `:dev`.** It runs upstream's migration 0132
+(backfill person picture), which sets every merged person's picture from their accounts, so going
+back to an earlier `:dev` needs that backup. This fork still adds no migrations of its own.
+
+Third of the 3.2.0 merges: connor's `main` at `a0f4ded67` (11 commits after step 2, through
+`v3.2.0-beta.2` and `v3.2.0-beta.3`):
+
+- Merged people take their picture from their accounts (a current account first, then the most
+  recently active) and keep it current at each sync. Migration 0132 fills it in for existing
+  people.
+- tofa dates library items by when the file arrived. A server added after the others now gets
+  its library growth history backfilled: the check runs per server instead of across all of them.
+  Only servers with library items take part, so Dispatcharr (no library) is never checked;
+  Channels DVR is checked like the others.
+- The stop stream dialog drops the `@` in front of the name, and its prop is now `name` (was
+  `username`). The fork keeps its Channels DVR wording ("Stop … on <device>?", key
+  `stopMediaOnDevice` beside upstream's new `stopMediaFor`) and the hidden message field for
+  Channels DVR.
+- Crowdin translation syncs, plus connor's repair of the translations earlier syncs had wiped.
+- Not taken: upstream's `release` workflow changes, since this fork removed that workflow.
+
+## November 17, 2026 — Upstream 3.2.0, step 2: tofa and beta 1
+
+**Back up your database before pulling this `:dev`.** It runs upstream's migrations 0126–0131, and
+0127 changes how request ids are stored, so going back to r4 or an earlier `:dev` needs that
+backup. This fork adds no migrations of its own, so the numbering doesn't clash.
+
+Second of the 3.2.0 merges: connor's `v3.2.0-beta.1` (7 commits after step 1). That adds tofa as a
+sixth server type, a new first-run setup (pick the server, create the owner, connect, import),
+the refreshed theme, and the fixes in upstream's 3.2.0 release notes. The fork's types are ported
+through all of it:
+
+- Server types: `plex, jellyfin, emby, tofa, dispatcharr, channels_dvr`, the fork's types still
+  last. Error codes: Dispatcharr keeps `EXT_005` and Channels DVR `EXT_006`; tofa, which upstream
+  numbers `EXT_005`, is `EXT_007` here.
+- Profiles gain upstream's new fields (`displayName`, `hostStatsIdleSeconds`,
+  `serverHistoryImport`, `watchedThreshold`, `builtInRequests`, `guideImageHosts`, `itemLinks`).
+  Both fork types answer the way they behaved: no history import, Tracearr's own watched
+  setting, no built-in requests, links to the server's own address.
+- `memberSignIn` for both fork types is now upstream's `unavailable` (replaces the fork's `none`
+  from step 1). The server's PATCH now refuses turning member sign-in on for them, with upstream's
+  message, and the login page counts only types that have a sign-in.
+- Upstream's owner account linking (`ownerLinkProof`) gains a `none` proof for both fork types,
+  so they stay out of it, as in r4.
+- The fork's `syncsLibraryIncrementally` profile field from step 1 is gone. Upstream now picks
+  where a sync starts per type (`storedSyncCursor`), and both fork types get no cursor, so
+  Channels DVR still always runs a full scan that notices deleted episodes. The client interface
+  changed with it: `getLibraryItemsSince` takes a cursor and returns a change feed (`NOT_NEEDED`
+  from both fork clients), and both answer the new `getLibraryRevision` with `NOT_NEEDED`.
+- Adding a server moved into `services/serverCreate.ts`. Ported into it: Dispatcharr's
+  token-or-username+password sign-in, "Ignore anonymous streams", and the Dispatcharr auth mode
+  in the response. Dispatcharr (no library) is no longer marked as owing a first library sync, and
+  no library sync is queued for it.
+- The add-server form is now upstream's `useAddServer` hook and `AddServerFields`, shared by
+  Settings and first run. The Dispatcharr and Channels DVR fields moved into them, so both
+  types can also be picked during first-run setup. In Settings the dialog skips its new import
+  step for both, since neither has history to import.
+- The server row is upstream's redesign. Its realtime badge covers Channels DVR ("Polling") and
+  Dispatcharr (realtime, plugin issue and plugin update, as Jellyfin and Emby, with Dispatcharr
+  wording).
+- The update checker keeps Channels DVR's per-server stable/pre-release track and gains tofa's
+  per-server update check.
+- The image proxy is upstream's origin-based rewrite, with Dispatcharr's paths and TMDB art,
+  Channels DVR's guide logos and the uncropped poster resize carried into it.
+- Termination keeps the Channels DVR web player and remote-device refusals ahead of upstream's
+  new `stopRefusal`.
+- Live TV: upstream now names the program's show first with the channel under it (#1441). The
+  fork keeps channel first, program under it, for Jellyfin, Emby, Dispatcharr and Channels DVR, as
+  r4 shows it. Plex and tofa follow upstream.
+- Kept through upstream's web changes: the Dashboard's Dispatcharr and Channels DVR sections, the
+  Now Playing card's catch-up clocks, provider and speed labels, Channels DVR device logos and
+  terminate rules, the stream panel's speed beside the bitrate, the Live TV media type in
+  charts, and the sidebar's fork-update badge colors.
+- Not taken: upstream's `insiders`, `release` and `renovate` workflows, which this fork removed.
+
+## November 17, 2026 — Upstream 3.2.0, step 1: server type cleanup (#1439)
+
+First of the 3.2.0 merges: connor's `main` through `f56409ebf` ("server type cleanup ahead of
+new servers", plus the two commits before it). Upstream now defines server types once
+(`packages/shared/src/serverTypes.ts`), describes each type's behavior in `SERVER_PROFILES`
+(`serverProfiles.ts`), and branches with exhaustive `switch`es ending in `assertNever` instead of
+"Plex, else Jellyfin/Emby". Dispatcharr and Channels DVR are ported into all three:
+
+- `SERVER_TYPES` includes `dispatcharr` and `channels_dvr` (the old `ServerType` unions in
+  `types.ts`, `schemas.ts`, `db/schema.ts` and test-utils are gone, as upstream did).
+- Profiles: where upstream branched Plex against everything else, both fork types keep the
+  "everything else" side they had (composite session keys, sessionKey termination, email from
+  the username, player name counts toward the device). New profile values for what they do
+  differently: `liveEvents` `dispatcharrRealtime` / `poller`, `hostStats` `dispatcharrPlugin` /
+  `channelsSystem`, `addServerAuth` `dispatcharr` / `urlOnly`, `memberSignIn` `none`.
+- New profile field `syncsLibraryIncrementally` (Channels DVR and Dispatcharr false): upstream now
+  calls `getLibraryItemsSince` unconditionally, where Channels DVR used to opt out of incremental
+  syncs by not having it.
+- Two deliberate changes: `userIdsIdentifyInstall` is false for both (Dispatcharr ids are small
+  integers and Channels viewers are device names, so a shared id proves nothing; it was true by
+  being "not Plex"), and external service errors gain `CHANNELS_DVR_ERROR` (`EXT_006`).
+- Every media server client must now answer every `IMediaServerClient` method. Dispatcharr and
+  Channels DVR gain the ones they lacked: `NOT_NEEDED` for seasons, albums and file checks, empty
+  answers for Dispatcharr's library methods (it has no library), and `getLibraryItemsSince` /
+  `getLibraryLeavesSince` on Channels DVR that throw (never called, see above).
+  `findExistingRatingKeys` on Channels DVR says nothing is still there, which is what its absence
+  meant before: an item missing from a full listing is gone.
+- `verifyServerAdmin` moved into `mediaServer/index.ts` with the Dispatcharr and Channels DVR
+  checks from `routes/servers.ts`. Route tests mock it instead of each client.
+- Kept fork behavior through upstream's rewrites: Dispatcharr's 5-minute kill cooldown, Channels
+  DVR's immediate stops, its device-IP termination and Dispatcharr catch-up termination, the
+  Dispatcharr metrics plugin dialog, plugin update checks and notification text, Dispatcharr's
+  resource and bandwidth charts, Channels DVR `/system` sampling, Dispatcharr user sync, the
+  image proxy's Dispatcharr/Channels requests and `preserveAspectRatio` resizing, and the
+  Add/Edit server forms for both types.
+- Places upstream now limits to Jellyfin/Emby that the fork had open to "not Plex" were checked
+  one by one. Restored: the server row's connection status line (Channels DVR "Polling mode",
+  Dispatcharr's realtime state) and Dispatcharr's plugin update check. Left as upstream: the
+  newsletter readiness list and member sign-in, which never applied to the fork types.
+
 ## November 17, 2026 — Release v3.1.7-r4
 
 The last release on upstream 3.1.7; the next merges upstream 3.2.0. It carries every entry from

@@ -1,6 +1,12 @@
-import type { ServerType } from './types.js';
+import type { ServerType } from './serverTypes.js';
 export const SERVER_CAPABILITIES: Record<ServerType, { mediaLibrary: boolean }> = {
-  plex: { mediaLibrary: true }, jellyfin: { mediaLibrary: true }, emby: { mediaLibrary: true }, dispatcharr: { mediaLibrary: false },
+  plex: { mediaLibrary: true },
+  jellyfin: { mediaLibrary: true },
+  emby: { mediaLibrary: true },
+  tofa: { mediaLibrary: true },
+  dispatcharr: { mediaLibrary: false },
   channels_dvr: { mediaLibrary: true },
 };
-export function supportsMediaLibrary(type: ServerType): boolean { return SERVER_CAPABILITIES[type].mediaLibrary; }
+export function supportsMediaLibrary(type: ServerType): boolean {
+  return SERVER_CAPABILITIES[type].mediaLibrary;
+}

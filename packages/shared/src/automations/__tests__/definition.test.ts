@@ -37,8 +37,9 @@ const base = {
 };
 
 describe('catalog', () => {
-  it('has twenty triggers with a context and a group', () => {
-    expect(TRIGGER_TYPES).toHaveLength(20);
+  // Upstream's 20, plus the fork's 9 Channels DVR ones (dvr.*).
+  it('has twenty-nine triggers with a context and a group', () => {
+    expect(TRIGGER_TYPES).toHaveLength(29);
     for (const t of TRIGGER_TYPES)
       expect(TRIGGERS[t].context).toMatch(/session|account|media|server|install/);
     expect(TRIGGERS['server.down'].context).toBe('server');

@@ -5,6 +5,7 @@ vi.mock('../../../utils/http.js', () => ({ fetchJson: vi.fn(), fetchText: vi.fn(
 import { fetchJson } from '../../../utils/http.js';
 import { ChannelsDvrClient } from '../channelsDvr/client.js';
 import { mapEpisode, mapMovie, mapShow } from '../channelsDvr/library.js';
+import type { IMediaServerClient } from '../types.js';
 
 const BASE = 'http://channels.local:8089';
 const client = () => new ChannelsDvrClient({ url: BASE, token: 'none' });
@@ -169,10 +170,17 @@ describe('Channels DVR library client', () => {
     expect(items[0]?.fileSize).toBeUndefined();
   });
 
-  it('has no incremental sync, so every sync is a full scan that catches deletions', () => {
-    const c = client() as unknown as Record<string, unknown>;
-    expect(c.getLibraryItemsSince).toBeUndefined();
-    expect(c.getLibraryLeavesSince).toBeUndefined();
+  it('lists no changes since a date, since every sync is a full scan that catches deletions', async () => {
+    // Called through the interface, the way library sync calls it.
+    const c: IMediaServerClient = client();
+    await expect(c.getLibraryItemsSince('tv', { kind: 'date', since: new Date() })).rejects.toThrow(
+      /no incremental/
+    );
+    await expect(
+      c.getLibraryLeavesSince('tv', { kind: 'date', since: new Date() })
+    ).rejects.toThrow(/no incremental/);
+    // A full listing is the whole library, so nothing missing from it is still there.
+    expect(await c.findExistingRatingKeys(['1'], { id: 'tv', type: 'show' })).toEqual(new Set());
   });
 
   it('fetches each list once while a sync pages through it', async () => {

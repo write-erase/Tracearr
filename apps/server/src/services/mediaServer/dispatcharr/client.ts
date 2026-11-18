@@ -1,12 +1,15 @@
 import { fetchJson } from '../../../utils/http.js';
 import { createHash } from 'node:crypto';
-import type {
-  IMediaServerClient,
-  MediaLibrary,
-  MediaLibraryItem,
-  MediaServerConfig,
-  MediaSession,
-  MediaUser,
+import {
+  NOT_NEEDED,
+  type DownloadSourceDescription,
+  type IMediaServerClient,
+  type NotNeeded,
+  type MediaLibrary,
+  type MediaLibraryItem,
+  type MediaServerConfig,
+  type MediaSession,
+  type MediaUser,
 } from '../types.js';
 import {
   type DispatcharrResolvedOutputProfile,
@@ -505,6 +508,70 @@ export class DispatcharrClient implements IMediaServerClient {
     }
 
     return true;
+  }
+
+  // Dispatcharr has no media library (supportsMediaLibrary is false), so the library sync never
+  // calls these; they answer empty. It reports no stable server identity or version either.
+  async getServerIdentity(): Promise<string | null> {
+    return null;
+  }
+
+  async getSoftwareVersion(): Promise<string | null> {
+    return null;
+  }
+
+  /** Downloads are Plex, Jellyfin and Emby only, so there is nothing to describe. */
+  async describeDownloadSource(): Promise<DownloadSourceDescription> {
+    return {
+      version: null,
+      delivered: null,
+      device: { deviceId: null, playerName: null, product: null, platform: null },
+      ipAddress: null,
+    };
+  }
+
+  async findExistingRatingKeys(ratingKeys: string[]): Promise<Set<string>> {
+    return new Set(ratingKeys);
+  }
+
+  async getLibraryLeaves(): Promise<{ items: MediaLibraryItem[]; totalCount: number }> {
+    return { items: [], totalCount: 0 };
+  }
+
+  async getLibraryItemsSince(): Promise<{
+    items: MediaLibraryItem[];
+    totalCount: number;
+    feed: NotNeeded;
+  }> {
+    return { items: [], totalCount: 0, feed: NOT_NEEDED };
+  }
+
+  async getLibraryRevision(): Promise<NotNeeded> {
+    return NOT_NEEDED;
+  }
+
+  async getLibraryLeavesSince(): Promise<{ items: MediaLibraryItem[]; totalCount: number }> {
+    return { items: [], totalCount: 0 };
+  }
+
+  async getLibrarySeasons(): Promise<NotNeeded> {
+    return NOT_NEEDED;
+  }
+
+  async getLibrarySeasonsSince(): Promise<NotNeeded> {
+    return NOT_NEEDED;
+  }
+
+  async getLibraryAlbums(): Promise<NotNeeded> {
+    return NOT_NEEDED;
+  }
+
+  async getLibraryAlbumsSince(): Promise<NotNeeded> {
+    return NOT_NEEDED;
+  }
+
+  async checkFilesExist(): Promise<NotNeeded> {
+    return NOT_NEEDED;
   }
 
   async getLibraryItems(): Promise<{ items: MediaLibraryItem[]; totalCount: number }> {

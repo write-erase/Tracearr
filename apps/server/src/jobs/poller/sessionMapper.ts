@@ -7,7 +7,12 @@
  */
 
 import { dispatcharrDeviceId } from '../../services/mediaServer/dispatcharr/deviceIdentity.js';
-import { type Session, type StreamDetailFields, MEDIA_TYPES } from '@tracearr/shared';
+import {
+  type Session,
+  type StreamDetailFields,
+  MEDIA_TYPES,
+  type ServerType,
+} from '@tracearr/shared';
 import type { MediaSession } from '../../services/mediaServer/types.js';
 import type { ProcessedSession } from './types.js';
 import { normalizeClient } from '../../utils/platformNormalizer.js';
@@ -118,8 +123,8 @@ export function pickLiveSessionFields(processed: ProcessedSession): Partial<Sess
     mediaType: processed.mediaType,
     mediaTitle: processed.mediaTitle,
     grandparentTitle: processed.grandparentTitle || null,
-    seasonNumber: processed.mediaType === 'episode' ? processed.seasonNumber : null,
-    episodeNumber: processed.mediaType === 'episode' ? processed.episodeNumber : null,
+    seasonNumber: processed.seasonNumber,
+    episodeNumber: processed.episodeNumber,
     year: processed.year || null,
     thumbPath: processed.thumbPath || null,
     totalDurationMs: processed.totalDurationMs || null,
@@ -151,20 +156,17 @@ export function pickLiveSessionFields(processed: ProcessedSession): Partial<Sess
 
 /**
  * Map unified MediaSession to ProcessedSession format
- * Works for both Plex and Jellyfin sessions from the new adapter
+ * Works for Plex, Jellyfin and Emby sessions from the mediaServer adapter
  *
  * @param session - Unified MediaSession from the mediaServer adapter
- * @param serverType - Type of media server ('plex' | 'jellyfin')
+ * @param serverType - Type of media server
  * @returns ProcessedSession ready for database storage
  *
  * @example
  * const processed = mapMediaSession(mediaSession, 'plex');
  * // Use processed for DB insert
  */
-export function mapMediaSession(
-  session: MediaSession,
-  serverType: 'plex' | 'jellyfin' | 'emby' | 'dispatcharr' | 'channels_dvr'
-): ProcessedSession {
+export function mapMediaSession(session: MediaSession, serverType: ServerType): ProcessedSession {
   // Resolve thumb path using lookup table
   const thumbPath = resolveThumbPath(session);
 
@@ -199,8 +201,9 @@ export function mapMediaSession(
     serverVersionKey: session.serverVersionKey ?? null,
     // User data
     externalUserId: session.user.id,
-    username: session.user.username || 'Unknown',
+    username: session.user.username,
     userThumb: session.user.thumb ?? '',
+    profileName: session.user.profileName ?? null,
     mediaTitle: session.media.title,
     mediaType,
     // Enhanced media metadata
@@ -221,6 +224,7 @@ export function mapMediaSession(
     discNumber: session.music?.discNumber ?? null,
     // Connection info
     ipAddress,
+    relayed: session.network.relayed,
     playerName: session.player.name?.slice(0, 255) ?? '',
     deviceId: session.player.deviceId?.slice(0, 255),
     ...(serverType === 'dispatcharr'
@@ -312,6 +316,7 @@ export function mapSessionRow(
     geoAsnNumber: s.geoAsnNumber,
     geoAsnOrganization: s.geoAsnOrganization,
     isLocal: isLocalSession(s),
+    profileName: s.profileName,
     playerName: s.playerName,
     deviceId: s.deviceId,
     ...(s.dispatcharrDeviceId != null || s.dispatcharrUserAgent != null

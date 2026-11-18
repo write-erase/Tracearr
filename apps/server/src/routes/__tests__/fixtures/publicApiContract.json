@@ -35,7 +35,7 @@
                     },
                     "type": {
                       "type": "string",
-                      "enum": ["plex", "jellyfin", "emby", "dispatcharr"]
+                      "enum": ["plex", "jellyfin", "emby", "tofa", "dispatcharr", "channels_dvr"]
                     },
                     "online": {
                       "type": "boolean"
@@ -1961,7 +1961,7 @@
                     },
                     "server_type": {
                       "type": "string",
-                      "enum": ["plex", "jellyfin", "emby", "dispatcharr"]
+                      "enum": ["plex", "jellyfin", "emby", "tofa", "dispatcharr", "channels_dvr"]
                     },
                     "state": {
                       "type": "string",
@@ -2483,7 +2483,7 @@
                     },
                     "server_type": {
                       "type": "string",
-                      "enum": ["plex", "jellyfin", "emby", "dispatcharr"]
+                      "enum": ["plex", "jellyfin", "emby", "tofa", "dispatcharr", "channels_dvr"]
                     },
                     "username": {
                       "type": "string"
@@ -3133,7 +3133,14 @@
                         },
                         "type": {
                           "type": "string",
-                          "enum": ["plex", "jellyfin", "emby", "dispatcharr"]
+                          "enum": [
+                            "plex",
+                            "jellyfin",
+                            "emby",
+                            "tofa",
+                            "dispatcharr",
+                            "channels_dvr"
+                          ]
                         }
                       },
                       "required": ["id", "name", "type"]
@@ -3269,7 +3276,7 @@
                       },
                       "type": {
                         "type": "string",
-                        "enum": ["plex", "jellyfin", "emby", "dispatcharr"]
+                        "enum": ["plex", "jellyfin", "emby", "tofa", "dispatcharr", "channels_dvr"]
                       }
                     },
                     "required": ["id", "name", "type"]
@@ -3399,7 +3406,7 @@
                     },
                     "server_type": {
                       "type": "string",
-                      "enum": ["plex", "jellyfin", "emby", "dispatcharr"]
+                      "enum": ["plex", "jellyfin", "emby", "tofa", "dispatcharr", "channels_dvr"]
                     },
                     "historical": {
                       "type": "boolean"
@@ -3503,7 +3510,14 @@
                           },
                           "server_type": {
                             "type": "string",
-                            "enum": ["plex", "jellyfin", "emby", "dispatcharr"]
+                            "enum": [
+                              "plex",
+                              "jellyfin",
+                              "emby",
+                              "tofa",
+                              "dispatcharr",
+                              "channels_dvr"
+                            ]
                           },
                           "username": {
                             "type": "string"
@@ -3957,7 +3971,14 @@
                           },
                           "server_type": {
                             "type": "string",
-                            "enum": ["plex", "jellyfin", "emby", "dispatcharr"]
+                            "enum": [
+                              "plex",
+                              "jellyfin",
+                              "emby",
+                              "tofa",
+                              "dispatcharr",
+                              "channels_dvr"
+                            ]
                           },
                           "username": {
                             "type": "string"
@@ -4462,7 +4483,14 @@
                               },
                               "server_type": {
                                 "type": "string",
-                                "enum": ["plex", "jellyfin", "emby", "dispatcharr"]
+                                "enum": [
+                                  "plex",
+                                  "jellyfin",
+                                  "emby",
+                                  "tofa",
+                                  "dispatcharr",
+                                  "channels_dvr"
+                                ]
                               },
                               "username": {
                                 "type": "string"
@@ -4955,7 +4983,14 @@
                               },
                               "type": {
                                 "type": "string",
-                                "enum": ["plex", "jellyfin", "emby", "dispatcharr"]
+                                "enum": [
+                                  "plex",
+                                  "jellyfin",
+                                  "emby",
+                                  "tofa",
+                                  "dispatcharr",
+                                  "channels_dvr"
+                                ]
                               }
                             },
                             "required": ["id", "name", "type"]
@@ -5130,7 +5165,7 @@
                     },
                     "server_type": {
                       "type": "string",
-                      "enum": ["plex", "jellyfin", "emby", "dispatcharr"]
+                      "enum": ["plex", "jellyfin", "emby", "tofa", "dispatcharr", "channels_dvr"]
                     },
                     "library_id": {
                       "type": "string"
@@ -5679,7 +5714,7 @@
                     },
                     "server_type": {
                       "type": "string",
-                      "enum": ["plex", "jellyfin", "emby", "dispatcharr"]
+                      "enum": ["plex", "jellyfin", "emby", "tofa", "dispatcharr", "channels_dvr"]
                     },
                     "state": {
                       "type": "string",
@@ -6228,7 +6263,14 @@
                           },
                           "server_type": {
                             "type": "string",
-                            "enum": ["plex", "jellyfin", "emby", "dispatcharr"]
+                            "enum": [
+                              "plex",
+                              "jellyfin",
+                              "emby",
+                              "tofa",
+                              "dispatcharr",
+                              "channels_dvr"
+                            ]
                           },
                           "server_user_id": {
                             "type": "string",
@@ -6334,7 +6376,7 @@
                     },
                     "server_type": {
                       "type": "string",
-                      "enum": ["plex", "jellyfin", "emby", "dispatcharr"]
+                      "enum": ["plex", "jellyfin", "emby", "tofa", "dispatcharr", "channels_dvr"]
                     },
                     "server_user_id": {
                       "type": "string",
@@ -6505,7 +6547,7 @@
                     },
                     "server_type": {
                       "type": "string",
-                      "enum": ["plex", "jellyfin", "emby", "dispatcharr"]
+                      "enum": ["plex", "jellyfin", "emby", "tofa", "dispatcharr", "channels_dvr"]
                     },
                     "state": {
                       "type": "string",
@@ -7055,7 +7097,7 @@
                     },
                     "server_type": {
                       "type": "string",
-                      "enum": ["plex", "jellyfin", "emby", "dispatcharr"]
+                      "enum": ["plex", "jellyfin", "emby", "tofa", "dispatcharr", "channels_dvr"]
                     },
                     "library_id": {
                       "type": "string"
@@ -7169,7 +7211,7 @@
                     },
                     "server_type": {
                       "type": "string",
-                      "enum": ["plex", "jellyfin", "emby", "dispatcharr"]
+                      "enum": ["plex", "jellyfin", "emby", "tofa", "dispatcharr", "channels_dvr"]
                     },
                     "library_id": {
                       "type": "string"
