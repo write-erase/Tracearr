@@ -26,6 +26,8 @@ import { db } from '../db/client.js';
 import { servers, libraryItems, mediaRequests, requestServices } from '../db/schema.js';
 import { assertSafeProbeUrl, SsrfBlockedError } from '../utils/ssrf.js';
 import { getChannelLogoUrl, parseChannelLogoPath } from './mediaServer/channelsDvr/logos.js';
+import { assertPublicHttpsUrl } from '../utils/publicHttpsUrl.js';
+import { getCacheService } from './cache.js';
 import { cacheWriteAllowed, noteCacheWrite } from './imageCacheGuard.js';
 import { mediaBrowserTokenHeader } from './mediaServer/shared/baseMediaServerClient.js';
 
@@ -477,6 +479,29 @@ function guideImageUrl(server: ServerRow, imagePath: string): string | null {
   return allowed ? `https://${url.hostname}${url.pathname}${url.search}` : null;
 }
 
+/**
+ * A Plex Live TV item's art on an outside host (fork): an M3U tuner names its channel logos by
+ * full URL. Plex's own guide host keeps its guide path above; anything else outside is fetched
+ * directly, without the token, once it passes the public-host checks. Null for anything else.
+ */
+function plexOutsideArtUrl(server: ServerRow, imagePath: string): URL | null {
+  if (server.type !== 'plex' || !/^https?:\/\//i.test(imagePath) || !URL.canParse(imagePath)) {
+    return null;
+  }
+  if (guideImageUrl(server, imagePath)) return null;
+  return new URL(imagePath);
+}
+
+/** Whether a session playing on this server right now carries this art path (fork) */
+async function isActivePlexArt(serverId: string, imagePath: string): Promise<boolean> {
+  const cache = getCacheService();
+  if (!cache) return false;
+  const sessions = await cache.getAllActiveSessions();
+  return sessions.some(
+    (session) => session.serverId === serverId && session.thumbPath === imagePath
+  );
+}
+
 interface UpstreamRequest {
   imageUrl: string;
   headers: Record<string, string>;
@@ -855,8 +880,18 @@ async function runMissPipeline(args: MissPipelineArgs): Promise<ProxyResult> {
     // client only ever names a channel number, never the URL that gets fetched.
     const logoChannel =
       server?.type === 'channels_dvr' ? parseChannelLogoPath(effectiveImagePath) : null;
+    const plexOutsideArt = server ? plexOutsideArtUrl(server, effectiveImagePath) : null;
     let candidates: UpstreamRequest[];
-    if (server && logoChannel !== null) {
+    if (server && plexOutsideArt) {
+      // The proxy route is public, so an outside URL is only fetched while a session playing on
+      // this Plex server names it; once fetched it is cached like any other poster. Sent without
+      // the Plex token, and a redirect is still not followed (fork).
+      if (!(await isActivePlexArt(server.id, effectiveImagePath))) {
+        throw new SsrfBlockedError('Outside Plex art is not playing on this server');
+      }
+      await assertPublicHttpsUrl(plexOutsideArt);
+      candidates = [{ imageUrl: plexOutsideArt.href, headers: { Accept: 'image/*' } }];
+    } else if (server && logoChannel !== null) {
       const dispatcharrServers = await getConfiguredDispatcharrServers();
       const trustedOrigins = dispatcharrServers.flatMap((item) => {
         try {

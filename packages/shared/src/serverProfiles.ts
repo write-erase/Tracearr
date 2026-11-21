@@ -77,7 +77,8 @@ export const SERVER_PROFILES: Record<ServerType, ServerProfile> = {
     serverHistoryImport: null,
     watchedThreshold: 'tracearrSetting',
     builtInRequests: null,
-    guideImageHosts: ['plex.tmsimg.com'],
+    // Plex's guide links art from both Gracenote hosts; ebyl serves show art for many lineups (fork)
+    guideImageHosts: ['plex.tmsimg.com', 'ebyl.tmsimg.com'],
     itemLinks: 'hostedApp',
   },
   jellyfin: {

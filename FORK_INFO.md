@@ -1,5 +1,25 @@
 # Tracearr Fork Information
 
+## November 20, 2026 — Plex Live TV art from M3U tuners and Gracenote
+
+A Plex server whose Live TV comes from an M3U/IPTV tuner names each channel's art by full URL on
+the playlist's logo host (for example `https://cdn.iptvboss.pro/logos/USA/ABCKOCO.us.png`), not as a
+`/library/metadata/...` path. The image proxy only took Plex art from Plex itself or Plex's guide
+host (`plex.tmsimg.com`), so those cards showed "No Image". Upstream does the same.
+
+- Plex art on another outside host is now fetched from that host directly, without the Plex token,
+  and only while a session playing on that Plex server names that exact URL. The proxy route needs
+  no sign-in, so this keeps it from becoming a relay for any URL; the fetched image is cached like
+  any other poster, so history keeps it.
+- The host must pass the same checks as Channels DVR's outside logos, now shared in
+  `utils/publicHttpsUrl.ts`: https only, no credentials, a real hostname that resolves only to
+  public addresses. A redirect is not followed.
+- Plex's guide hosts now include `ebyl.tmsimg.com` beside `plex.tmsimg.com`: Plex's guide links
+  Gracenote show art from both (seen as a live episode's show art), and only `plex.tmsimg.com` was
+  allowed. Same https-only, no-port, no-credentials checks. Avatars on that host may also go
+  through the proxy, as for `plex.tmsimg.com`.
+- Unchanged: `/library/metadata/...` art goes through Plex's photo transcoder (#55).
+
 ## November 20, 2026 — Plex Live TV posters
 
 Plex Live TV posters always showed the placeholder in this fork. The fork's uncropped posters
