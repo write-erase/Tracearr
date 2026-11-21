@@ -1,5 +1,16 @@
 # Tracearr Fork Information
 
+## November 21, 2026 — README: stopping Channels DVR streams behind a proxy
+
+The README's Channels DVR section now states only what has been seen and tested. Streams reaching
+Channels DVR through Tailscale Services into a bridged Docker container cannot be stopped: Channels DVR
+sees the Docker gateway (`172.17.0.1`), not the device. In that setup Channels DVR labelled an iPhone's
+Channels app stream as its web player ("Watching ch1026 from Web Player"), so it shows as
+"Web Browser"; its per-address `client` field can't tell streams apart either, since every stream
+behind the proxy shares one address. The features line and the general stop limitation are back to
+the local network only: stopping over Tailscale (allowed since the proxied/Tailscale stop change) has
+not been tested, so the README doesn't claim it. No code changes.
+
 ## November 21, 2026 — Channels DVR stops for proxied and Tailscale viewers
 
 Channels DVR has no stop command, so Tracearr stops a stream by calling the Channels app on the

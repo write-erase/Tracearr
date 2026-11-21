@@ -43,7 +43,7 @@ _Channels DVR_
 - Live TV progress and programme artwork from the guide,
 - Library browsing for TV shows, movies and imported videos, with file sizes and links to open them in Channels DVR,
 - The same episode on Channels DVR and another server shows as one item,
-- Stop a stream on a device on your local network, or on Tailscale, from the dashboard,
+- Stop a stream on a device on your local network from the dashboard,
 - A Channels DVR card on the dashboard: recordings in progress with exact times and a Stop button, recordings coming up in the next 24 hours, tuners in use and free disk space,
 - Skip one episode of a series pass from Coming Up (and unskip it), or cancel a one-time recording,
 - Alerts for a failed recording, a recording that resumes, a recording that loses its stream for a moment, and the DVR disk running low (at a percentage you choose, which also sets when the disk pill turns amber),
@@ -60,7 +60,8 @@ Channels DVR does not provide individual user accounts, so Tracearr identifies v
 
 - Library browsing covers TV shows, movies and imported videos. Quality details (resolution, codecs, audio channels) are read from filename tags such as `[Bluray-720p][AC3 2.0][x264]`, so files without them show no quality info. File sizes come from Channels' `/dvr/files` list.
 - Importing past watch history is not supported. Sessions Tracearr observes are still recorded in History.
-- Streams can only be stopped when the playback device is reachable from the Tracearr server: on your local network, or on Tailscale when the viewer connects to Channels DVR's tailnet address and the Tracearr server is on the same tailnet (Tracearr calls the Channels app on the device at port 57000). Remote streams, the Channels web player, and viewers that reach Channels DVR through a proxy into its Docker container (Channels DVR then only sees the Docker gateway, such as `172.17.0.1`) cannot be stopped, and the optional termination message is not shown.
+- Streams can only be stopped when the playback device is on your local network and reachable from the Tracearr server (Tracearr calls the Channels app on the device at port 57000). Remote streams and the Channels web player cannot be stopped, and the optional termination message is not shown.
+- Streams that reach Channels DVR through Tailscale Services into a Docker container in bridge mode cannot be stopped: Channels DVR sees the Docker gateway (`172.17.0.1`) instead of the device. In this setup Channels DVR can also report the Channels app on an iPhone as its web player, so that stream shows as "Web Browser" in Tracearr.
 - The web player does not say which browser it runs in, and its pause state is detected about 20 seconds late.
 - Recording alerts are checked once a minute, so an alert can arrive up to a minute after the event.
 - The disk alert and the disk pill measure free space on the whole drive Channels records to, including anything else stored there.
