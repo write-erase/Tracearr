@@ -751,6 +751,7 @@ export type {
 export { rankMergeTarget, type MergeRankInput } from './merge.js';
 
 export { LOCAL_NETWORK_COUNTRY, isPlacedLocal } from './localNetwork.js';
+export { isDockerGatewayAddress, isTailscaleAddress } from './channelsDvrStop.js';
 
 export { isEmailAddress, usernameAsEmail } from './emailAddress.js';
 

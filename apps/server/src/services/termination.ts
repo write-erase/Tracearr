@@ -5,7 +5,12 @@
  * Supports both manual (admin-initiated) and automatic (rule-triggered) terminations.
  */
 
-import { SERVER_PROFILES, assertNever } from '@tracearr/shared';
+import {
+  SERVER_PROFILES,
+  assertNever,
+  isDockerGatewayAddress,
+  isTailscaleAddress,
+} from '@tracearr/shared';
 import { db } from '../db/client.js';
 import { terminationLogs, sessions } from '../db/schema.js';
 import { readSessionRow, sessionRowById } from '../db/sessions/row.js';
@@ -59,6 +64,9 @@ export const REMOTE_STREAM_NOT_TERMINABLE =
 
 export const WEB_PLAYER_NOT_TERMINABLE =
   "Tracearr can't stop Channels DVR streams playing in a web browser.";
+
+export const PROXIED_STREAM_NOT_TERMINABLE =
+  "This device reaches Channels DVR through a proxy, so Tracearr can't reach it to stop the stream.";
 
 export interface TerminationResult {
   success: boolean;
@@ -166,8 +174,26 @@ export async function terminateSession(
     };
   }
 
+  // Behind a proxy into the DVR's container, Channels DVR only sees the Docker gateway, never
+  // the device; a stop sent there would reach nothing (fork).
+  if (session.server.type === 'channels_dvr' && isDockerGatewayAddress(session.ipAddress)) {
+    const logEntries = await db
+      .insert(terminationLogs)
+      .values({ ...logBase, success: false, errorMessage: PROXIED_STREAM_NOT_TERMINABLE })
+      .returning({ id: terminationLogs.id });
+    return {
+      success: false,
+      terminationLogId: logEntries[0]?.id ?? '',
+      error: PROXIED_STREAM_NOT_TERMINABLE,
+      outcome: 'not_local',
+    };
+  }
+
+  // A Tailscale viewer is tried too: a Tracearr server on the tailnet reaches the device there,
+  // and the client's reachability probe fails fast when it does not (fork).
   if (
     session.server.type === 'channels_dvr' &&
+    !isTailscaleAddress(session.ipAddress) &&
     !(isLocalSession(session) && !!session.ipAddress && isPrivateIP(session.ipAddress))
   ) {
     const logEntries = await db

@@ -759,4 +759,33 @@ describe('NowPlayingCard stop button', () => {
     });
     expect(screen.getByTitle('pages:terminateStream.title')).toBeEnabled();
   });
+
+  describe('Channels DVR viewers behind a proxy or on Tailscale', () => {
+    const channels = {
+      canTerminate: true,
+      mediaType: 'live' as const,
+      server: { id: 'server-1', name: 'Basement', type: 'channels_dvr' as const },
+    };
+
+    it('explains a viewer behind a proxy instead of offering the stop', () => {
+      renderCard({ ...channels, ipAddress: '172.17.0.1', isLocal: true });
+      expect(screen.getByTitle('pages:terminateStream.proxiedNotPossible')).toBeTruthy();
+      expect(screen.queryByTitle('pages:terminateStream.title')).not.toBeInTheDocument();
+    });
+
+    it('offers the stop for a Tailscale viewer', () => {
+      renderCard({ ...channels, ipAddress: '100.101.102.103', isLocal: false });
+      expect(screen.getByTitle('pages:terminateStream.title')).toBeEnabled();
+    });
+
+    it('still explains a viewer on a public address', () => {
+      renderCard({ ...channels, ipAddress: '203.0.113.7', isLocal: false });
+      expect(screen.getByTitle('pages:terminateStream.remoteNotPossible')).toBeTruthy();
+    });
+
+    it('offers the stop for a viewer on a real 172.x home network address', () => {
+      renderCard({ ...channels, ipAddress: '172.20.4.12', isLocal: true });
+      expect(screen.getByTitle('pages:terminateStream.title')).toBeEnabled();
+    });
+  });
 });

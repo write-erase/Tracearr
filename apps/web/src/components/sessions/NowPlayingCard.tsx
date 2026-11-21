@@ -32,6 +32,8 @@ import { MediaPageLink } from '@/components/media/MediaPageLink';
 import {
   PLAYBACK_DECISION_LABEL_KEYS,
   POSTER_IMAGE_SIZE,
+  isDockerGatewayAddress,
+  isTailscaleAddress,
   type ActiveSession,
 } from '@tracearr/shared';
 
@@ -140,7 +142,11 @@ export function NowPlayingCard({ session, onClick }: NowPlayingCardProps) {
   const isChannelsDvr = session.server.type === 'channels_dvr';
   // The Channels web player (a browser) cannot be stopped: there is no app to send the stop to.
   const isChannelsWeb = isChannelsDvr && session.product === 'Channels Web';
-  const isRemoteChannels = isChannelsDvr && !session.isLocal;
+  // Behind a proxy into the DVR's container the device is out of reach; a Tailscale viewer is
+  // tried, since a Tracearr server on the tailnet reaches it (fork).
+  const isProxiedChannels = isChannelsDvr && isDockerGatewayAddress(session.ipAddress);
+  const isRemoteChannels =
+    isChannelsDvr && !session.isLocal && !isTailscaleAddress(session.ipAddress);
   // New streams are held as pending for their first 30 seconds before they are saved, and
   // only saved sessions can be terminated ("Session not found" otherwise).
   const isPending = session.pending === true;
@@ -153,6 +159,10 @@ export function NowPlayingCard({ session, onClick }: NowPlayingCardProps) {
   const remoteNotPossible = t('pages:terminateStream.remoteNotPossible', {
     defaultValue:
       'Tracearr can only stop Channels DVR streams on devices within your local network.',
+  });
+  const proxiedNotPossible = t('pages:terminateStream.proxiedNotPossible', {
+    defaultValue:
+      "This device reaches Channels DVR through a proxy, so Tracearr can't reach it to stop the stream.",
   });
 
   // Use estimated progress for smooth updates between SSE/poll events
@@ -370,6 +380,10 @@ export function NowPlayingCard({ session, onClick }: NowPlayingCardProps) {
                           toast.error(webNotPossible);
                           return;
                         }
+                        if (isProxiedChannels) {
+                          toast.error(proxiedNotPossible);
+                          return;
+                        }
                         if (isRemoteChannels) {
                           toast.error(remoteNotPossible);
                           return;
@@ -383,11 +397,13 @@ export function NowPlayingCard({ session, onClick }: NowPlayingCardProps) {
                       title={
                         isChannelsWeb
                           ? webNotPossible
-                          : isRemoteChannels
-                            ? remoteNotPossible
-                            : isPending
-                              ? pendingNotYet
-                              : t('pages:terminateStream.title')
+                          : isProxiedChannels
+                            ? proxiedNotPossible
+                            : isRemoteChannels
+                              ? remoteNotPossible
+                              : isPending
+                                ? pendingNotYet
+                                : t('pages:terminateStream.title')
                       }
                     >
                       <X className="h-4 w-4" />
