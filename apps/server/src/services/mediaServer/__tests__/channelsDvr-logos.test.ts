@@ -69,16 +69,103 @@ describe('resolveLogoUrl', () => {
 
   it('allows a configured Dispatcharr origin only for its channel-logo cache endpoint', async () => {
     const trustedOrigins = ['http://192.168.1.50:9191'];
-    await expect(resolveLogoUrl(BASE, 'http://192.168.1.50:9191/api/channels/logos/1174/cache/', trustedOrigins)).resolves.toBe('http://192.168.1.50:9191/api/channels/logos/1174/cache/');
-    await expect(resolveLogoUrl(BASE, 'http://192.168.1.50:9191/api/core/settings/', trustedOrigins)).rejects.toThrow(SsrfBlockedError);
-    await expect(resolveLogoUrl(BASE, 'http://192.168.1.51:9191/api/channels/logos/1174/cache/', trustedOrigins)).rejects.toThrow(SsrfBlockedError);
-    await expect(resolveLogoUrl(BASE, 'http://192.168.1.50:9191/api/channels/logos/1174/cache/?next=/settings', trustedOrigins)).rejects.toThrow(SsrfBlockedError);
+    await expect(
+      resolveLogoUrl(
+        BASE,
+        'http://192.168.1.50:9191/api/channels/logos/1174/cache/',
+        trustedOrigins
+      )
+    ).resolves.toBe('http://192.168.1.50:9191/api/channels/logos/1174/cache/');
+    await expect(
+      resolveLogoUrl(BASE, 'http://192.168.1.50:9191/api/core/settings/', trustedOrigins)
+    ).rejects.toThrow(SsrfBlockedError);
+    await expect(
+      resolveLogoUrl(
+        BASE,
+        'http://192.168.1.51:9191/api/channels/logos/1174/cache/',
+        trustedOrigins
+      )
+    ).rejects.toThrow(SsrfBlockedError);
+    await expect(
+      resolveLogoUrl(
+        BASE,
+        'http://192.168.1.50:9191/api/channels/logos/1174/cache/?next=/settings',
+        trustedOrigins
+      )
+    ).rejects.toThrow(SsrfBlockedError);
+  });
+
+  it('reads Docker addresses as the host the Channels DVR is reached on', async () => {
+    const trustedOrigins = ['http://192.168.1.50:9191'];
+    // Default bridge gateway, Compose network gateways, the container's own address and
+    // host.docker.internal all map onto the configured server's host, keeping their port.
+    for (const host of [
+      '172.17.0.1',
+      '172.18.0.1',
+      '172.20.0.1',
+      '172.31.0.1',
+      'host.docker.internal',
+    ]) {
+      await expect(
+        resolveLogoUrl(BASE, `http://${host}:9191/api/channels/logos/1174/cache/`, trustedOrigins)
+      ).resolves.toBe('http://192.168.1.50:9191/api/channels/logos/1174/cache/');
+    }
+    await expect(resolveLogoUrl(BASE, 'http://172.17.0.2:8089/tmsimg/assets/s1.png')).resolves.toBe(
+      `${BASE}/tmsimg/assets/s1.png`
+    );
+    await expect(
+      resolveLogoUrl(BASE, 'http://172.17.0.1:8089/dvr/uploads/3/content')
+    ).resolves.toBe(`${BASE}/dvr/uploads/3/content`);
+  });
+
+  it('still applies the usual checks after mapping a Docker address', async () => {
+    const trustedOrigins = ['http://192.168.1.50:9191'];
+    // Not a Dispatcharr logo path
+    await expect(
+      resolveLogoUrl(BASE, 'http://172.17.0.1:9191/api/core/settings/', trustedOrigins)
+    ).rejects.toThrow(SsrfBlockedError);
+    // No Dispatcharr configured on that host
+    await expect(
+      resolveLogoUrl(BASE, 'http://172.18.0.1:9191/api/channels/logos/1174/cache/')
+    ).rejects.toThrow(SsrfBlockedError);
+    // The DVR's own non-logo paths
+    await expect(resolveLogoUrl(BASE, 'http://172.17.0.1:8089/dvr/settings')).rejects.toThrow(
+      SsrfBlockedError
+    );
+    // Another app on the host's port
+    await expect(resolveLogoUrl(BASE, 'http://172.17.0.1:5523/logos/abc.png')).rejects.toThrow(
+      SsrfBlockedError
+    );
+  });
+
+  it('leaves addresses outside the Docker range alone', async () => {
+    const trustedOrigins = ['http://192.168.1.50:9191'];
+    for (const host of ['172.15.0.1', '172.32.0.1', '10.0.0.1', '192.168.1.10']) {
+      await expect(
+        resolveLogoUrl(BASE, `http://${host}:9191/api/channels/logos/1174/cache/`, trustedOrigins)
+      ).rejects.toThrow(SsrfBlockedError);
+    }
+  });
+
+  it('keeps a Docker address that already names the DVR or a configured Dispatcharr', async () => {
+    const dockerBase = 'http://172.18.0.5:8089';
+    const trustedOrigins = ['http://172.18.0.6:9191'];
+    await expect(
+      resolveLogoUrl(
+        dockerBase,
+        'http://172.18.0.6:9191/api/channels/logos/7/cache/',
+        trustedOrigins
+      )
+    ).resolves.toBe('http://172.18.0.6:9191/api/channels/logos/7/cache/');
+    await expect(
+      resolveLogoUrl(dockerBase, 'http://172.18.0.5:8089/tmsimg/assets/s1.png')
+    ).resolves.toBe('http://172.18.0.5:8089/tmsimg/assets/s1.png');
   });
 
   it('allows https logos on public hostnames', async () => {
-    await expect(resolveLogoUrl(BASE, 'https://cdn.iptvboss.pro/logos/USA/ABCKOCO.us.png')).resolves.toBe(
-      'https://cdn.iptvboss.pro/logos/USA/ABCKOCO.us.png'
-    );
+    await expect(
+      resolveLogoUrl(BASE, 'https://cdn.iptvboss.pro/logos/USA/ABCKOCO.us.png')
+    ).resolves.toBe('https://cdn.iptvboss.pro/logos/USA/ABCKOCO.us.png');
   });
 
   it.each([
