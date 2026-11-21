@@ -1,5 +1,19 @@
 # Tracearr Fork Information
 
+## November 21, 2026 — Plex outside art: streams that just started, and Dispatcharr logos
+
+The outside-art check from the entry below only looked at active sessions. A new play is held as a
+pending session for its first stretch, and the dashboard already shows it, so its first poster
+request was refused and the card showed "No Image" until a later request after the play became
+active. Pending sessions on the same Plex server now count too, matched the same way (exact art URL).
+
+Plex Live TV fed from Dispatcharr's M3U lists channel logos on Dispatcharr's own logo endpoint,
+usually a local http address (`http://<dispatcharr>:9191/api/channels/logos/<id>/cache/`), which the
+public-host checks refuse. When that address is a Dispatcharr configured in Tracearr and the path is
+exactly its channel-logo endpoint (no query, credentials or fragment), the logo is fetched from that
+Dispatcharr, as Channels DVR's guide logos already are. It still has to be the art of a playing or
+pending session on that Plex server.
+
 ## November 20, 2026 — Plex Live TV art from M3U tuners and Gracenote
 
 A Plex server whose Live TV comes from an M3U/IPTV tuner names each channel's art by full URL on

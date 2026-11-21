@@ -25,7 +25,11 @@ import {
 import { db } from '../db/client.js';
 import { servers, libraryItems, mediaRequests, requestServices } from '../db/schema.js';
 import { assertSafeProbeUrl, SsrfBlockedError } from '../utils/ssrf.js';
-import { getChannelLogoUrl, parseChannelLogoPath } from './mediaServer/channelsDvr/logos.js';
+import {
+  DISPATCHARR_LOGO_PATH,
+  getChannelLogoUrl,
+  parseChannelLogoPath,
+} from './mediaServer/channelsDvr/logos.js';
 import { assertPublicHttpsUrl } from '../utils/publicHttpsUrl.js';
 import { getCacheService } from './cache.js';
 import { cacheWriteAllowed, noteCacheWrite } from './imageCacheGuard.js';
@@ -492,14 +496,29 @@ function plexOutsideArtUrl(server: ServerRow, imagePath: string): URL | null {
   return new URL(imagePath);
 }
 
-/** Whether a session playing on this server right now carries this art path (fork) */
+/**
+ * Whether a session playing on this server right now carries this art path (fork). A new play
+ * is held as pending before it becomes an active session, and the dashboard already shows it,
+ * so pending sessions count too.
+ */
 async function isActivePlexArt(serverId: string, imagePath: string): Promise<boolean> {
   const cache = getCacheService();
   if (!cache) return false;
-  const sessions = await cache.getAllActiveSessions();
-  return sessions.some(
-    (session) => session.serverId === serverId && session.thumbPath === imagePath
+  const [sessions, pendingKeys] = await Promise.all([
+    cache.getAllActiveSessions(),
+    cache.getAllPendingSessionKeys(),
+  ]);
+  if (
+    sessions.some((session) => session.serverId === serverId && session.thumbPath === imagePath)
+  ) {
+    return true;
+  }
+  const pending = await Promise.all(
+    pendingKeys
+      .filter((key) => key.serverId === serverId)
+      .map((key) => cache.getPendingSession(serverId, key.sessionKey))
   );
+  return pending.some((data) => data?.processed.thumbPath === imagePath);
 }
 
 interface UpstreamRequest {
@@ -828,6 +847,35 @@ async function getConfiguredDispatcharrServers(): Promise<(typeof servers.$infer
   return rows;
 }
 
+/**
+ * The configured Dispatcharr a guide logo lives on, when it names that server's channel-logo
+ * endpoint and nothing more (fork). Plex Live TV fed from Dispatcharr's M3U lists its logos there,
+ * usually on a local http address the public-host checks would refuse.
+ */
+async function configuredDispatcharrLogoServer(
+  target: URL
+): Promise<typeof servers.$inferSelect | null> {
+  if (
+    target.username ||
+    target.password ||
+    target.search ||
+    target.hash ||
+    !DISPATCHARR_LOGO_PATH.test(target.pathname)
+  ) {
+    return null;
+  }
+  const dispatcharrServers = await getConfiguredDispatcharrServers();
+  return (
+    dispatcharrServers.find((item) => {
+      try {
+        return new URL(item.url).origin === target.origin;
+      } catch {
+        return false;
+      }
+    }) ?? null
+  );
+}
+
 async function runMissPipeline(args: MissPipelineArgs): Promise<ProxyResult> {
   const {
     serverId,
@@ -889,8 +937,13 @@ async function runMissPipeline(args: MissPipelineArgs): Promise<ProxyResult> {
       if (!(await isActivePlexArt(server.id, effectiveImagePath))) {
         throw new SsrfBlockedError('Outside Plex art is not playing on this server');
       }
-      await assertPublicHttpsUrl(plexOutsideArt);
-      candidates = [{ imageUrl: plexOutsideArt.href, headers: { Accept: 'image/*' } }];
+      const dispatcharr = await configuredDispatcharrLogoServer(plexOutsideArt);
+      if (dispatcharr) {
+        candidates = [buildUpstreamRequest(dispatcharr, plexOutsideArt.pathname)];
+      } else {
+        await assertPublicHttpsUrl(plexOutsideArt);
+        candidates = [{ imageUrl: plexOutsideArt.href, headers: { Accept: 'image/*' } }];
+      }
     } else if (server && logoChannel !== null) {
       const dispatcharrServers = await getConfiguredDispatcharrServers();
       const trustedOrigins = dispatcharrServers.flatMap((item) => {

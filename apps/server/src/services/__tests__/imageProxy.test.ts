@@ -1714,9 +1714,21 @@ describe('Plex Live TV art on an outside host (M3U tuner logos)', () => {
   let fetchSpy: ReturnType<typeof vi.spyOn>;
   const LOGO = 'https://cdn.iptvboss.pro/logos/USA/ABCKOCO.us.png';
 
-  function playing(sessions: { serverId: string; thumbPath: string }[]) {
+  function playing(
+    sessions: { serverId: string; thumbPath: string }[],
+    pending: { serverId: string; sessionKey: string; thumbPath: string }[] = []
+  ) {
     getCacheServiceMock.mockReturnValue({
       getAllActiveSessions: vi.fn().mockResolvedValue(sessions),
+      getAllPendingSessionKeys: vi
+        .fn()
+        .mockResolvedValue(pending.map(({ serverId, sessionKey }) => ({ serverId, sessionKey }))),
+      getPendingSession: vi.fn(async (serverId: string, sessionKey: string) => {
+        const match = pending.find(
+          (item) => item.serverId === serverId && item.sessionKey === sessionKey
+        );
+        return match ? { processed: { thumbPath: match.thumbPath } } : null;
+      }),
     });
   }
 
@@ -1769,6 +1781,145 @@ describe('Plex Live TV art on an outside host (M3U tuner logos)', () => {
     expect(url).not.toContain('X-Plex-Token');
     expect(JSON.stringify(init.headers ?? {})).not.toContain('token');
     expect(init.redirect).toBe('manual');
+  });
+
+  it('fetches the art of a play still pending on that server', async () => {
+    const pendingLogo = 'https://cdn.iptvboss.pro/logos/USA/CarolinaPanthers.us.png';
+    playing([], [{ serverId: 'server-1', sessionKey: '42', thumbPath: pendingLogo }]);
+    fetchSpy.mockResolvedValue(await jpegResponse());
+
+    const result = await proxyImage({
+      serverId: 'server-1',
+      imagePath: pendingLogo,
+      width: 360,
+      height: 540,
+      fallback: 'poster',
+    });
+
+    expect(result.contentType).toBe('image/webp');
+    expect(String(fetchSpy.mock.calls[0]?.[0])).toBe(pendingLogo);
+  });
+
+  it('refuses art of a play pending on a different server', async () => {
+    const otherLogo = 'https://cdn.iptvboss.pro/logos/USA/OTHERPENDING.png';
+    playing([], [{ serverId: 'server-2', sessionKey: '42', thumbPath: otherLogo }]);
+
+    const result = await proxyImage({
+      serverId: 'server-1',
+      imagePath: otherLogo,
+      width: 360,
+      height: 540,
+      fallback: 'poster',
+    });
+
+    expect(result.contentType).toBe('image/svg+xml');
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  describe('logos on a configured Dispatcharr (Plex Live TV fed by its M3U)', () => {
+    const DISPATCHARR_LOGO = 'http://192.168.30.241:9191/api/channels/logos/1245/cache/';
+    const dispatcharrServer = {
+      id: 'dispatcharr-server',
+      type: 'dispatcharr',
+      url: 'http://192.168.30.241:9191',
+      token: '',
+      historicalAt: null,
+    };
+    const plexServer = {
+      id: 'server-1',
+      type: 'plex',
+      url: 'http://localhost:32400',
+      token: 'token',
+      historicalAt: null,
+    };
+    const chain = (rows: unknown[]) => ({
+      from: vi.fn().mockReturnThis(),
+      where: vi.fn().mockReturnThis(),
+      limit: vi.fn().mockResolvedValue(rows),
+    });
+    function servers(dispatcharr: unknown[]) {
+      vi.mocked(db.select)
+        .mockReset()
+        .mockReturnValueOnce(chain([plexServer]) as never)
+        .mockReturnValueOnce(chain(dispatcharr) as never)
+        .mockReturnValue(chain([]) as never);
+    }
+
+    // A refused path never asks for the Dispatcharr list, so drop any answer left queued
+    afterEach(() => {
+      vi.mocked(db.select).mockReset();
+    });
+
+    it('fetches it through that Dispatcharr, without the Plex token', async () => {
+      servers([dispatcharrServer]);
+      playing([{ serverId: 'server-1', thumbPath: DISPATCHARR_LOGO }]);
+      fetchSpy.mockResolvedValue(await jpegResponse());
+
+      const result = await proxyImage({
+        serverId: 'server-1',
+        imagePath: DISPATCHARR_LOGO,
+        width: 360,
+        height: 540,
+        fallback: 'poster',
+      });
+
+      expect(result.contentType).toBe('image/webp');
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+      const [url, init] = fetchSpy.mock.calls[0] as [string, RequestInit];
+      expect(url).toBe(DISPATCHARR_LOGO);
+      expect(JSON.stringify(init.headers ?? {})).not.toContain('token');
+      expect(init.redirect).toBe('manual');
+    });
+
+    it('refuses it when no Dispatcharr is configured at that address', async () => {
+      servers([]);
+      playing([{ serverId: 'server-1', thumbPath: DISPATCHARR_LOGO }]);
+
+      const result = await proxyImage({
+        serverId: 'server-1',
+        imagePath: DISPATCHARR_LOGO,
+        width: 360,
+        height: 540,
+        fallback: 'poster',
+      });
+
+      expect(result.contentType).toBe('image/svg+xml');
+      expect(fetchSpy).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      'http://192.168.30.241:9191/api/core/settings/',
+      'http://192.168.30.241:9191/api/channels/logos/1245/cache/?next=/settings',
+    ])('refuses %s on the configured Dispatcharr', async (address) => {
+      servers([dispatcharrServer]);
+      playing([{ serverId: 'server-1', thumbPath: address }]);
+
+      const result = await proxyImage({
+        serverId: 'server-1',
+        imagePath: address,
+        width: 360,
+        height: 540,
+        fallback: 'poster',
+      });
+
+      expect(result.contentType).toBe('image/svg+xml');
+      expect(fetchSpy).not.toHaveBeenCalled();
+    });
+
+    it('refuses it when no playing session names it', async () => {
+      servers([dispatcharrServer]);
+
+      const result = await proxyImage({
+        serverId: 'server-1',
+        imagePath: DISPATCHARR_LOGO,
+        width: 360,
+        height: 540,
+        fallback: 'poster',
+      });
+
+      expect(result.contentType).toBe('image/svg+xml');
+      expect(fetchSpy).not.toHaveBeenCalled();
+    });
   });
 
   it('refuses an outside URL no playing session names', async () => {
