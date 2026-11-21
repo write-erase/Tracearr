@@ -1,5 +1,24 @@
 # Tracearr Fork Information
 
+## November 20, 2026 — Channels DVR logos behind Docker
+
+A Channels DVR running in Docker (bridge or a Compose network) lists some guide logos on a Docker
+address instead of the host's: the bridge gateway (`172.17.0.1`), a Compose network's gateway
+(`172.18.0.1` and up), the container's own address, or `host.docker.internal`. A typical case is a
+Dispatcharr published on the same host, whose logo cache the guide links as
+`http://172.17.0.1:9191/api/channels/logos/<id>/cache/`. Those never matched the configured
+Dispatcharr or the DVR's own address, failed the public-host check, and showed no logo. In host
+mode the guide uses the host's real address, so it worked there.
+
+- A logo URL on a Docker address (`172.16.0.0/12` or `host.docker.internal`) is now read as being
+  on the host of the configured Channels DVR URL, keeping its port and path. Only the address
+  changes: it still has to be one of the DVR's own logo paths (`/tmsimg/`, `/dvr/uploads/`) or a
+  configured Dispatcharr's channel-logo endpoint, so nothing else on the host becomes reachable.
+- A URL that already names the DVR or a configured Dispatcharr is left as it is, so setups where
+  Tracearr reaches them over Docker addresses keep working.
+- Dispatcharr logos are only matched when Dispatcharr is configured in Tracearr on the same host
+  as the Channels DVR URL. Logos served by other apps on the host (another port) stay blocked.
+
 ## November 18, 2026 — Release v3.2.1-r1
 
 The first release on upstream 3.2 (connor's stable `v3.2.0` and `v3.2.1`). It carries every entry
