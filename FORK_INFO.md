@@ -1,5 +1,21 @@
 # Tracearr Fork Information
 
+## November 21, 2026 — Channels DVR live keys from proxied clients and the web player
+
+A client reaching Channels DVR through a proxy (an Android TV over Tailscale into a Docker container)
+shows up in the activity feed with a key like `7-ch1009-dM3U-Alabama-ip172.17.0.1`: the device is the
+source it tuned and the key ends in the proxy's `-ip<address>`. Only `<n>-ch<channel>-dANY-<session>`
+(cellular HLS) was read as live, so these streams had no channel: no guide entry, channel name,
+program, art or progress, just the title `ch1009`.
+
+- Any `<n>-ch<channel>-d<device>-...` key is now live TV on that channel, keeping the
+  `-ip<address>` ending as the stream's address when there is one. Subchannels (`ch5.1`) now parse
+  here too. The tuner count reads the same keys.
+- `-dANY-ip<address>` is the Channels web player: it keeps its address and is marked as the web
+  player ("Web Browser (address)", product Channels Web), so its stop is refused as for web-player
+  recordings instead of being sent to the Channels app at a browser's address.
+- A proxied client's address is the proxy's (`172.17.0.1` above), as it already was.
+
 ## November 21, 2026 — Plex outside art: streams that just started, and Dispatcharr logos
 
 The outside-art check from the entry below only looked at active sessions. A new play is held as a
