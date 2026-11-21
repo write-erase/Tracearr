@@ -237,9 +237,22 @@ function parseKey(key: string): {
   /** The Channels web player, whose keys carry "-ip<address>" and "file<id>" */
   webPlayer?: boolean;
 } {
-  // Cellular HLS activity keys carry an opaque session ID, not an IP.
-  const hlsSession = key.match(/^\d+-ch(\d+)-dANY-.+$/i);
-  if (hlsSession) return { kind: 'live', sourceId: hlsSession[1] };
+  // Channel-first live keys: `<n>-ch<channel>-d<device>-<rest>`. The channel may be a
+  // subchannel ("ch5.1"). Cellular HLS uses device "ANY" and an opaque session id; the web player
+  // uses device "ANY" and ends with "-ip<address>"; a client reaching the DVR through a proxy
+  // (Tailscale into a Docker container) names its source as the device and ends with
+  // "-ip<address>", the proxy's: "7-ch1009-dM3U-Alabama-ip172.17.0.1".
+  const channelKey = /^\d+-ch([\d.]+)-d(.+)$/i.exec(key);
+  if (channelKey) {
+    const ip = /-ip(\d{1,3}(?:\.\d{1,3}){3})$/i.exec(key)?.[1];
+    const webPlayer = ip !== undefined && /^ANY-ip/i.test(channelKey[2] ?? '');
+    return {
+      kind: 'live',
+      sourceId: channelKey[1],
+      ...(ip ? { ipAddress: ip } : {}),
+      ...(webPlayer ? { webPlayer } : {}),
+    };
+  }
 
   const ipMatch = IPV4_AT_END.exec(key);
   const ipAddress = ipMatch?.[1];

@@ -25,7 +25,13 @@ import {
 import { db } from '../db/client.js';
 import { servers, libraryItems, mediaRequests, requestServices } from '../db/schema.js';
 import { assertSafeProbeUrl, SsrfBlockedError } from '../utils/ssrf.js';
-import { getChannelLogoUrl, parseChannelLogoPath } from './mediaServer/channelsDvr/logos.js';
+import {
+  DISPATCHARR_LOGO_PATH,
+  getChannelLogoUrl,
+  parseChannelLogoPath,
+} from './mediaServer/channelsDvr/logos.js';
+import { assertPublicHttpsUrl } from '../utils/publicHttpsUrl.js';
+import { getCacheService } from './cache.js';
 import { cacheWriteAllowed, noteCacheWrite } from './imageCacheGuard.js';
 import { mediaBrowserTokenHeader } from './mediaServer/shared/baseMediaServerClient.js';
 
@@ -477,6 +483,44 @@ function guideImageUrl(server: ServerRow, imagePath: string): string | null {
   return allowed ? `https://${url.hostname}${url.pathname}${url.search}` : null;
 }
 
+/**
+ * A Plex Live TV item's art on an outside host (fork): an M3U tuner names its channel logos by
+ * full URL. Plex's own guide host keeps its guide path above; anything else outside is fetched
+ * directly, without the token, once it passes the public-host checks. Null for anything else.
+ */
+function plexOutsideArtUrl(server: ServerRow, imagePath: string): URL | null {
+  if (server.type !== 'plex' || !/^https?:\/\//i.test(imagePath) || !URL.canParse(imagePath)) {
+    return null;
+  }
+  if (guideImageUrl(server, imagePath)) return null;
+  return new URL(imagePath);
+}
+
+/**
+ * Whether a session playing on this server right now carries this art path (fork). A new play
+ * is held as pending before it becomes an active session, and the dashboard already shows it,
+ * so pending sessions count too.
+ */
+async function isActivePlexArt(serverId: string, imagePath: string): Promise<boolean> {
+  const cache = getCacheService();
+  if (!cache) return false;
+  const [sessions, pendingKeys] = await Promise.all([
+    cache.getAllActiveSessions(),
+    cache.getAllPendingSessionKeys(),
+  ]);
+  if (
+    sessions.some((session) => session.serverId === serverId && session.thumbPath === imagePath)
+  ) {
+    return true;
+  }
+  const pending = await Promise.all(
+    pendingKeys
+      .filter((key) => key.serverId === serverId)
+      .map((key) => cache.getPendingSession(serverId, key.sessionKey))
+  );
+  return pending.some((data) => data?.processed.thumbPath === imagePath);
+}
+
 interface UpstreamRequest {
   imageUrl: string;
   headers: Record<string, string>;
@@ -523,14 +567,18 @@ export function buildUpstreamRequest(
       return { imageUrl: `${baseUrl}${imagePath}`, headers };
     case 'plex': {
       // Plex image URLs are relative paths like /library/metadata/123/thumb/456
-      if (resize && !resize.preserveAspectRatio) {
+      if (resize) {
         // Plex's photo transcoder resizes and caches server-side - a 240px
         // poster arrives as ~20KB instead of the multi-MB original. upscale=0
         // keeps small sources untouched; minSize=1 fills the requested box.
+        // Uncropped posters (fork) leave minSize off so Plex fits the image inside the
+        // box instead. They go through the transcoder too because a Live TV item's
+        // direct thumb path redirects to the guide provider, which the proxy refuses
+        // (the redirect would carry the token); the transcoder follows it inside Plex.
         const params = new URLSearchParams({
           width: String(resize.width),
           height: String(resize.height),
-          minSize: '1',
+          ...(resize.preserveAspectRatio ? {} : { minSize: '1' }),
           upscale: '0',
           url: imagePath,
           'X-Plex-Token': server.token,
@@ -799,6 +847,35 @@ async function getConfiguredDispatcharrServers(): Promise<(typeof servers.$infer
   return rows;
 }
 
+/**
+ * The configured Dispatcharr a guide logo lives on, when it names that server's channel-logo
+ * endpoint and nothing more (fork). Plex Live TV fed from Dispatcharr's M3U lists its logos there,
+ * usually on a local http address the public-host checks would refuse.
+ */
+async function configuredDispatcharrLogoServer(
+  target: URL
+): Promise<typeof servers.$inferSelect | null> {
+  if (
+    target.username ||
+    target.password ||
+    target.search ||
+    target.hash ||
+    !DISPATCHARR_LOGO_PATH.test(target.pathname)
+  ) {
+    return null;
+  }
+  const dispatcharrServers = await getConfiguredDispatcharrServers();
+  return (
+    dispatcharrServers.find((item) => {
+      try {
+        return new URL(item.url).origin === target.origin;
+      } catch {
+        return false;
+      }
+    }) ?? null
+  );
+}
+
 async function runMissPipeline(args: MissPipelineArgs): Promise<ProxyResult> {
   const {
     serverId,
@@ -851,8 +928,23 @@ async function runMissPipeline(args: MissPipelineArgs): Promise<ProxyResult> {
     // client only ever names a channel number, never the URL that gets fetched.
     const logoChannel =
       server?.type === 'channels_dvr' ? parseChannelLogoPath(effectiveImagePath) : null;
+    const plexOutsideArt = server ? plexOutsideArtUrl(server, effectiveImagePath) : null;
     let candidates: UpstreamRequest[];
-    if (server && logoChannel !== null) {
+    if (server && plexOutsideArt) {
+      // The proxy route is public, so an outside URL is only fetched while a session playing on
+      // this Plex server names it; once fetched it is cached like any other poster. Sent without
+      // the Plex token, and a redirect is still not followed (fork).
+      if (!(await isActivePlexArt(server.id, effectiveImagePath))) {
+        throw new SsrfBlockedError('Outside Plex art is not playing on this server');
+      }
+      const dispatcharr = await configuredDispatcharrLogoServer(plexOutsideArt);
+      if (dispatcharr) {
+        candidates = [buildUpstreamRequest(dispatcharr, plexOutsideArt.pathname)];
+      } else {
+        await assertPublicHttpsUrl(plexOutsideArt);
+        candidates = [{ imageUrl: plexOutsideArt.href, headers: { Accept: 'image/*' } }];
+      }
+    } else if (server && logoChannel !== null) {
       const dispatcharrServers = await getConfiguredDispatcharrServers();
       const trustedOrigins = dispatcharrServers.flatMap((item) => {
         try {

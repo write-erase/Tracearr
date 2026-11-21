@@ -47,7 +47,11 @@ import { db } from '../../db/client.js';
 import { getCacheService, getPubSubService } from '../cache.js';
 import { createMediaServerClient } from '../mediaServer/index.js';
 import { dispatchSessionStopped } from '../automations/events/producers.js';
-import { terminateSession } from '../termination.js';
+import {
+  PROXIED_STREAM_NOT_TERMINABLE,
+  REMOTE_STREAM_NOT_TERMINABLE,
+  terminateSession,
+} from '../termination.js';
 import {
   fakeChannelsDvrClient,
   fakeDispatcharrClient,
@@ -544,6 +548,62 @@ describe('terminateSession', () => {
       );
 
       consoleSpy.mockRestore();
+    });
+  });
+
+  describe('Channels DVR viewers behind a proxy or on Tailscale', () => {
+    function channelsSession(ipAddress: string, isLocal: boolean) {
+      return createMockSession({
+        server: { type: 'channels_dvr', url: 'http://192.168.1.10:8089', token: '' },
+        product: 'Channels',
+        mediaType: 'live',
+        ipAddress,
+        isLocal,
+      });
+    }
+
+    it('refuses a viewer behind a proxy without sending anything', async () => {
+      const session = channelsSession('172.17.0.1', true);
+      mockSessionFindFirst.mockResolvedValue(session);
+
+      const result = await terminateSession({ sessionId: session.id, trigger: 'manual' });
+
+      expect(result.success).toBe(false);
+      expect(result.outcome).toBe('not_local');
+      expect(result.error).toBe(PROXIED_STREAM_NOT_TERMINABLE);
+      expect(mockMediaClient.terminateSession).not.toHaveBeenCalled();
+    });
+
+    it('tries a Tailscale viewer at its address', async () => {
+      const session = channelsSession('100.101.102.103', false);
+      mockSessionFindFirst.mockResolvedValue(session);
+      mockMediaClient.terminateSession.mockResolvedValue(true);
+
+      const result = await terminateSession({ sessionId: session.id, trigger: 'manual' });
+
+      expect(result.outcome).toBe('terminated');
+      expect(mockMediaClient.terminateSession).toHaveBeenCalledWith('100.101.102.103', undefined);
+    });
+
+    it('still refuses a viewer on a public address', async () => {
+      const session = channelsSession('203.0.113.7', false);
+      mockSessionFindFirst.mockResolvedValue(session);
+
+      const result = await terminateSession({ sessionId: session.id, trigger: 'manual' });
+
+      expect(result.error).toBe(REMOTE_STREAM_NOT_TERMINABLE);
+      expect(mockMediaClient.terminateSession).not.toHaveBeenCalled();
+    });
+
+    it('stops a viewer on a real 172.x home network address', async () => {
+      const session = channelsSession('172.20.4.12', true);
+      mockSessionFindFirst.mockResolvedValue(session);
+      mockMediaClient.terminateSession.mockResolvedValue(true);
+
+      const result = await terminateSession({ sessionId: session.id, trigger: 'manual' });
+
+      expect(result.outcome).toBe('terminated');
+      expect(mockMediaClient.terminateSession).toHaveBeenCalledWith('172.20.4.12', undefined);
     });
   });
 

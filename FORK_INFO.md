@@ -1,5 +1,133 @@
 # Tracearr Fork Information
 
+## November 21, 2026 — Release v3.2.1-r2
+
+Still on upstream 3.2.1. It carries every entry from November 20 to 21 below that came after r1:
+
+- Plex Live TV art: posters through Plex's photo transcoder (#55); M3U tuner logos and Gracenote's
+  `ebyl.tmsimg.com` host (#56); art for just-started streams and Dispatcharr-hosted logos (#57)
+- Channels DVR guide logos listed on a Docker address (#54)
+- Channels DVR live streams from clients behind a proxy, and `ch5.1` subchannels (#58)
+- Channels DVR stops for viewers behind a proxy refused with a clear message (#59)
+- README: Channels DVR streams through Tailscale Services into a bridged container can't be stopped (#60)
+
+No new migrations, so updating from r1 needs no backup beyond the usual and r1 can be rolled back to
+without one. Coming from r4 or earlier, back up first: upstream's migrations 0126–0132 run (see the
+r1 entry). #59 also lets Tracearr try to stop a viewer on a Tailscale address; that path is untested
+and left out of the release notes. The README's pinned example is `3.2.1-r2`.
+
+## November 21, 2026 — README: stopping Channels DVR streams behind a proxy
+
+The README's Channels DVR section now states only what has been seen and tested. Streams reaching
+Channels DVR through Tailscale Services into a bridged Docker container cannot be stopped: Channels DVR
+sees the Docker gateway (`172.17.0.1`), not the device. In that setup Channels DVR labelled an iPhone's
+Channels app stream as its web player ("Watching ch1026 from Web Player"), so it shows as
+"Web Browser"; its per-address `client` field can't tell streams apart either, since every stream
+behind the proxy shares one address. The features line and the general stop limitation are back to
+the local network only: stopping over Tailscale (allowed since the proxied/Tailscale stop change) has
+not been tested, so the README doesn't claim it. No code changes.
+
+## November 21, 2026 — Channels DVR stops for proxied and Tailscale viewers
+
+Channels DVR has no stop command, so Tracearr stops a stream by calling the Channels app on the
+viewer's device at the address Channels DVR reports (`http://<address>:57000/api/stop`). Two cases now
+behave as they should, in the server's termination check and on the dashboard card alike (shared
+helpers in `packages/shared/src/channelsDvrStop.ts`):
+
+- **Behind a proxy:** a viewer that reaches Channels DVR through a proxy into its container (such as
+  Tailscale Services) shows up as the Docker gateway (`172.17.0.1`, or `172.18.0.1` and up for Compose
+  networks). The stop is now refused up front with "This device reaches Channels DVR through a proxy,
+  so Tracearr can't reach it to stop the stream." instead of failing to connect. Only the `.0.1`
+  gateway addresses count, since some home networks use `172.16-31.x.x` for real devices.
+- **Tailscale:** a viewer on a Tailscale address (`100.64.0.0/10`) was refused as remote. The stop is
+  now attempted at that address: a Tracearr server on the same tailnet reaches the device, and the
+  existing reachability probe fails fast when it can't. Whether the session counts as local is
+  unchanged.
+
+The README's Channels DVR limitations say the same.
+
+## November 21, 2026 — Channels DVR live keys from proxied clients and the web player
+
+A client reaching Channels DVR through a proxy (an Android TV over Tailscale into a Docker container)
+shows up in the activity feed with a key like `7-ch1009-dM3U-Alabama-ip172.17.0.1`: the device is the
+source it tuned and the key ends in the proxy's `-ip<address>`. Only `<n>-ch<channel>-dANY-<session>`
+(cellular HLS) was read as live, so these streams had no channel: no guide entry, channel name,
+program, art or progress, just the title `ch1009`.
+
+- Any `<n>-ch<channel>-d<device>-...` key is now live TV on that channel, keeping the
+  `-ip<address>` ending as the stream's address when there is one. Subchannels (`ch5.1`) now parse
+  here too. The tuner count reads the same keys.
+- `-dANY-ip<address>` is the Channels web player: it keeps its address and is marked as the web
+  player ("Web Browser (address)", product Channels Web), so its stop is refused as for web-player
+  recordings instead of being sent to the Channels app at a browser's address.
+- A proxied client's address is the proxy's (`172.17.0.1` above), as it already was.
+
+## November 21, 2026 — Plex outside art: streams that just started, and Dispatcharr logos
+
+The outside-art check from the entry below only looked at active sessions. A new play is held as a
+pending session for its first stretch, and the dashboard already shows it, so its first poster
+request was refused and the card showed "No Image" until a later request after the play became
+active. Pending sessions on the same Plex server now count too, matched the same way (exact art URL).
+
+Plex Live TV fed from Dispatcharr's M3U lists channel logos on Dispatcharr's own logo endpoint,
+usually a local http address (`http://<dispatcharr>:9191/api/channels/logos/<id>/cache/`), which the
+public-host checks refuse. When that address is a Dispatcharr configured in Tracearr and the path is
+exactly its channel-logo endpoint (no query, credentials or fragment), the logo is fetched from that
+Dispatcharr, as Channels DVR's guide logos already are. It still has to be the art of a playing or
+pending session on that Plex server.
+
+## November 20, 2026 — Plex Live TV art from M3U tuners and Gracenote
+
+A Plex server whose Live TV comes from an M3U/IPTV tuner names each channel's art by full URL on
+the playlist's logo host (for example `https://cdn.iptvboss.pro/logos/USA/ABCKOCO.us.png`), not as a
+`/library/metadata/...` path. The image proxy only took Plex art from Plex itself or Plex's guide
+host (`plex.tmsimg.com`), so those cards showed "No Image". Upstream does the same.
+
+- Plex art on another outside host is now fetched from that host directly, without the Plex token,
+  and only while a session playing on that Plex server names that exact URL. The proxy route needs
+  no sign-in, so this keeps it from becoming a relay for any URL; the fetched image is cached like
+  any other poster, so history keeps it.
+- The host must pass the same checks as Channels DVR's outside logos, now shared in
+  `utils/publicHttpsUrl.ts`: https only, no credentials, a real hostname that resolves only to
+  public addresses. A redirect is not followed.
+- Plex's guide hosts now include `ebyl.tmsimg.com` beside `plex.tmsimg.com`: Plex's guide links
+  Gracenote show art from both (seen as a live episode's show art), and only `plex.tmsimg.com` was
+  allowed. Same https-only, no-port, no-credentials checks. Avatars on that host may also go
+  through the proxy, as for `plex.tmsimg.com`.
+- Unchanged: `/library/metadata/...` art goes through Plex's photo transcoder (#55).
+
+## November 20, 2026 — Plex Live TV posters
+
+Plex Live TV posters always showed the placeholder in this fork. The fork's uncropped posters
+(`preserveAspectRatio`, September 10) fetched a Plex poster's direct thumb path instead of Plex's
+photo transcoder. For a Live TV item that path answers with a redirect to the guide provider, which
+the image proxy refuses because following it would carry the Plex token, so both attempts (resized,
+then original) failed. Upstream always uses the transcoder, which follows the redirect inside Plex.
+
+- Uncropped Plex posters now go through the photo transcoder without `minSize=1`, so Plex fits the
+  image inside the box instead of filling and cropping it. Other Plex resizes keep `minSize=1`.
+- Live TV posters load, and every Plex poster now arrives resized by Plex instead of as the full
+  original. The direct original is still the fallback when the transcoder fails.
+
+## November 20, 2026 — Channels DVR logos behind Docker
+
+A Channels DVR running in Docker (bridge or a Compose network) lists some guide logos on a Docker
+address instead of the host's: the bridge gateway (`172.17.0.1`), a Compose network's gateway
+(`172.18.0.1` and up), the container's own address, or `host.docker.internal`. A typical case is a
+Dispatcharr published on the same host, whose logo cache the guide links as
+`http://172.17.0.1:9191/api/channels/logos/<id>/cache/`. Those never matched the configured
+Dispatcharr or the DVR's own address, failed the public-host check, and showed no logo. In host
+mode the guide uses the host's real address, so it worked there.
+
+- A logo URL on a Docker address (`172.16.0.0/12` or `host.docker.internal`) is now read as being
+  on the host of the configured Channels DVR URL, keeping its port and path. Only the address
+  changes: it still has to be one of the DVR's own logo paths (`/tmsimg/`, `/dvr/uploads/`) or a
+  configured Dispatcharr's channel-logo endpoint, so nothing else on the host becomes reachable.
+- A URL that already names the DVR or a configured Dispatcharr is left as it is, so setups where
+  Tracearr reaches them over Docker addresses keep working.
+- Dispatcharr logos are only matched when Dispatcharr is configured in Tracearr on the same host
+  as the Channels DVR URL. Logos served by other apps on the host (another port) stay blocked.
+
 ## November 18, 2026 — Release v3.2.1-r1
 
 The first release on upstream 3.2 (connor's stable `v3.2.0` and `v3.2.1`). It carries every entry

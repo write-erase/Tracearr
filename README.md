@@ -61,6 +61,7 @@ Channels DVR does not provide individual user accounts, so Tracearr identifies v
 - Library browsing covers TV shows, movies and imported videos. Quality details (resolution, codecs, audio channels) are read from filename tags such as `[Bluray-720p][AC3 2.0][x264]`, so files without them show no quality info. File sizes come from Channels' `/dvr/files` list.
 - Importing past watch history is not supported. Sessions Tracearr observes are still recorded in History.
 - Streams can only be stopped when the playback device is on your local network and reachable from the Tracearr server (Tracearr calls the Channels app on the device at port 57000). Remote streams and the Channels web player cannot be stopped, and the optional termination message is not shown.
+- Streams that reach Channels DVR through Tailscale Services into a Docker container in bridge mode cannot be stopped: Channels DVR sees the Docker gateway (`172.17.0.1`) instead of the device. In this setup Channels DVR can also report the Channels app on an iPhone as its web player, so that stream shows as "Web Browser" in Tracearr.
 - The web player does not say which browser it runs in, and its pause state is detected about 20 seconds late.
 - Recording alerts are checked once a minute, so an alert can arrive up to a minute after the event.
 - The disk alert and the disk pill measure free space on the whole drive Channels records to, including anything else stored there.
@@ -70,7 +71,7 @@ Channels DVR does not provide individual user accounts, so Tracearr identifies v
 
 - `ghcr.io/write-erase/tracearr:latest` - standalone Tracearr with Dispatcharr and Channels DVR support, so you also need to deploy `timescale` and `redis`.
 - `ghcr.io/write-erase/tracearr:supervised-latest` - supervised Tracearr (database and Redis included) with Dispatcharr and Channels DVR support.
-- Pin a release with `ghcr.io/write-erase/tracearr:3.2.1-r1` or `ghcr.io/write-erase/tracearr:supervised-3.2.1-r1`.
+- Pin a release with `ghcr.io/write-erase/tracearr:3.2.1-r2` or `ghcr.io/write-erase/tracearr:supervised-3.2.1-r2`.
 
 These are built from the `main` branch for each release and are published for both AMD64 and ARM64.
 

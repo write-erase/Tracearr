@@ -27,6 +27,15 @@ vi.mock('node:fs/promises', () => ({
 
 vi.mock('../../utils/http.js', () => ({ fetchJson: vi.fn() }));
 
+// Outside images resolve their host first; a public address unless a test says otherwise.
+const lookupMock = vi.hoisted(() =>
+  vi.fn(async () => [{ address: '104.18.0.1', family: 4 }] as { address: string; family: number }[])
+);
+vi.mock('node:dns/promises', () => ({ lookup: lookupMock }));
+
+const getCacheServiceMock = vi.hoisted(() => vi.fn());
+vi.mock('../cache.js', () => ({ getCacheService: getCacheServiceMock }));
+
 vi.mock('../../db/client.js', () => ({
   db: {
     select: vi.fn(),
@@ -1215,14 +1224,22 @@ describe('buildUpstreamRequest', () => {
     ).toThrow(SsrfBlockedError);
   });
 
-  it('fetches the Plex source for uncropped posters without the fill transcoder', () => {
+  it('fits uncropped Plex posters inside the box through the photo transcoder', () => {
     const server = { ...baseServer, type: 'plex' } as never;
     const { imageUrl } = buildUpstreamRequest(server, '/library/metadata/1/thumb/2', {
       width: 360,
       height: 540,
       preserveAspectRatio: true,
     });
-    expect(new URL(imageUrl).pathname).toBe('/library/metadata/1/thumb/2');
+    const url = new URL(imageUrl);
+    expect(url.pathname).toBe('/photo/:/transcode');
+    expect(url.searchParams.get('width')).toBe('360');
+    expect(url.searchParams.get('height')).toBe('540');
+    expect(url.searchParams.get('upscale')).toBe('0');
+    // No minSize: Plex fits the image inside the box rather than filling (cropping) it
+    expect(url.searchParams.has('minSize')).toBe(false);
+    expect(url.searchParams.get('url')).toBe('/library/metadata/1/thumb/2');
+    expect(url.searchParams.get('X-Plex-Token')).toBe('tok123');
   });
 
   it.each(['jellyfin', 'emby'])(
@@ -1303,6 +1320,16 @@ describe('buildUpstreamRequest', () => {
     });
   });
 
+  it('fetches Plex guide art from the ebyl Gracenote host too', () => {
+    const plex = { type: 'plex', url: 'http://plex.local:32400', token: 'secret' } as never;
+    expect(
+      buildUpstreamRequest(plex, 'https://ebyl.tmsimg.com/assets/p185469_b_h9_ck.jpg')
+    ).toEqual({
+      imageUrl: 'https://ebyl.tmsimg.com/assets/p185469_b_h9_ck.jpg',
+      headers: { Accept: 'image/*' },
+    });
+  });
+
   it("fetches a tofa server's preset avatar with its key", () => {
     const tofa = { type: 'tofa', url: 'http://tofa.local:33333', token: 'tofa-key' } as never;
     expect(buildUpstreamRequest(tofa, '/api/v1/profiles/avatars/astronaut.png')).toEqual({
@@ -1335,6 +1362,8 @@ describe('buildUpstreamRequest', () => {
   it.each([
     'https://evil.example.com/a.png',
     'https://plex.tmsimg.com.evil.example.com/a.png',
+    'https://ebyl.tmsimg.com.evil.example.com/a.png',
+    'https://ebyl.tmsimg.com:8443/a.png',
     'https://plex.tmsimg.com:8443/a.png',
     'https://user@plex.tmsimg.com/a.png',
     'file://plex.tmsimg.com/etc/passwd',
@@ -1475,8 +1504,23 @@ describe('resizedOnly (background warms)', () => {
     fetchSpy.mockRestore();
   });
 
+  it('fits a background Plex poster inside the box through the transcoder, without a retry', async () => {
+    await proxyImage({
+      serverId: randomUUID(),
+      imagePath: '/library/metadata/1/thumb/1',
+      width: 360,
+      height: 540,
+      fallback: 'poster',
+      resizedOnly: true,
+    });
+
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    const url = new URL(String(fetchSpy.mock.calls[0]?.[0]));
+    expect(url.pathname).toBe('/photo/:/transcode');
+    expect(url.searchParams.has('minSize')).toBe(false);
+  });
+
   it.each([
-    ['plex', '/library/metadata/1/thumb/1'],
     ['jellyfin', 'maxWidth=360&maxHeight=540'],
     ['dispatcharr', '/api/channels/logos/4671/cache/'],
   ])(
@@ -1582,6 +1626,35 @@ describe('resizedOnly (background warms)', () => {
     });
 
     expect(fetchSpy).toHaveBeenCalledTimes(2);
+    expect(String(fetchSpy.mock.calls[0]?.[0])).toContain('/photo/:/transcode');
+    expect(String(fetchSpy.mock.calls[1]?.[0])).not.toContain('/photo/:/transcode');
+  });
+
+  it('shows Plex Live TV art, whose direct path redirects, through the photo transcoder', async () => {
+    const jpeg = await sharp({
+      create: { width: 4, height: 6, channels: 3, background: { r: 10, g: 20, b: 30 } },
+    })
+      .jpeg()
+      .toBuffer();
+    fetchSpy.mockImplementation(async (input: unknown) =>
+      String(input).includes('/photo/:/transcode')
+        ? new Response(jpeg, { status: 200, headers: { 'content-type': 'image/jpeg' } })
+        : new Response(null, { status: 302, headers: { location: 'https://epg.example/x.jpg' } })
+    );
+
+    const result = await proxyImage({
+      serverId: randomUUID(),
+      imagePath: '/library/metadata/559488/thumb/1793593697',
+      width: 360,
+      height: 540,
+      fallback: 'poster',
+    });
+
+    expect(result.contentType).toBe('image/webp');
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    for (const [, init] of fetchSpy.mock.calls) {
+      expect((init as RequestInit).redirect).toBe('manual');
+    }
   });
 
   it('flags the placeholder as degraded rather than rejecting, since live requests share the promise', async () => {
@@ -1634,6 +1707,355 @@ describe('resizedOnly (background warms)', () => {
     });
 
     expect(result.degraded).toBeUndefined();
+  });
+});
+
+describe('Plex Live TV art on an outside host (M3U tuner logos)', () => {
+  let fetchSpy: ReturnType<typeof vi.spyOn>;
+  const LOGO = 'https://cdn.iptvboss.pro/logos/USA/ABCKOCO.us.png';
+
+  function playing(
+    sessions: { serverId: string; thumbPath: string }[],
+    pending: { serverId: string; sessionKey: string; thumbPath: string }[] = []
+  ) {
+    getCacheServiceMock.mockReturnValue({
+      getAllActiveSessions: vi.fn().mockResolvedValue(sessions),
+      getAllPendingSessionKeys: vi
+        .fn()
+        .mockResolvedValue(pending.map(({ serverId, sessionKey }) => ({ serverId, sessionKey }))),
+      getPendingSession: vi.fn(async (serverId: string, sessionKey: string) => {
+        const match = pending.find(
+          (item) => item.serverId === serverId && item.sessionKey === sessionKey
+        );
+        return match ? { processed: { thumbPath: match.thumbPath } } : null;
+      }),
+    });
+  }
+
+  async function jpegResponse() {
+    const jpeg = await sharp({
+      create: { width: 6, height: 4, channels: 3, background: { r: 10, g: 20, b: 30 } },
+    })
+      .jpeg()
+      .toBuffer();
+    return new Response(jpeg, { status: 200, headers: { 'content-type': 'image/jpeg' } });
+  }
+
+  beforeEach(() => {
+    vi.mocked(stat).mockRejectedValue(new Error('ENOENT'));
+    vi.mocked(mkdir).mockResolvedValue(undefined);
+    vi.mocked(writeFile).mockResolvedValue(undefined);
+    vi.mocked(rename).mockResolvedValue(undefined);
+    vi.mocked(cacheWriteAllowed).mockResolvedValue(true);
+    mockUpdateChain();
+    _resetImageOriginCacheForTests();
+    mockSelectChain([
+      { id: 'server-1', type: 'plex', url: 'http://localhost:32400', token: 'token' },
+    ]);
+    fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(null, { status: 500 }));
+    lookupMock.mockResolvedValue([{ address: '104.18.0.1', family: 4 }]);
+    playing([]);
+  });
+
+  afterEach(() => {
+    fetchSpy.mockRestore();
+    getCacheServiceMock.mockReset();
+  });
+
+  it('fetches the art of a session playing on that server, without the Plex token', async () => {
+    playing([{ serverId: 'server-1', thumbPath: LOGO }]);
+    fetchSpy.mockResolvedValue(await jpegResponse());
+
+    const result = await proxyImage({
+      serverId: 'server-1',
+      imagePath: LOGO,
+      width: 360,
+      height: 540,
+      fallback: 'poster',
+    });
+
+    expect(result.contentType).toBe('image/webp');
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchSpy.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe(LOGO);
+    expect(url).not.toContain('X-Plex-Token');
+    expect(JSON.stringify(init.headers ?? {})).not.toContain('token');
+    expect(init.redirect).toBe('manual');
+  });
+
+  it('fetches the art of a play still pending on that server', async () => {
+    const pendingLogo = 'https://cdn.iptvboss.pro/logos/USA/CarolinaPanthers.us.png';
+    playing([], [{ serverId: 'server-1', sessionKey: '42', thumbPath: pendingLogo }]);
+    fetchSpy.mockResolvedValue(await jpegResponse());
+
+    const result = await proxyImage({
+      serverId: 'server-1',
+      imagePath: pendingLogo,
+      width: 360,
+      height: 540,
+      fallback: 'poster',
+    });
+
+    expect(result.contentType).toBe('image/webp');
+    expect(String(fetchSpy.mock.calls[0]?.[0])).toBe(pendingLogo);
+  });
+
+  it('refuses art of a play pending on a different server', async () => {
+    const otherLogo = 'https://cdn.iptvboss.pro/logos/USA/OTHERPENDING.png';
+    playing([], [{ serverId: 'server-2', sessionKey: '42', thumbPath: otherLogo }]);
+
+    const result = await proxyImage({
+      serverId: 'server-1',
+      imagePath: otherLogo,
+      width: 360,
+      height: 540,
+      fallback: 'poster',
+    });
+
+    expect(result.contentType).toBe('image/svg+xml');
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  describe('logos on a configured Dispatcharr (Plex Live TV fed by its M3U)', () => {
+    const DISPATCHARR_LOGO = 'http://192.168.30.241:9191/api/channels/logos/1245/cache/';
+    const dispatcharrServer = {
+      id: 'dispatcharr-server',
+      type: 'dispatcharr',
+      url: 'http://192.168.30.241:9191',
+      token: '',
+      historicalAt: null,
+    };
+    const plexServer = {
+      id: 'server-1',
+      type: 'plex',
+      url: 'http://localhost:32400',
+      token: 'token',
+      historicalAt: null,
+    };
+    const chain = (rows: unknown[]) => ({
+      from: vi.fn().mockReturnThis(),
+      where: vi.fn().mockReturnThis(),
+      limit: vi.fn().mockResolvedValue(rows),
+    });
+    function servers(dispatcharr: unknown[]) {
+      vi.mocked(db.select)
+        .mockReset()
+        .mockReturnValueOnce(chain([plexServer]) as never)
+        .mockReturnValueOnce(chain(dispatcharr) as never)
+        .mockReturnValue(chain([]) as never);
+    }
+
+    // A refused path never asks for the Dispatcharr list, so drop any answer left queued
+    afterEach(() => {
+      vi.mocked(db.select).mockReset();
+    });
+
+    it('fetches it through that Dispatcharr, without the Plex token', async () => {
+      servers([dispatcharrServer]);
+      playing([{ serverId: 'server-1', thumbPath: DISPATCHARR_LOGO }]);
+      fetchSpy.mockResolvedValue(await jpegResponse());
+
+      const result = await proxyImage({
+        serverId: 'server-1',
+        imagePath: DISPATCHARR_LOGO,
+        width: 360,
+        height: 540,
+        fallback: 'poster',
+      });
+
+      expect(result.contentType).toBe('image/webp');
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+      const [url, init] = fetchSpy.mock.calls[0] as [string, RequestInit];
+      expect(url).toBe(DISPATCHARR_LOGO);
+      expect(JSON.stringify(init.headers ?? {})).not.toContain('token');
+      expect(init.redirect).toBe('manual');
+    });
+
+    it('refuses it when no Dispatcharr is configured at that address', async () => {
+      servers([]);
+      playing([{ serverId: 'server-1', thumbPath: DISPATCHARR_LOGO }]);
+
+      const result = await proxyImage({
+        serverId: 'server-1',
+        imagePath: DISPATCHARR_LOGO,
+        width: 360,
+        height: 540,
+        fallback: 'poster',
+      });
+
+      expect(result.contentType).toBe('image/svg+xml');
+      expect(fetchSpy).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      'http://192.168.30.241:9191/api/core/settings/',
+      'http://192.168.30.241:9191/api/channels/logos/1245/cache/?next=/settings',
+    ])('refuses %s on the configured Dispatcharr', async (address) => {
+      servers([dispatcharrServer]);
+      playing([{ serverId: 'server-1', thumbPath: address }]);
+
+      const result = await proxyImage({
+        serverId: 'server-1',
+        imagePath: address,
+        width: 360,
+        height: 540,
+        fallback: 'poster',
+      });
+
+      expect(result.contentType).toBe('image/svg+xml');
+      expect(fetchSpy).not.toHaveBeenCalled();
+    });
+
+    it('refuses it when no playing session names it', async () => {
+      servers([dispatcharrServer]);
+
+      const result = await proxyImage({
+        serverId: 'server-1',
+        imagePath: DISPATCHARR_LOGO,
+        width: 360,
+        height: 540,
+        fallback: 'poster',
+      });
+
+      expect(result.contentType).toBe('image/svg+xml');
+      expect(fetchSpy).not.toHaveBeenCalled();
+    });
+  });
+
+  it('refuses an outside URL no playing session names', async () => {
+    const result = await proxyImage({
+      serverId: 'server-1',
+      imagePath: 'https://cdn.iptvboss.pro/logos/USA/NOTPLAYING.png',
+      width: 360,
+      height: 540,
+      fallback: 'poster',
+    });
+
+    expect(result.contentType).toBe('image/svg+xml');
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('refuses art playing on a different server', async () => {
+    const other = 'https://cdn.iptvboss.pro/logos/USA/OTHER.png';
+    playing([{ serverId: 'server-2', thumbPath: other }]);
+
+    const result = await proxyImage({
+      serverId: 'server-1',
+      imagePath: other,
+      width: 360,
+      height: 540,
+      fallback: 'poster',
+    });
+
+    expect(result.contentType).toBe('image/svg+xml');
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('refuses outside art without the session cache', async () => {
+    getCacheServiceMock.mockReturnValue(null);
+
+    const result = await proxyImage({
+      serverId: 'server-1',
+      imagePath: 'https://cdn.iptvboss.pro/logos/USA/NOCACHE.png',
+      width: 360,
+      height: 540,
+      fallback: 'poster',
+    });
+
+    expect(result.contentType).toBe('image/svg+xml');
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['plain http', 'http://cdn.iptvboss.pro/logos/USA/HTTP.png'],
+    ['an IP address', 'https://203.0.113.7/logos/IP.png'],
+    ['credentials', 'https://user:pass@cdn.iptvboss.pro/logos/USA/CRED.png'],
+  ])('refuses playing outside art with %s', async (_label, imagePath) => {
+    playing([{ serverId: 'server-1', thumbPath: imagePath }]);
+
+    const result = await proxyImage({
+      serverId: 'server-1',
+      imagePath,
+      width: 360,
+      height: 540,
+      fallback: 'poster',
+    });
+
+    expect(result.contentType).toBe('image/svg+xml');
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('refuses a playing outside host that resolves to a private address', async () => {
+    const internal = 'https://logos.example.com/INTERNAL.png';
+    playing([{ serverId: 'server-1', thumbPath: internal }]);
+    lookupMock.mockResolvedValue([{ address: '192.168.1.10', family: 4 }]);
+
+    const result = await proxyImage({
+      serverId: 'server-1',
+      imagePath: internal,
+      width: 360,
+      height: 540,
+      fallback: 'poster',
+    });
+
+    expect(result.contentType).toBe('image/svg+xml');
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('does not follow a redirect from the outside host', async () => {
+    const redirecting = 'https://cdn.iptvboss.pro/logos/USA/REDIRECT.png';
+    playing([{ serverId: 'server-1', thumbPath: redirecting }]);
+    fetchSpy.mockResolvedValue(
+      new Response(null, { status: 302, headers: { location: 'http://192.168.1.1/' } })
+    );
+
+    const result = await proxyImage({
+      serverId: 'server-1',
+      imagePath: redirecting,
+      width: 360,
+      height: 540,
+      fallback: 'poster',
+    });
+
+    expect(result.contentType).toBe('image/svg+xml');
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("leaves Plex's own guide host and library paths on their usual routes", async () => {
+    await proxyImage({
+      serverId: 'server-1',
+      imagePath: 'https://plex.tmsimg.com/assets/p123_v_v8_aa.jpg',
+      width: 360,
+      height: 540,
+      fallback: 'poster',
+    });
+    expect(String(fetchSpy.mock.calls[0]?.[0])).toBe(
+      'https://plex.tmsimg.com/assets/p123_v_v8_aa.jpg'
+    );
+
+    // Gracenote's other host takes the same guide route, playing or not
+    fetchSpy.mockClear();
+    await proxyImage({
+      serverId: 'server-1',
+      imagePath: 'https://ebyl.tmsimg.com/assets/p185469_b_h9_ck.jpg',
+      width: 360,
+      height: 540,
+      fallback: 'poster',
+    });
+    expect(String(fetchSpy.mock.calls[0]?.[0])).toBe(
+      'https://ebyl.tmsimg.com/assets/p185469_b_h9_ck.jpg'
+    );
+
+    fetchSpy.mockClear();
+    await proxyImage({
+      serverId: 'server-1',
+      imagePath: '/library/metadata/77/thumb/1',
+      width: 360,
+      height: 540,
+      fallback: 'poster',
+    });
+    expect(String(fetchSpy.mock.calls[0]?.[0])).toContain('/photo/:/transcode');
+    expect(getCacheServiceMock).not.toHaveBeenCalled();
   });
 });
 

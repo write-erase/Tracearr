@@ -2429,6 +2429,7 @@
     "messageHint": "This message will be shown to them during playback",
     "terminating": "Terminating...",
     "remoteNotPossible": "Tracearr can only stop Channels DVR streams on devices within your local network.",
+    "proxiedNotPossible": "This device reaches Channels DVR through a proxy, so Tracearr can't reach it to stop the stream.",
     "pendingNotYet": "This stream can be stopped once it has been playing for 30 seconds.",
     "webNotPossible": "Tracearr can't stop Channels DVR streams playing in a web browser."
   },
