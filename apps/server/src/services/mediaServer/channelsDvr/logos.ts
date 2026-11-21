@@ -15,7 +15,8 @@ const CHANNEL_NUMBER = /^[A-Za-z0-9][A-Za-z0-9._-]{0,31}$/;
 const LOGO_ROUTE = /^\/dvr\/guide\/channels\/([A-Za-z0-9][A-Za-z0-9._-]{0,31})\/logo$/;
 const CACHE_TTL_MS = 10 * 60 * 1000;
 const LOCAL_LOGO_PREFIXES = ['/tmsimg/', '/dvr/uploads/'];
-const DISPATCHARR_LOGO_PATH = /^\/api\/channels\/logos\/\d+\/cache\/?$/;
+/** A Dispatcharr channel-logo cache endpoint, the only Dispatcharr path a guide logo may name */
+export const DISPATCHARR_LOGO_PATH = /^\/api\/channels\/logos\/\d+\/cache\/?$/;
 // A Channels DVR in a Docker container sees the host it runs on, and anything published there
 // (such as a Dispatcharr), on a Docker address: the default bridge gateway 172.17.0.1, a Compose
 // network's gateway (172.18.0.1 and up), the container's own address, or host.docker.internal.
