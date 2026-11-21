@@ -1,5 +1,18 @@
 # Tracearr Fork Information
 
+## November 20, 2026 — Plex Live TV posters
+
+Plex Live TV posters always showed the placeholder in this fork. The fork's uncropped posters
+(`preserveAspectRatio`, September 10) fetched a Plex poster's direct thumb path instead of Plex's
+photo transcoder. For a Live TV item that path answers with a redirect to the guide provider, which
+the image proxy refuses because following it would carry the Plex token, so both attempts (resized,
+then original) failed. Upstream always uses the transcoder, which follows the redirect inside Plex.
+
+- Uncropped Plex posters now go through the photo transcoder without `minSize=1`, so Plex fits the
+  image inside the box instead of filling and cropping it. Other Plex resizes keep `minSize=1`.
+- Live TV posters load, and every Plex poster now arrives resized by Plex instead of as the full
+  original. The direct original is still the fallback when the transcoder fails.
+
 ## November 20, 2026 — Channels DVR logos behind Docker
 
 A Channels DVR running in Docker (bridge or a Compose network) lists some guide logos on a Docker

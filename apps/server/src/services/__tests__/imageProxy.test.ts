@@ -1215,14 +1215,22 @@ describe('buildUpstreamRequest', () => {
     ).toThrow(SsrfBlockedError);
   });
 
-  it('fetches the Plex source for uncropped posters without the fill transcoder', () => {
+  it('fits uncropped Plex posters inside the box through the photo transcoder', () => {
     const server = { ...baseServer, type: 'plex' } as never;
     const { imageUrl } = buildUpstreamRequest(server, '/library/metadata/1/thumb/2', {
       width: 360,
       height: 540,
       preserveAspectRatio: true,
     });
-    expect(new URL(imageUrl).pathname).toBe('/library/metadata/1/thumb/2');
+    const url = new URL(imageUrl);
+    expect(url.pathname).toBe('/photo/:/transcode');
+    expect(url.searchParams.get('width')).toBe('360');
+    expect(url.searchParams.get('height')).toBe('540');
+    expect(url.searchParams.get('upscale')).toBe('0');
+    // No minSize: Plex fits the image inside the box rather than filling (cropping) it
+    expect(url.searchParams.has('minSize')).toBe(false);
+    expect(url.searchParams.get('url')).toBe('/library/metadata/1/thumb/2');
+    expect(url.searchParams.get('X-Plex-Token')).toBe('tok123');
   });
 
   it.each(['jellyfin', 'emby'])(
@@ -1475,8 +1483,23 @@ describe('resizedOnly (background warms)', () => {
     fetchSpy.mockRestore();
   });
 
+  it('fits a background Plex poster inside the box through the transcoder, without a retry', async () => {
+    await proxyImage({
+      serverId: randomUUID(),
+      imagePath: '/library/metadata/1/thumb/1',
+      width: 360,
+      height: 540,
+      fallback: 'poster',
+      resizedOnly: true,
+    });
+
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    const url = new URL(String(fetchSpy.mock.calls[0]?.[0]));
+    expect(url.pathname).toBe('/photo/:/transcode');
+    expect(url.searchParams.has('minSize')).toBe(false);
+  });
+
   it.each([
-    ['plex', '/library/metadata/1/thumb/1'],
     ['jellyfin', 'maxWidth=360&maxHeight=540'],
     ['dispatcharr', '/api/channels/logos/4671/cache/'],
   ])(
@@ -1582,6 +1605,35 @@ describe('resizedOnly (background warms)', () => {
     });
 
     expect(fetchSpy).toHaveBeenCalledTimes(2);
+    expect(String(fetchSpy.mock.calls[0]?.[0])).toContain('/photo/:/transcode');
+    expect(String(fetchSpy.mock.calls[1]?.[0])).not.toContain('/photo/:/transcode');
+  });
+
+  it('shows Plex Live TV art, whose direct path redirects, through the photo transcoder', async () => {
+    const jpeg = await sharp({
+      create: { width: 4, height: 6, channels: 3, background: { r: 10, g: 20, b: 30 } },
+    })
+      .jpeg()
+      .toBuffer();
+    fetchSpy.mockImplementation(async (input: unknown) =>
+      String(input).includes('/photo/:/transcode')
+        ? new Response(jpeg, { status: 200, headers: { 'content-type': 'image/jpeg' } })
+        : new Response(null, { status: 302, headers: { location: 'https://epg.example/x.jpg' } })
+    );
+
+    const result = await proxyImage({
+      serverId: randomUUID(),
+      imagePath: '/library/metadata/559488/thumb/1793593697',
+      width: 360,
+      height: 540,
+      fallback: 'poster',
+    });
+
+    expect(result.contentType).toBe('image/webp');
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    for (const [, init] of fetchSpy.mock.calls) {
+      expect((init as RequestInit).redirect).toBe('manual');
+    }
   });
 
   it('flags the placeholder as degraded rather than rejecting, since live requests share the promise', async () => {

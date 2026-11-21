@@ -523,14 +523,18 @@ export function buildUpstreamRequest(
       return { imageUrl: `${baseUrl}${imagePath}`, headers };
     case 'plex': {
       // Plex image URLs are relative paths like /library/metadata/123/thumb/456
-      if (resize && !resize.preserveAspectRatio) {
+      if (resize) {
         // Plex's photo transcoder resizes and caches server-side - a 240px
         // poster arrives as ~20KB instead of the multi-MB original. upscale=0
         // keeps small sources untouched; minSize=1 fills the requested box.
+        // Uncropped posters (fork) leave minSize off so Plex fits the image inside the
+        // box instead. They go through the transcoder too because a Live TV item's
+        // direct thumb path redirects to the guide provider, which the proxy refuses
+        // (the redirect would carry the token); the transcoder follows it inside Plex.
         const params = new URLSearchParams({
           width: String(resize.width),
           height: String(resize.height),
-          minSize: '1',
+          ...(resize.preserveAspectRatio ? {} : { minSize: '1' }),
           upscale: '0',
           url: imagePath,
           'X-Plex-Token': server.token,
