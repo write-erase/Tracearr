@@ -1,5 +1,21 @@
 # Tracearr Fork Information
 
+## November 21, 2026 — Channels DVR: device names for viewers behind a proxy
+
+Each Channels DVR session is matched to a device in `/dvr/clients/info` for its name, device id,
+platform and app version: by address first, then by the name in the activity line. Behind a proxy
+into a bridged container (Tailscale Services in Docker bridge mode) every remote device arrives from
+the Docker gateway (`172.17.0.1`), so an onn Android TV was shown as whichever device at that address
+sorted first (an iPhone), with that device's id and platform. Based on a patch by justinglock40.
+
+- When a session's address is a Docker gateway (`172.17.0.1`–`172.31.0.1`), the activity's device name
+  is matched first; same-named devices prefer the connected one, then the one at that address. The
+  address alone is used only when the activity names no device.
+- Every other address (LAN, host network mode) is matched exactly as before: address first, then
+  name, including addresses several registered devices share.
+- Sessions recorded under the wrong device while this happened may sit under that device's user;
+  merge the two users if so.
+
 ## November 21, 2026 — Release v3.2.1-r2
 
 Still on upstream 3.2.1. It carries every entry from November 20 to 21 below that came after r1:
