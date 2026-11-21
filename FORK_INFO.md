@@ -1,5 +1,24 @@
 # Tracearr Fork Information
 
+## November 21, 2026 — Channels DVR stops for proxied and Tailscale viewers
+
+Channels DVR has no stop command, so Tracearr stops a stream by calling the Channels app on the
+viewer's device at the address Channels DVR reports (`http://<address>:57000/api/stop`). Two cases now
+behave as they should, in the server's termination check and on the dashboard card alike (shared
+helpers in `packages/shared/src/channelsDvrStop.ts`):
+
+- **Behind a proxy:** a viewer that reaches Channels DVR through a proxy into its container (such as
+  Tailscale Services) shows up as the Docker gateway (`172.17.0.1`, or `172.18.0.1` and up for Compose
+  networks). The stop is now refused up front with "This device reaches Channels DVR through a proxy,
+  so Tracearr can't reach it to stop the stream." instead of failing to connect. Only the `.0.1`
+  gateway addresses count, since some home networks use `172.16-31.x.x` for real devices.
+- **Tailscale:** a viewer on a Tailscale address (`100.64.0.0/10`) was refused as remote. The stop is
+  now attempted at that address: a Tracearr server on the same tailnet reaches the device, and the
+  existing reachability probe fails fast when it can't. Whether the session counts as local is
+  unchanged.
+
+The README's Channels DVR limitations say the same.
+
 ## November 21, 2026 — Channels DVR live keys from proxied clients and the web player
 
 A client reaching Channels DVR through a proxy (an Android TV over Tailscale into a Docker container)
