@@ -49,7 +49,7 @@ import type { ChannelsDvrActivityEntry } from './parser.js';
 import { parseLineups, type LineupSource } from './lineup.js';
 import { recentRecordings, type RecentRecording, type RecentRecordingIssue } from './recent.js';
 import { runChannelsDvrCheck } from './check.js';
-import type { ChannelsDvrCheck } from '@tracearr/shared';
+import { isDockerGatewayAddress, type ChannelsDvrCheck } from '@tracearr/shared';
 
 /** The job list changes rarely; the dashboard asks every 10 s. Shared across client instances. */
 const JOBS_CACHE_TTL_MS = 15 * 1000;
@@ -546,27 +546,27 @@ export class ChannelsDvrClient implements IMediaServerClient {
         const session = toMediaSession(parsed);
         const sessionIp = normalizeClientIp(parsed.ipAddress);
         // The web player is not a registered client; an app that once had its address is not it.
-        const matchingClientByIp =
+        const clientsAtIp =
           sessionIp && !parsed.webPlayer
-            ? clients
-                .filter(
-                  (client) =>
-                    normalizeClientIp(client.local_ip) === sessionIp ||
-                    normalizeClientIp(client.remote_ip) === sessionIp
-                )
-                .sort((a, b) => {
-                  const connected = Number(Boolean(b.connected)) - Number(Boolean(a.connected));
-                  if (connected !== 0) return connected;
-                  return (
-                    Number(normalizeClientIp(b.local_ip) === sessionIp) -
-                    Number(normalizeClientIp(a.local_ip) === sessionIp)
-                  );
-                })[0]
-            : undefined;
+            ? clients.filter(
+                (client) =>
+                  normalizeClientIp(client.local_ip) === sessionIp ||
+                  normalizeClientIp(client.remote_ip) === sessionIp
+              )
+            : [];
+        const byConnectionThenLocal = (a: ChannelsDvrClientInfo, b: ChannelsDvrClientInfo) => {
+          const connected = Number(Boolean(b.connected)) - Number(Boolean(a.connected));
+          if (connected !== 0) return connected;
+          return (
+            Number(normalizeClientIp(b.local_ip) === sessionIp) -
+            Number(normalizeClientIp(a.local_ip) === sessionIp)
+          );
+        };
+        const matchingClientByIp = [...clientsAtIp].sort(byConnectionThenLocal)[0];
         const normalizedClientName = (parsed.clientName ?? '').trim().toLowerCase();
-        const matchingClient =
-          matchingClientByIp ??
-          (normalizedClientName && !parsed.webPlayer
+        // Same-named devices: the connected one, then the one at this session's address.
+        const matchingClientByName =
+          normalizedClientName && !parsed.webPlayer
             ? clients
                 .filter((client) =>
                   [client.hostname, client.alias].some(
@@ -574,8 +574,22 @@ export class ChannelsDvrClient implements IMediaServerClient {
                       typeof name === 'string' && name.trim().toLowerCase() === normalizedClientName
                   )
                 )
-                .sort((a, b) => Number(Boolean(b.connected)) - Number(Boolean(a.connected)))[0]
-            : undefined);
+                .sort((a, b) => {
+                  const connected = Number(Boolean(b.connected)) - Number(Boolean(a.connected));
+                  if (connected !== 0) return connected;
+                  const atIp = (client: ChannelsDvrClientInfo) =>
+                    Number(clientsAtIp.includes(client));
+                  return atIp(b) - atIp(a);
+                })[0]
+            : undefined;
+        // Behind a proxy into a bridged container every remote device arrives from the Docker
+        // gateway, so there the activity's device name is matched first and the address only
+        // stands in when the activity names no device. Everywhere else (LAN, host network mode)
+        // matching is unchanged: address first, then name (fork).
+        const addressShared = !!sessionIp && isDockerGatewayAddress(sessionIp);
+        const matchingClient = addressShared
+          ? (matchingClientByName ?? (normalizedClientName ? undefined : matchingClientByIp))
+          : (matchingClientByIp ?? matchingClientByName);
         const clientProduct = matchingClient
           ? `${matchingClient.app_bundle?.endsWith('.beta') ? 'Channels Beta' : 'Channels'}${matchingClient.app_build ? ` v${matchingClient.app_build}` : ''}`
           : undefined;
