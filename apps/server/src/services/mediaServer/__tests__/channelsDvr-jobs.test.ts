@@ -122,10 +122,11 @@ describe('countTunersInUse', () => {
       { key: '6-stream-M3U-DispatcharrMPEGTS-1-192.168.30.8', text: 'Watching ch1 …' },
       { key: '6-stream-M3U-DispatcharrMPEGTS-23-192.168.30.8', text: 'Watching ch23 …' },
       { key: '3-ch5.1-dANY-a1b2c3', text: 'Watching ch5.1 …' },
+      { key: '7-ch1009-dM3U-Alabama-ip172.17.0.1', text: 'Watching ch1009 …' },
       { key: '6-file-1089-192.168.30.8', text: 'Watching M*A*S*H …' },
       { key: '0-job-1794391200-ch23', text: 'Recording ch23 …' },
     ];
-    expect(countTunersInUse(entries, ['23', '4'])).toBe(4); // 1, 23, 5.1, 4
+    expect(countTunersInUse(entries, ['23', '4'])).toBe(5); // 1, 23, 5.1, 1009, 4
   });
 
   it('is zero when nothing is live or recording', () => {

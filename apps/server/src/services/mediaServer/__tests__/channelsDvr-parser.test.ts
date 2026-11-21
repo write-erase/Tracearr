@@ -89,6 +89,53 @@ describe('Channels DVR parser', () => {
     expect(session?.sessionKey).toBe('7-ch17-dANY-1050cb66a9c4');
   });
 
+  it('reads the channel from a source-named key with an IP (Android TV through a proxy)', () => {
+    const parsed = parseWatchActivity({
+      key: '7-ch1009-dM3U-Alabama-ip172.17.0.1',
+      text: 'Watching ch1009 from onn. Full HD Streaming Device (Remux Starting: 12m20s @ 1.01x (60.65fps)): buf=0% drop=0%',
+    });
+    expect(parsed?.kind).toBe('live');
+    expect(parsed?.sourceId).toBe('1009');
+    expect(parsed?.ipAddress).toBe('172.17.0.1');
+    expect(parsed?.clientName).toBe('onn. Full HD Streaming Device');
+    expect(parsed?.webPlayer).toBeUndefined();
+
+    const [session] = parseSessionsFromDvr(
+      dvr({
+        '7-ch1009-dM3U-Alabama-ip172.17.0.1':
+          'Watching ch1009 from onn. Full HD Streaming Device (Remux Starting: 12m20s @ 1.01x (60.65fps)): buf=0% drop=0%',
+      })
+    );
+    expect(session?.live?.channelIdentifier).toBe('1009');
+    expect(session?.network.ipAddress).toBe('172.17.0.1');
+    expect(session?.player.name).toBe('onn. Full HD Streaming Device');
+    expect(session?.player.product).toBe('Channels');
+  });
+
+  it('reads a web-player live key ("-dANY-ip<address>") as the web player at that address', () => {
+    const [session] = parseSessionsFromDvr(
+      dvr({
+        '7-ch1009-dANY-ip192.168.1.73':
+          'Watching ch1009 from Web Player (Transcoder Running at 3mbps: 4s @ 1.18x (0.00fps)): buf=0% drop=0%',
+      })
+    );
+    expect(session?.live?.channelIdentifier).toBe('1009');
+    expect(session?.network.ipAddress).toBe('192.168.1.73');
+    expect(session?.player.product).toBe('Channels Web');
+    expect(session?.player.name).toBe('Web Browser (192.168.1.73)');
+  });
+
+  it('reads a subchannel from a cellular HLS key', () => {
+    const parsed = parseWatchActivity({
+      key: '3-ch5.1-dANY-a1b2c3',
+      text: 'Watching ch5.1 from iPhone (Transcoder Running at 3mbps: 4s @ 1.00x (30.00fps)): buf=0% drop=0%',
+    });
+    expect(parsed?.kind).toBe('live');
+    expect(parsed?.sourceId).toBe('5.1');
+    expect(parsed?.ipAddress).toBeUndefined();
+    expect(parsed?.webPlayer).toBeUndefined();
+  });
+
   it('parses Remux activity as copy and keeps the Apple TV name stable', () => {
     const parsed = parseWatchActivity({
       key: '7-ch234-dANY-26688a6db1d2',

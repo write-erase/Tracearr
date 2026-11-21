@@ -210,7 +210,7 @@ export function findTunerConflicts(
 /**
  * How many tuners are busy: one per distinct channel being watched live or recorded.
  * Channels shares a tuner between everyone on the same channel, recordings included.
- * Live keys: `<n>-stream-<source>-<channel>-<ip>` or `<n>-ch<channel>-dANY-<session>`;
+ * Live keys: `<n>-stream-<source>-<channel>-<ip>` or `<n>-ch<channel>-d<device>-<session or ip>`;
  * recordings: "Recording ch2 for …" lines.
  */
 export function countTunersInUse(
@@ -220,7 +220,7 @@ export function countTunersInUse(
   const channels = new Set(recordingChannels);
   for (const { key } of entries) {
     const stream = /^\d+-stream-.+-([\d.]+)-(?:ip)?[\da-f.:]+$/i.exec(key);
-    const hls = /^\d+-ch([\d.]+)-dANY-/i.exec(key);
+    const hls = /^\d+-ch([\d.]+)-d.+/i.exec(key);
     const channel = stream?.[1] ?? hls?.[1];
     if (channel) channels.add(channel);
   }
