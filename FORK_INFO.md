@@ -1,5 +1,21 @@
 # Tracearr Fork Information
 
+## November 21, 2026 — Release v3.2.1-r2
+
+Still on upstream 3.2.1. It carries every entry from November 20 to 21 below that came after r1:
+
+- Plex Live TV art: posters through Plex's photo transcoder (#55); M3U tuner logos and Gracenote's
+  `ebyl.tmsimg.com` host (#56); art for just-started streams and Dispatcharr-hosted logos (#57)
+- Channels DVR guide logos listed on a Docker address (#54)
+- Channels DVR live streams from clients behind a proxy, and `ch5.1` subchannels (#58)
+- Channels DVR stops for viewers behind a proxy refused with a clear message (#59)
+- README: Channels DVR streams through Tailscale Services into a bridged container can't be stopped (#60)
+
+No new migrations, so updating from r1 needs no backup beyond the usual and r1 can be rolled back to
+without one. Coming from r4 or earlier, back up first: upstream's migrations 0126–0132 run (see the
+r1 entry). #59 also lets Tracearr try to stop a viewer on a Tailscale address; that path is untested
+and left out of the release notes. The README's pinned example is `3.2.1-r2`.
+
 ## November 21, 2026 — README: stopping Channels DVR streams behind a proxy
 
 The README's Channels DVR section now states only what has been seen and tested. Streams reaching
