@@ -11,9 +11,13 @@ For a live channel the app reports the channel it is tuned to and whether it is 
 - Live sessions on local devices are asked too. The answer is used only when the device's
   `channel.number` matches the session's channel, and only its playing/paused state is taken: the
   session keeps its airing-based position.
-- Recordings are unchanged (matched by what is playing, with the device's position).
-- Live sessions whose device doesn't answer stay playing, as before: the Channels Mac app (which does
-  not serve port 57000), the web player, remote viewers and devices behind a proxy.
+- The recording path is not changed (matched by what is playing, with the device's position); its
+  existing tests still pass, plus one showing a recording is not matched by channel.
+- Web player and remote sessions are still skipped before any request. Other local live sessions are
+  now asked: a device that doesn't answer (the Channels Mac app, which resets port 57000; a proxy's
+  Docker gateway) gets no state, so it should stay playing, and is not asked again for 60 s.
+- Covered by unit tests built from an Apple TV's real answer; not yet verified on a running server
+  (live pause on an Apple TV, live TV on the Mac app, recording pause).
 
 ## November 21, 2026 — Channels DVR: device names for viewers behind a proxy
 
