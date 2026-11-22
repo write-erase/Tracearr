@@ -1,5 +1,24 @@
 # Tracearr Fork Information
 
+## November 22, 2026 — Channels DVR: pause for live TV on local devices
+
+Pause detection asked the Channels app on local devices (`GET http://<device>:57000/api/status`) only
+for recordings; live TV was always shown playing, since the activity line has no position for it.
+For a live channel the app reports the channel it is tuned to and whether it is paused, e.g.
+`{"status":"paused","channel":{"number":"49","name":"CMT"},…}` from an Apple TV, but no
+`playback_time`.
+
+- Live sessions on local devices are asked too. The answer is used only when the device's
+  `channel.number` matches the session's channel, and only its playing/paused state is taken: the
+  session keeps its airing-based position.
+- The recording path is not changed (matched by what is playing, with the device's position); its
+  existing tests still pass, plus one showing a recording is not matched by channel.
+- Web player and remote sessions are still skipped before any request. Other local live sessions are
+  now asked: a device that doesn't answer (the Channels Mac app, which resets port 57000; a proxy's
+  Docker gateway) gets no state, so it should stay playing, and is not asked again for 60 s.
+- Covered by unit tests built from an Apple TV's real answer; not yet verified on a running server
+  (live pause on an Apple TV, live TV on the Mac app, recording pause).
+
 ## November 21, 2026 — Channels DVR: device names for viewers behind a proxy
 
 Each Channels DVR session is matched to a device in `/dvr/clients/info` for its name, device id,

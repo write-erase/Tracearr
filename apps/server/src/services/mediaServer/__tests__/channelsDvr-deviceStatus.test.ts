@@ -3,6 +3,7 @@ import type { MediaSession } from '../types.js';
 import {
   DEVICE_RETRY_AFTER_MS,
   parseDeviceStatus,
+  parseLiveDeviceStatus,
   readDeviceStatuses,
   resetDeviceStatus,
 } from '../channelsDvr/deviceStatus.js';
@@ -30,6 +31,25 @@ const session = (overrides: Record<string, unknown> = {}) =>
     playback: { state: 'playing', positionMs: 140_000, progressPercent: 0 },
     ...overrides,
   }) as unknown as MediaSession;
+
+// What a Channels app on an Apple TV reports for a paused live channel
+const CMT_STATUS = {
+  status: 'paused',
+  muted: false,
+  channel: { number: '49', name: 'CMT' },
+  now_playing: { identifiers: {}, title: 'The Goonies (1985)', type: 'movie' },
+};
+
+const liveSession = (overrides: Record<string, unknown> = {}) =>
+  session({
+    sessionKey: '6-stream-M3U-Dispatcharr-49-192.168.30.2',
+    media: { type: 'live', title: 'CMT', durationMs: 0 },
+    episode: undefined,
+    live: { channelIdentifier: '49' },
+    network: { ipAddress: '192.168.30.2', isLocal: true },
+    playback: { state: 'playing', positionMs: 600_000, progressPercent: 0 },
+    ...overrides,
+  });
 
 const ok = (body: unknown) =>
   vi.fn(async () => ({ ok: true, status: 200, json: async () => body }) as unknown as Response);
@@ -82,16 +102,81 @@ describe('Channels device status', () => {
     expect(parseDeviceStatus(body, movie)).toEqual({ state: 'paused', positionMs: 10_000 });
   });
 
-  it('only asks local recording sessions', async () => {
+  it('only asks local sessions', async () => {
     const fetchImpl = ok(MASH_STATUS);
     await readDeviceStatuses(
       [
         session({ network: { ipAddress: '8.8.8.8', isLocal: false } }),
-        session({ media: { type: 'live', title: 'ch2', durationMs: 0 } }),
+        liveSession({ network: { ipAddress: '8.8.8.8', isLocal: false } }),
       ],
       { fetchImpl }
     );
     expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  describe('live TV (fork)', () => {
+    it('reads paused or playing for the channel the session is on, keeping its position', () => {
+      expect(parseLiveDeviceStatus(CMT_STATUS, liveSession())).toEqual({
+        state: 'paused',
+        positionMs: 600_000,
+      });
+      expect(
+        parseLiveDeviceStatus({ ...CMT_STATUS, status: 'playing' }, liveSession())?.state
+      ).toBe('playing');
+    });
+
+    it('ignores the device when it is on another channel or idle', () => {
+      expect(
+        parseLiveDeviceStatus(
+          { ...CMT_STATUS, channel: { ...CMT_STATUS.channel, number: '50' } },
+          liveSession()
+        )
+      ).toBeNull();
+      expect(parseLiveDeviceStatus({ ...CMT_STATUS, status: 'stopped' }, liveSession())).toBeNull();
+      expect(parseLiveDeviceStatus({ status: 'paused' }, liveSession())).toBeNull();
+      expect(
+        parseLiveDeviceStatus(CMT_STATUS, liveSession({ live: { channelIdentifier: undefined } }))
+      ).toBeNull();
+    });
+
+    it('asks a local live session and returns its state', async () => {
+      const fetchImpl = ok(CMT_STATUS);
+      const statuses = await readDeviceStatuses([liveSession()], { fetchImpl });
+      expect(fetchImpl).toHaveBeenCalledTimes(1);
+      expect(statuses.get(liveSession().sessionKey)).toEqual({
+        state: 'paused',
+        positionMs: 600_000,
+      });
+    });
+
+    it('a recording is still matched by what is playing, not by channel', async () => {
+      const fetchImpl = ok(CMT_STATUS);
+      const statuses = await readDeviceStatuses([session()], { fetchImpl });
+      expect(statuses.size).toBe(0);
+    });
+
+    it('shows a live session paused when its device says so, without moving its position', () => {
+      const statuses = new Map([
+        [liveSession().sessionKey, { state: 'paused' as const, positionMs: 600_000 }],
+      ]);
+      const [s] = applyPauseState('http://cdvr', [liveSession()], {
+        complete: true,
+        now: 0,
+        deviceStatuses: statuses,
+      });
+      expect(s?.playback.state).toBe('paused');
+      expect(s?.playback.positionMs).toBe(600_000);
+    });
+
+    it('leaves a live session playing when its device did not answer', () => {
+      const [s] = applyPauseState('http://cdvr', [liveSession()], {
+        complete: true,
+        now: 0,
+        deviceStatuses: new Map(),
+      });
+      expect(s?.playback.state).toBe('playing');
+      expect(s?.playback.positionMs).toBe(600_000);
+    });
   });
 
   it('never asks a browser (Channels web player) session', async () => {
