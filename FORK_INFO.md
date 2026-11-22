@@ -1,5 +1,22 @@
 # Tracearr Fork Information
 
+## November 22, 2026 — Dashboard resource charts: chips stay inside the card, legend wraps again
+
+With enough servers, the "● Avg N%" chips under the CPU, RAM and Bandwidth charts wrap to a second
+row, which landed below the card's bottom edge. The chart's container was styled `height: 100%`; in
+the dashboard's grid row the cards are stretched to one height, and that 100% resolved against the
+card's whole content area, chips included, so the chart box grew by the chips' height and pushed them
+out. Upstream has the same setting.
+
+- The chart container keeps `width: 100%` and drops the height (`ServerResourceCharts.tsx`,
+  `BandwidthChart.tsx`). The charts set their own 180px height, so they draw the same and the card
+  grows to fit the chips.
+- Legend text is back to 11px, and 10px on narrow screens, as it was before 3.2.1. Upstream's Tofa
+  Alpha (#1457) raised it to 12px and dropped the narrow-screen size. At 12px the CPU legend's names
+  (servers without process CPU carry "(System)") needed a third row, and Highcharts pages a top
+  legend ("1/3" with arrows) once it passes about half the chart's height. Axis labels and tooltips
+  stay at upstream's 12px. With enough servers the legend can still reach a third row and page.
+
 ## November 22, 2026 — Channels DVR: pause for live TV on local devices
 
 Pause detection asked the Channels app on local devices (`GET http://<device>:57000/api/status`) only

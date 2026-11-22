@@ -42,7 +42,10 @@ function formatBitsPerSecond(bps: number): string {
 
 // In highcharts-react's effect deps - inline literals would update per render
 const UPDATE_ARGS: [boolean, boolean, boolean] = [true, true, false];
-const CONTAINER_PROPS = { style: { width: '100%', height: '100%' } };
+// No height: the chart sets its own (180px). A 100% height resolves against the card's stretched
+// content in a dashboard grid row, which includes the average chips below the chart, so the
+// chips were pushed out past the card's bottom edge once they wrapped (fork).
+const CONTAINER_PROPS = { style: { width: '100%' } };
 
 export interface BandwidthMultiSeries {
   serverId: string;
@@ -156,7 +159,8 @@ export function ServerBandwidthChart({
         itemStyle: {
           color: 'oklch(var(--muted-foreground))',
           fontWeight: 'normal',
-          fontSize: '12px',
+          // 11px, as before 3.2.1, so the legend wraps instead of paging (fork)
+          fontSize: '11px',
         },
         itemHoverStyle: { color: 'oklch(var(--foreground))' },
       },
@@ -220,7 +224,7 @@ export function ServerBandwidthChart({
           {
             condition: { maxWidth: 400 },
             chartOptions: {
-              legend: { align: 'center', layout: 'horizontal' },
+              legend: { align: 'center', layout: 'horizontal', itemStyle: { fontSize: '10px' } },
               xAxis: liveStatsTimeAxis(Date.now() + clockSkewMs, true),
             },
           },
