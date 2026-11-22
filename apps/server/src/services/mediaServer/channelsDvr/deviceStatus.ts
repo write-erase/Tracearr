@@ -67,13 +67,33 @@ export function parseDeviceStatus(body: unknown, session: MediaSession): DeviceS
   return { state: data.status, positionMs: Math.max(0, Math.round(data.playback_time * 1000)) };
 }
 
+/**
+ * Parse a /api/status body for a live session (fork). For live TV the app reports the channel it is
+ * tuned to and whether it is paused, but no playback position, so only the state is taken and the
+ * session keeps its own (airing-based) position. Trusted only when the channel matches.
+ */
+export function parseLiveDeviceStatus(body: unknown, session: MediaSession): DeviceStatus | null {
+  if (!body || typeof body !== 'object') return null;
+  const data = body as Record<string, unknown>;
+  if (data.status !== 'playing' && data.status !== 'paused') return null;
+  const channel = data.channel as Record<string, unknown> | undefined;
+  const deviceChannel =
+    typeof channel?.number === 'string' || typeof channel?.number === 'number'
+      ? String(channel.number).trim().toLowerCase()
+      : '';
+  const sessionChannel = (session.live?.channelIdentifier ?? '').trim().toLowerCase();
+  if (!deviceChannel || deviceChannel !== sessionChannel) return null;
+  return { state: data.status, positionMs: session.playback.positionMs };
+}
+
 function deviceUrl(ip: string): string {
   const host = ip.includes(':') ? `[${ip}]` : ip;
   return `http://${host}:${DEVICE_API_PORT}/api/status`;
 }
 
 /**
- * Ask each local recording session's device for its status, in parallel.
+ * Ask each local session's device for its status, in parallel: recordings by what is playing,
+ * live TV by channel (fork).
  * Returns sessionKey -> status for the devices that answered with a match.
  */
 export async function readDeviceStatuses(
@@ -86,7 +106,7 @@ export async function readDeviceStatuses(
       const ip = session.network.ipAddress;
       // Only Channels apps answer on :57000; a browser has nothing to ask.
       if (session.player?.product === 'Channels Web') return;
-      if (session.media.type === 'live' || !session.network.isLocal || !ip) return;
+      if (!session.network.isLocal || !ip) return;
       if ((unreachableUntil.get(ip) ?? 0) > now) return;
       try {
         const response = await fetchImpl(deviceUrl(ip), {
@@ -94,7 +114,11 @@ export async function readDeviceStatuses(
         });
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         unreachableUntil.delete(ip);
-        const status = parseDeviceStatus(await response.json(), session);
+        const body: unknown = await response.json();
+        const status =
+          session.media.type === 'live'
+            ? parseLiveDeviceStatus(body, session)
+            : parseDeviceStatus(body, session);
         if (status) result.set(session.sessionKey, status);
       } catch {
         unreachableUntil.set(ip, now + DEVICE_RETRY_AFTER_MS);
