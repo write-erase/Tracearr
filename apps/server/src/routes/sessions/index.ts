@@ -414,6 +414,55 @@ export const sessionRoutes: FastifyPluginAsync = async (app) => {
   );
 
   /**
+   * POST /sessions/dispatcharr-recordings/stop and /cancel (fork) - stop a Dispatcharr DVR
+   * recording in progress (what was recorded is kept) or cancel a scheduled one, as Dispatcharr's
+   * own buttons do. Body: { serverId, recordingId }. Same permission as terminating a stream.
+   */
+  for (const action of ['stop', 'cancel'] as const) {
+    app.post(`/dispatcharr-recordings/${action}`, terminateSessions, async (request, reply) => {
+      const body = request.body as { serverId?: unknown; recordingId?: unknown } | undefined;
+      const serverId = typeof body?.serverId === 'string' ? body.serverId : '';
+      const recordingId = typeof body?.recordingId === 'number' ? body.recordingId : NaN;
+      if (!serverId || !Number.isInteger(recordingId) || recordingId <= 0) {
+        return reply.badRequest('serverId and a Dispatcharr recordingId are required');
+      }
+      if (!hasServerAccess(request.user, serverId)) {
+        return reply.forbidden('You do not have access to this server');
+      }
+      const [server] = await db
+        .select({
+          url: servers.url,
+          token: servers.token,
+          type: servers.type,
+          historicalAt: servers.historicalAt,
+        })
+        .from(servers)
+        .where(eq(servers.id, serverId))
+        .limit(1);
+      if (!server || server.type !== 'dispatcharr' || server.historicalAt) {
+        return reply.notFound('Dispatcharr server not found');
+      }
+      try {
+        const client = new DispatcharrClient({ url: server.url, token: server.token });
+        await (action === 'stop'
+          ? client.stopRecording(recordingId)
+          : client.cancelRecording(recordingId));
+      } catch (err) {
+        app.log.warn({ serverId, recordingId, err }, `Failed to ${action} Dispatcharr recording`);
+        return reply.code(502).send({
+          success: false,
+          error: err instanceof Error ? err.message : `Failed to ${action} the recording`,
+        });
+      }
+      app.log.info(
+        { serverId, recordingId, userId: request.user.userId },
+        action === 'stop' ? 'Stopped Dispatcharr recording' : 'Cancelled Dispatcharr recording'
+      );
+      return { success: true };
+    });
+  }
+
+  /**
    * POST /sessions/recordings/stop - stop a Channels DVR recording in progress
    * Body: { serverId, jobId }. Same permission as terminating a stream. The partial
    * recording stays in the Channels DVR library.

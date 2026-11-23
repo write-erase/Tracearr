@@ -1,5 +1,45 @@
 # Tracearr Fork Information
 
+## November 23, 2026 — Dispatcharr card: Recording Now and Coming Up, with Stop and Cancel
+
+The Dispatcharr card gets the DVR half of the Channels DVR card, below Streaming Now. Read from
+Dispatcharr's own code (0.34.1):
+
+- Recording Now: recordings in progress from `GET /api/channels/recordings/` (status `recording`,
+  or no status yet with its start passed: series rules leave it unset until it starts), each with
+  its picture, programme title, season and episode, channel, times, a progress bar and minutes
+  left. When idle it says what the Channels DVR card does, "Nothing, absolutely nothing." The
+  list also holds every finished recording; anything completed, interrupted, failed or stopped is
+  dropped.
+- Coming Up: recordings starting in the next 24 hours, soonest first, five shown then "+N more".
+  Hidden when there are none, as on the Channels DVR card.
+- Channel name, number and logo come from `GET /api/channels/channels/<id>/` for each recording
+  shown (the recording list carries only the channel's id), with its overrides (`effective_*`).
+  A manual recording with no programme is titled with its channel's name.
+- The picture, in the same box as the Channels DVR card's, is the programme art Dispatcharr
+  picked for the recording (`custom_properties.poster_logo_id`, from the guide, VOD, TMDB and so
+  on; Dispatcharr fills it for upcoming recordings too), served as
+  `/api/channels/logos/<id>/cache/`, which is what Dispatcharr's own DVR page shows. Without one,
+  the channel's logo; without that, an icon. On a running server so far only the channel logo has
+  been seen, for a KOCO recording where Dispatcharr found no art and saved the channel's logo as
+  the poster; a recording with real programme art has not been seen yet.
+- Stop (in progress): `POST /api/channels/recordings/<id>/stop/`; Dispatcharr keeps what was
+  recorded. Cancel (coming up): `DELETE /api/channels/recordings/<id>/`, which is what
+  Dispatcharr's own Cancel does. Dispatcharr has no per-episode skip like a Channels DVR series
+  pass. Both are owner/admin buttons with a confirmation, behind the same permission as stopping a
+  stream, through `POST /sessions/dispatcharr-recordings/stop` and `/cancel`.
+- In Streaming Now, an Anonymous viewer whose user agent is `Dispatcharr-DVR` (Dispatcharr's DVR
+  recording the channel) shows as "Dispatcharr DVR", as `channels-dvr` already shows as "Channels
+  DVR".
+- The gap between the Channels DVR and Dispatcharr cards is the dashboard's usual one between
+  cards side by side (`gap-4`, as Now Playing and Server Resources use), not `gap-6`.
+- Live TV pause for Channels DVR (November 22 entry) is now checked on a running server.
+
+Covered by unit tests (splitting the list, channel lookups, the client calls, the card and both
+buttons). Checked on a running server on November 23: Stop keeps the partial recording, Cancel
+removes the scheduled one, and the "Dispatcharr DVR" and "Channels DVR" names show in Streaming
+Now. Programme art is the one part not yet seen (above).
+
 ## November 23, 2026 — Dispatcharr card on the dashboard, beside Channels DVR's
 
 A Dispatcharr card joins the dashboard whenever a Dispatcharr server is selected. When a Channels
@@ -168,8 +208,8 @@ For a live channel the app reports the channel it is tuned to and whether it is 
 - Web player and remote sessions are still skipped before any request. Other local live sessions are
   now asked: a device that doesn't answer (the Channels Mac app, which resets port 57000; a proxy's
   Docker gateway) gets no state, so it should stay playing, and is not asked again for 60 s.
-- Covered by unit tests built from an Apple TV's real answer; not yet verified on a running server
-  (live pause on an Apple TV, live TV on the Mac app, recording pause).
+- Covered by unit tests built from an Apple TV's real answer. Checked on a running server on
+  November 23: live TV pause shows as paused.
 
 ## November 21, 2026 — Channels DVR: device names for viewers behind a proxy
 

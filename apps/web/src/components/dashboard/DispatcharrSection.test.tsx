@@ -1,8 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import type {
   DispatcharrEpgSource,
   DispatcharrProviderUsage,
+  DispatcharrRecordingEntry,
   DispatcharrServerOverview,
   Server,
 } from '@tracearr/shared';
@@ -20,7 +21,12 @@ vi.mock('react-i18next', () => ({
   }),
 }));
 vi.mock('@/hooks/useAuth', () => ({ useAuth: () => ({ user: { role: 'owner' } }) }));
+const recordingAction = vi.hoisted(() => vi.fn());
 vi.mock('@/hooks/queries', () => ({
+  useDispatcharrRecordingAction: (action: string) => ({
+    mutate: (vars: unknown) => recordingAction(action, vars),
+    isPending: false,
+  }),
   useStopRecording: () => ({ mutate: vi.fn(), isPending: false }),
   useCancelRecording: () => ({ mutate: vi.fn(), isPending: false }),
   useSkipRecording: () => ({ mutate: vi.fn(), isPending: false }),
@@ -57,6 +63,8 @@ function server(overrides: Partial<DispatcharrServerOverview> = {}): Dispatcharr
     providers: [provider()],
     epgSources: [guide()],
     streams: [],
+    recordings: [],
+    upcoming: [],
     ...overrides,
   };
 }
@@ -218,5 +226,73 @@ describe('DispatcharrSection', () => {
       'href',
       'https://github.com/Dispatcharr/Dispatcharr/releases/latest'
     );
+  });
+});
+
+describe('DispatcharrSection recordings', () => {
+  function rec(overrides: Partial<DispatcharrRecordingEntry> = {}): DispatcharrRecordingEntry {
+    return {
+      id: 1,
+      title: 'Monday Night Football',
+      episodeTitle: null,
+      seasonNumber: null,
+      episodeNumber: null,
+      channelName: 'ESPN',
+      channelNumber: '6',
+      logoPath: null,
+      startsAt: new Date(Date.now() - 30 * 60_000).toISOString(),
+      endsAt: new Date(Date.now() + 30 * 60_000).toISOString(),
+      ...overrides,
+    };
+  }
+
+  it('says when nothing is recording and hides Coming Up when nothing is scheduled', () => {
+    render(<DispatcharrSection overview={[server()]} />);
+    expect(screen.getByTestId('dispatcharr-not-recording')).toBeInTheDocument();
+    expect(screen.queryByTestId('dispatcharr-upcoming')).not.toBeInTheDocument();
+  });
+
+  it('stops a recording in progress after confirming', () => {
+    recordingAction.mockClear();
+    render(<DispatcharrSection overview={[server({ recordings: [rec({ id: 4 })] })]} />);
+    const card = screen.getByTestId('dispatcharr-recording');
+    expect(card).toHaveTextContent('Monday Night Football');
+    expect(card).toHaveTextContent('dashboard.recording.minutesLeft');
+    fireEvent.click(screen.getByTestId('dispatcharr-stop'));
+    fireEvent.click(
+      within(screen.getByRole('dialog')).getByRole('button', { name: 'dashboard.recording.stop' })
+    );
+    expect(recordingAction).toHaveBeenCalledWith('stop', { serverId: 'd1', recordingId: 4 });
+  });
+
+  it('cancels a scheduled recording after confirming', () => {
+    recordingAction.mockClear();
+    const startsAt = new Date(Date.now() + 2 * 60 * 60_000).toISOString();
+    render(
+      <DispatcharrSection
+        overview={[
+          server({
+            upcoming: [
+              rec({
+                id: 9,
+                title: 'The Simpsons',
+                seasonNumber: 36,
+                episodeNumber: 5,
+                startsAt,
+                endsAt: new Date(Date.parse(startsAt) + 30 * 60_000).toISOString(),
+              }),
+            ],
+          }),
+        ]}
+      />
+    );
+    const row = screen.getByTestId('dispatcharr-upcoming');
+    expect(row).toHaveTextContent('The Simpsons');
+    expect(row).toHaveTextContent('dashboard.recording.episode');
+    fireEvent.click(screen.getByTestId('dispatcharr-cancel'));
+    fireEvent.click(
+      within(screen.getByRole('dialog')).getByRole('button', { name: 'dashboard.recording.cancel' })
+    );
+    expect(recordingAction).toHaveBeenCalledWith('cancel', { serverId: 'd1', recordingId: 9 });
   });
 });

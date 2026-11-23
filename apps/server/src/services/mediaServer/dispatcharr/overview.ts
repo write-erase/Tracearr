@@ -14,6 +14,7 @@ import type {
   DispatcharrProviderUsage,
   DispatcharrSourceStatus,
   DispatcharrStreamEntry,
+  DispatcharrRecordingEntry,
 } from '@tracearr/shared';
 import type { MediaUser } from '../types.js';
 import {
@@ -251,13 +252,19 @@ export interface StreamContext {
   channels: Map<string, { name?: string; logoPath?: string }>;
 }
 
-/** A Channels DVR server pulling a channel from Dispatcharr says so in its user agent. */
-const CHANNELS_DVR_AGENT = /channels[-_ ]?dvr/i;
+/**
+ * Clients that say what they are in their user agent: a Channels DVR server pulling a channel
+ * from Dispatcharr, and Dispatcharr's own DVR recording one. Matched only for Anonymous clients.
+ */
+const KNOWN_AGENTS: { pattern: RegExp; name: string }[] = [
+  { pattern: /dispatcharr[-_ ]?dvr/i, name: 'Dispatcharr DVR' },
+  { pattern: /channels[-_ ]?dvr/i, name: 'Channels DVR' },
+];
 
 /**
  * Who a client is: its Dispatcharr user's name, Anonymous for a client with no user, or its IP
  * address for a user Dispatcharr no longer lists. An Anonymous client whose user agent names
- * Channels DVR shows as "Channels DVR". Anonymous viewers always show here, whatever the server's
+ * Channels DVR or Dispatcharr's DVR shows as "Channels DVR" or "Dispatcharr DVR". Anonymous viewers always show here, whatever the server's
  * "ignore Anonymous streams" setting: they share the provider connection all the same. That
  * setting only keeps them out of Now Playing and history.
  */
@@ -276,8 +283,9 @@ function viewerName(
     name = address && address !== 'Unknown' ? address : 'Anonymous';
   }
   const agent = asText(client.userAgent);
-  if (isAnonymousDispatcharrUserName(name) && agent && CHANNELS_DVR_AGENT.test(agent)) {
-    return 'Channels DVR';
+  if (isAnonymousDispatcharrUserName(name) && agent) {
+    const known = KNOWN_AGENTS.find((candidate) => candidate.pattern.test(agent));
+    if (known) return known.name;
   }
   return name;
 }
@@ -399,4 +407,107 @@ export function buildStreams(
   );
 
   return [...liveRows, ...vodRows, ...catchupRows];
+}
+
+/** Recording states that are over: they never show, in progress or coming up. */
+const FINISHED_RECORDING = new Set(['completed', 'interrupted', 'failed', 'stopped']);
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/** A recording from `GET /api/channels/recordings/`, before its channel is looked up. */
+export interface PendingRecording {
+  channelId: number | undefined;
+  /** The programme art Dispatcharr picked for the recording, when it has one */
+  posterPath: string | null;
+  entry: Omit<DispatcharrRecordingEntry, 'channelName' | 'channelNumber' | 'logoPath'>;
+}
+
+function asSmallInt(value: unknown): number | null {
+  const parsed =
+    typeof value === 'number'
+      ? value
+      : typeof value === 'string' && value.trim()
+        ? Number(value)
+        : NaN;
+  return Number.isInteger(parsed) && parsed >= 0 && parsed < 100_000 ? parsed : null;
+}
+
+/**
+ * Dispatcharr's DVR list split into in progress and the next 24 hours. The list also holds
+ * every finished recording, so anything completed, interrupted, failed or stopped is dropped.
+ * A recording Dispatcharr already marks "recording" is in progress; one with no status yet
+ * (series rules leave it unset until it starts) counts by its times.
+ */
+export function splitRecordings(
+  payload: unknown,
+  now: number
+): { recording: PendingRecording[]; upcoming: PendingRecording[] } {
+  const recording: PendingRecording[] = [];
+  const upcoming: PendingRecording[] = [];
+  for (const row of listRows(payload)) {
+    const id = asPositiveInt(row.id);
+    const starts = asIsoTime(row.start_time);
+    const ends = asIsoTime(row.end_time);
+    if (id === undefined || !starts || !ends) continue;
+    const properties = asRecord(row.custom_properties) ?? {};
+    const status = asText(properties.status)?.toLowerCase() ?? '';
+    if (FINISHED_RECORDING.has(status)) continue;
+    const start = Date.parse(starts);
+    const end = Date.parse(ends);
+    if (end <= now) continue;
+
+    const program = asRecord(properties.program) ?? {};
+    const pending: PendingRecording = {
+      channelId: asPositiveInt(row.channel) ?? asPositiveInt(asRecord(row.channel)?.id),
+      // Dispatcharr resolves the art (guide, VOD, TMDB and so on) and keeps it as a logo id,
+      // for upcoming recordings too; its own DVR page shows the same image.
+      posterPath: dispatcharrLogoPath(properties.poster_logo_id),
+      entry: {
+        id,
+        title: asText(program.title) ?? '',
+        episodeTitle: asText(program.sub_title),
+        seasonNumber: asSmallInt(program.season),
+        episodeNumber: asSmallInt(program.episode),
+        startsAt: starts,
+        endsAt: ends,
+      },
+    };
+    if (status === 'recording' || start <= now) recording.push(pending);
+    else if (start - now <= DAY_MS) upcoming.push(pending);
+  }
+  recording.sort((a, b) => a.entry.endsAt.localeCompare(b.entry.endsAt));
+  upcoming.sort((a, b) => a.entry.startsAt.localeCompare(b.entry.startsAt));
+  return { recording, upcoming };
+}
+
+/** A channel from `GET /api/channels/channels/<id>/`: what it shows as, overrides included. */
+export function parseRecordingChannel(payload: unknown): {
+  name: string | null;
+  number: string | null;
+  logoPath: string | null;
+} {
+  const channel = asRecord(payload) ?? {};
+  const number = channel.effective_channel_number ?? channel.channel_number;
+  return {
+    name: asText(channel.effective_name) ?? asText(channel.name),
+    number: typeof number === 'number' && Number.isFinite(number) ? String(number) : asText(number),
+    logoPath: dispatcharrLogoPath(channel.effective_logo_id ?? channel.logo_id),
+  };
+}
+
+/**
+ * Fills in a recording's channel; a manual recording with no programme takes the channel's name.
+ * The image is the programme art when Dispatcharr has some, otherwise the channel's logo.
+ */
+export function withChannel(
+  pending: PendingRecording,
+  channel: { name: string | null; number: string | null; logoPath: string | null } | undefined
+): DispatcharrRecordingEntry {
+  const channelName = channel?.name ?? null;
+  return {
+    ...pending.entry,
+    title: pending.entry.title || channelName || 'Recording',
+    channelName,
+    channelNumber: channel?.number ?? null,
+    logoPath: pending.posterPath ?? channel?.logoPath ?? null,
+  };
 }

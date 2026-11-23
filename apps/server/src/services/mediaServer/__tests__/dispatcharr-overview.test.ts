@@ -7,7 +7,10 @@ import {
   listRows,
   parseEpgSources,
   parseProviders,
+  parseRecordingChannel,
   providerNamesByProfile,
+  splitRecordings,
+  withChannel,
 } from '../dispatcharr/overview.js';
 import type { MediaUser } from '../types.js';
 
@@ -452,6 +455,16 @@ describe('buildStreams', () => {
     expect(named?.viewers).toEqual(['Channels DVR']);
   });
 
+  it("names an Anonymous client Dispatcharr DVR when it's Dispatcharr recording", () => {
+    const [row] = buildStreams(
+      [{ channel_id: 'uuid-a', clients: [{ user_id: '0', user_agent: 'Dispatcharr-DVR' }] }],
+      undefined,
+      undefined,
+      context()
+    );
+    expect(row?.viewers).toEqual(['Dispatcharr DVR']);
+  });
+
   it('keeps a real user named whatever their user agent', () => {
     const [row] = buildStreams(
       [{ channel_id: 'uuid-a', clients: [{ user_id: '7', user_agent: 'channels-dvr/2026' }] }],
@@ -465,5 +478,155 @@ describe('buildStreams', () => {
   it('only builds logo paths from numeric ids', () => {
     expect(dispatcharrLogoPath(12)).toBe('/api/channels/logos/12/cache/');
     expect(dispatcharrLogoPath('../x')).toBeNull();
+  });
+});
+
+// Shapes from Dispatcharr 0.34.1's RecordingSerializer (fields "__all__", channel as its id).
+describe('Dispatcharr DVR recordings', () => {
+  const NOW = Date.parse('2026-11-23T18:00:00Z');
+  const at = (minutes: number) => new Date(NOW + minutes * 60_000).toISOString();
+  const recording = (id: number, start: number, end: number, cp: Record<string, unknown> = {}) => ({
+    id,
+    channel: 7,
+    start_time: at(start),
+    end_time: at(end),
+    custom_properties: cp,
+  });
+
+  it('splits in progress from the next 24 hours and drops what is over', () => {
+    const { recording: now, upcoming } = splitRecordings(
+      [
+        recording(1, -30, 60, {
+          status: 'recording',
+          program: {
+            title: 'Monday Night Football',
+            sub_title: 'Week 12',
+            season: 2026,
+            episode: 12,
+          },
+        }),
+        recording(2, -5, 30, { program: { title: 'No status yet' } }),
+        recording(3, 120, 180, { status: 'scheduled', program: { title: 'The Simpsons' } }),
+        recording(4, 60 * 30, 60 * 31, { program: { title: 'Too far out' } }),
+        recording(5, -120, -60, { status: 'completed' }),
+        recording(6, -10, 50, { status: 'stopped' }),
+        recording(7, -10, 50, { status: 'interrupted' }),
+      ],
+      NOW
+    );
+    expect(now.map((r) => r.entry.id)).toEqual([2, 1]);
+    expect(now[1]?.entry).toMatchObject({
+      title: 'Monday Night Football',
+      episodeTitle: 'Week 12',
+      seasonNumber: 2026,
+      episodeNumber: 12,
+    });
+    expect(upcoming.map((r) => r.entry.id)).toEqual([3]);
+    expect(upcoming[0]?.channelId).toBe(7);
+  });
+
+  it("reads a channel's overridden name, number and logo", () => {
+    expect(
+      parseRecordingChannel({
+        name: 'ESPN HD',
+        effective_name: 'ESPN',
+        channel_number: 206,
+        effective_channel_number: 6.1,
+        logo_id: 3,
+        effective_logo_id: 9,
+      })
+    ).toEqual({ name: 'ESPN', number: '6.1', logoPath: '/api/channels/logos/9/cache/' });
+  });
+
+  it("titles a manual recording with its channel's name", () => {
+    const [pending] = splitRecordings([recording(8, 30, 90)], NOW).upcoming;
+    if (!pending) throw new Error('expected one upcoming recording');
+    expect(withChannel(pending, { name: 'CMT', number: '49', logoPath: null })).toMatchObject({
+      title: 'CMT',
+      channelName: 'CMT',
+      channelNumber: '49',
+    });
+  });
+
+  it("shows the programme art Dispatcharr picked, else the channel's logo", () => {
+    const channel = { name: 'KOCO', number: '5', logoPath: '/api/channels/logos/2/cache/' };
+    const { upcoming } = splitRecordings(
+      [
+        recording(9, 30, 90, { program: { title: 'Jeopardy!' }, poster_logo_id: 41 }),
+        recording(10, 40, 90, { program: { title: 'Wheel of Fortune' } }),
+      ],
+      NOW
+    );
+    expect(upcoming.map((pending) => withChannel(pending, channel).logoPath)).toEqual([
+      '/api/channels/logos/41/cache/',
+      '/api/channels/logos/2/cache/',
+    ]);
+    expect(upcoming[0] && withChannel(upcoming[0], undefined).logoPath).toBe(
+      '/api/channels/logos/41/cache/'
+    );
+  });
+
+  it('comes with the overview, channel included', async () => {
+    const realNow = Date.now();
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.endsWith('/api/m3u/accounts/')) return jsonResponse([]);
+      if (url.endsWith('/api/channels/recordings/')) {
+        return jsonResponse([
+          {
+            id: 1,
+            channel: 7,
+            start_time: new Date(realNow - 60_000).toISOString(),
+            end_time: new Date(realNow + 3_600_000).toISOString(),
+            custom_properties: { status: 'recording', program: { title: 'News' } },
+          },
+        ]);
+      }
+      if (url.endsWith('/api/channels/channels/7/')) {
+        return jsonResponse({
+          effective_name: 'KOCO',
+          effective_channel_number: 5,
+          effective_logo_id: 2,
+        });
+      }
+      return new Response('not found', { status: 404 });
+    });
+    const client = new DispatcharrClient({ url: 'http://dispatcharr:9191', token: 'api-key' });
+
+    const overview = await client.getOverview();
+    expect(overview.recordings).toEqual([
+      expect.objectContaining({
+        id: 1,
+        title: 'News',
+        channelName: 'KOCO',
+        channelNumber: '5',
+        logoPath: '/api/channels/logos/2/cache/',
+      }),
+    ]);
+    expect(overview.upcoming).toEqual([]);
+  });
+
+  it('stops with POST .../stop/ and cancels with DELETE', async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(jsonResponse({ success: true }));
+    const client = new DispatcharrClient({ url: 'http://dispatcharr:9191', token: 'api-key' });
+
+    await client.stopRecording(4);
+    await client.cancelRecording(5);
+    expect(String(fetchMock.mock.calls[0]?.[0])).toBe(
+      'http://dispatcharr:9191/api/channels/recordings/4/stop/'
+    );
+    expect(fetchMock.mock.calls[0]?.[1]?.method).toBe('POST');
+    expect(String(fetchMock.mock.calls[1]?.[0])).toBe(
+      'http://dispatcharr:9191/api/channels/recordings/5/'
+    );
+    expect(fetchMock.mock.calls[1]?.[1]?.method).toBe('DELETE');
+  });
+
+  it('says so when the recording has already finished', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('{}', { status: 409 }));
+    const client = new DispatcharrClient({ url: 'http://dispatcharr:9191', token: 'api-key' });
+    await expect(client.stopRecording(4)).rejects.toThrow('already finished');
   });
 });

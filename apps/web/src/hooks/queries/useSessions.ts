@@ -68,6 +68,39 @@ export function useDispatcharrOverview(enabled: boolean) {
   });
 }
 
+/**
+ * Stop a Dispatcharr DVR recording in progress or cancel a scheduled one (fork); refreshes the
+ * Dispatcharr card.
+ */
+export function useDispatcharrRecordingAction(action: 'stop' | 'cancel') {
+  const { t } = useTranslation('pages');
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ serverId, recordingId }: { serverId: string; recordingId: number }) =>
+      api.sessions.dispatcharrRecording(action, serverId, recordingId),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['sessions', 'dispatcharr-overview'] });
+      toast.success(
+        action === 'stop'
+          ? t('dashboard.dispatcharr.stopped', {
+              defaultValue: 'Recording stopped. What was recorded is kept in Dispatcharr.',
+            })
+          : t('dashboard.recording.cancelled', { defaultValue: 'Recording cancelled.' })
+      );
+    },
+    onError: (error: Error) => {
+      toast.error(
+        action === 'stop'
+          ? t('dashboard.recording.stopFailed', { defaultValue: 'Could not stop the recording' })
+          : t('dashboard.recording.cancelFailed', {
+              defaultValue: 'Could not cancel the recording',
+            }),
+        { description: error.message }
+      );
+    },
+  });
+}
+
 /** Stop a Channels DVR recording; refreshes the Recording Now panel. */
 export function useStopRecording() {
   const { t } = useTranslation('pages');

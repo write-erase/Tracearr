@@ -1,15 +1,41 @@
+import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { CalendarDays, Film, History, List, Tv } from 'lucide-react';
+import {
+  CalendarClock,
+  CalendarDays,
+  CircleDot,
+  Film,
+  History,
+  List,
+  Square,
+  Tv,
+  X,
+} from 'lucide-react';
 import type {
   DispatcharrEpgSource,
   DispatcharrProviderUsage,
+  DispatcharrRecordingEntry,
   DispatcharrServerOverview,
   DispatcharrStreamEntry,
 } from '@tracearr/shared';
 import { MediaServerIcon } from '@/components/icons/MediaServerIcon';
+import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { Progress } from '@/components/ui/progress';
+import { useDispatcharrRecordingAction } from '@/hooks/queries';
+import { useAuth } from '@/hooks/useAuth';
+import {
+  StartTime,
   VersionPill,
+  formatClock,
   useFormatMinutes,
   useNow,
   type ChannelsDvrVersion,
@@ -186,6 +212,239 @@ function StreamRow({
   );
 }
 
+/** How many Coming Up rows show before "+N more", as on the Channels DVR card. */
+const UPCOMING_SHOWN = 5;
+
+/** "S36 E5 · Channel 6 · FOX", leaving out whatever isn't known. */
+function useRecordingDetail(): (recording: DispatcharrRecordingEntry) => string | null {
+  const { t } = useTranslation('pages');
+  return (recording) => {
+    const episode =
+      recording.seasonNumber !== null && recording.episodeNumber !== null
+        ? t('dashboard.recording.episode', {
+            defaultValue: 'S{{season}} E{{episode}}',
+            season: recording.seasonNumber,
+            episode: recording.episodeNumber,
+          })
+        : null;
+    const channel = recording.channelNumber
+      ? recording.channelName
+        ? t('dashboard.recording.channelNamed', {
+            defaultValue: 'Channel {{number}} · {{name}}',
+            number: recording.channelNumber,
+            name: recording.channelName,
+          })
+        : t('dashboard.recording.channel', {
+            defaultValue: 'Channel {{number}}',
+            number: recording.channelNumber,
+          })
+      : recording.channelName;
+    const parts = [episode, recording.episodeTitle, channel].filter(Boolean);
+    return parts.length > 0 ? parts.join(' · ') : null;
+  };
+}
+
+/**
+ * Owner/admin only, after a confirmation: Stop a recording in progress (Dispatcharr keeps what
+ * was recorded) or Cancel a scheduled one, as Dispatcharr's own buttons do.
+ */
+function RecordingActionButton({
+  action,
+  recording,
+  serverId,
+}: {
+  action: 'stop' | 'cancel';
+  recording: DispatcharrRecordingEntry;
+  serverId: string;
+}) {
+  const { t } = useTranslation(['pages', 'common']);
+  const { user } = useAuth();
+  const [open, setOpen] = useState(false);
+  const mutation = useDispatcharrRecordingAction(action);
+  if (user?.role !== 'admin' && user?.role !== 'owner') return null;
+
+  const label =
+    action === 'stop'
+      ? t('dashboard.recording.stop', { defaultValue: 'Stop' })
+      : t('dashboard.recording.cancel', { defaultValue: 'Cancel recording' });
+  const Icon = action === 'stop' ? Square : X;
+  return (
+    <>
+      <Button
+        variant="ghost"
+        size="icon"
+        className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive h-6 w-6 shrink-0"
+        title={label}
+        aria-label={label}
+        data-testid={`dispatcharr-${action}`}
+        onClick={() => setOpen(true)}
+      >
+        <Icon className="h-3.5 w-3.5" />
+      </Button>
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>
+              {action === 'stop'
+                ? t('dashboard.recording.stopTitle', { defaultValue: 'Stop recording?' })
+                : t('dashboard.recording.cancelTitle', { defaultValue: 'Cancel this recording?' })}
+            </DialogTitle>
+            <DialogDescription>
+              {action === 'stop'
+                ? t('dashboard.dispatcharr.stopConfirm', {
+                    defaultValue:
+                      'Stop recording "{{title}}" now? What has been recorded so far stays in Dispatcharr.',
+                    title: recording.title,
+                  })
+                : t('dashboard.dispatcharr.cancelConfirm', {
+                    defaultValue:
+                      'Cancel "{{title}}" at {{time}}? It will be removed from your Dispatcharr recordings.',
+                    title: recording.title,
+                    time: formatClock(recording.startsAt),
+                  })}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setOpen(false)} disabled={mutation.isPending}>
+              {action === 'stop'
+                ? t('common:actions.cancel')
+                : t('dashboard.recording.keep', { defaultValue: 'Keep it' })}
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={mutation.isPending}
+              onClick={() =>
+                mutation.mutate(
+                  { serverId, recordingId: recording.id },
+                  { onSuccess: () => setOpen(false) }
+                )
+              }
+            >
+              {mutation.isPending
+                ? action === 'stop'
+                  ? t('dashboard.recording.stopping', { defaultValue: 'Stopping…' })
+                  : t('dashboard.recording.cancelling', { defaultValue: 'Cancelling…' })
+                : label}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
+  );
+}
+
+/** A recording in progress, laid out like the Channels DVR card's: badge, times, progress, Stop. */
+function DvrRecordingCard({
+  recording,
+  serverId,
+  serverName,
+  now,
+}: {
+  recording: DispatcharrRecordingEntry;
+  serverId: string;
+  serverName?: string;
+  now: number;
+}) {
+  const { t } = useTranslation('pages');
+  const detail = useRecordingDetail()(recording);
+  const start = Date.parse(recording.startsAt);
+  const end = Date.parse(recording.endsAt);
+  const percent =
+    end > start ? Math.min(100, Math.max(0, ((now - start) / (end - start)) * 100)) : 0;
+  const minutesLeft = Math.max(0, Math.ceil((end - now) / 60_000));
+  const timeWindow = `${formatClock(recording.startsAt)}–${formatClock(recording.endsAt)}`;
+  return (
+    <div className="bg-card flex gap-3 rounded-xl border p-3" data-testid="dispatcharr-recording">
+      <div className="bg-muted flex h-16 w-24 shrink-0 items-center justify-center overflow-hidden rounded-md">
+        {recording.logoPath ? (
+          <img
+            src={imageProxyUrl(serverId, recording.logoPath, 192, 128)}
+            alt=""
+            className="h-full w-full object-contain"
+            loading="lazy"
+          />
+        ) : (
+          <CircleDot className="text-muted-foreground h-6 w-6" aria-hidden="true" />
+        )}
+      </div>
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-2">
+          <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-red-500/15 px-2 py-0.5 text-[10px] font-semibold tracking-wide text-red-500 uppercase">
+            <span
+              className="h-1.5 w-1.5 animate-pulse rounded-full bg-red-500"
+              aria-hidden="true"
+            />
+            {t('dashboard.recording.badge', { defaultValue: 'Recording' })}
+          </span>
+          {serverName && (
+            <span className="text-muted-foreground truncate text-xs">{serverName}</span>
+          )}
+          <span className="ml-auto" />
+          <RecordingActionButton action="stop" recording={recording} serverId={serverId} />
+        </div>
+        <h3 className="mt-1 truncate text-sm leading-tight font-semibold" title={recording.title}>
+          {recording.title}
+        </h3>
+        <p className="text-muted-foreground truncate text-xs">
+          {[detail, timeWindow].filter(Boolean).join(' · ')}
+        </p>
+        <div className="mt-2 flex items-center gap-2">
+          <Progress value={percent} className="h-1.5 flex-1" />
+          <span className="text-muted-foreground shrink-0 text-xs tabular-nums">
+            {t('dashboard.recording.minutesLeft', {
+              defaultValue: '{{count}} min left',
+              count: minutesLeft,
+            })}
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** A recording starting in the next day: time, logo, title, Cancel. */
+function DvrUpcomingRow({
+  recording,
+  serverId,
+  serverName,
+  now,
+}: {
+  recording: DispatcharrRecordingEntry;
+  serverId: string;
+  serverName?: string;
+  now: number;
+}) {
+  const detail = useRecordingDetail()(recording);
+  return (
+    <li className="flex items-center gap-3 px-3 py-2" data-testid="dispatcharr-upcoming">
+      <span className="text-muted-foreground w-28 shrink-0 text-xs font-medium tabular-nums">
+        <StartTime iso={recording.startsAt} now={now} />
+      </span>
+      <div className="bg-muted flex h-8 w-12 shrink-0 items-center justify-center overflow-hidden rounded">
+        {recording.logoPath ? (
+          <img
+            src={imageProxyUrl(serverId, recording.logoPath, 96, 64)}
+            alt=""
+            className="h-full w-full object-contain"
+            loading="lazy"
+          />
+        ) : (
+          <CalendarClock className="text-muted-foreground h-4 w-4" aria-hidden="true" />
+        )}
+      </div>
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-sm font-medium" title={recording.title}>
+          {recording.title}
+        </p>
+        <p className="text-muted-foreground truncate text-xs">
+          {[detail, serverName].filter(Boolean).join(' · ')}
+        </p>
+      </div>
+      <RecordingActionButton action="cancel" recording={recording} serverId={serverId} />
+    </li>
+  );
+}
+
 /**
  * The Dispatcharr panel (fork), all pills like the Channels DVR one: each M3U account's provider
  * connections and the version in the header; below it any M3U account or guide source whose last
@@ -210,6 +469,14 @@ export function DispatcharrSection({
   const streams = overview.flatMap((server) =>
     server.streams.map((stream) => ({ stream, server }))
   );
+  const recordings = overview.flatMap((server) =>
+    server.recordings.map((recording) => ({ recording, server }))
+  );
+  const upcoming = overview
+    .flatMap((server) => server.upcoming.map((recording) => ({ recording, server })))
+    .sort((a, b) => a.recording.startsAt.localeCompare(b.recording.startsAt));
+  const upcomingShown = upcoming.slice(0, UPCOMING_SHOWN);
+  const upcomingMore = upcoming.length - upcomingShown.length;
   // Refreshes only show when one failed.
   const failedProviders = providers.filter(({ provider }) => provider.status === 'error');
   const failedSources = overview.flatMap((server) =>
@@ -307,6 +574,71 @@ export function DispatcharrSection({
                   defaultValue: 'Nothing streaming.',
                 })}
               </p>
+            )}
+            <h4 className="mt-5 mb-2 flex items-center gap-2 text-sm font-semibold">
+              <span
+                className={
+                  recordings.length > 0
+                    ? 'h-2 w-2 animate-pulse rounded-full bg-red-500'
+                    : 'bg-muted-foreground/40 h-2 w-2 rounded-full'
+                }
+                aria-hidden="true"
+              />
+              {t('dashboard.recording.title', { defaultValue: 'Recording Now' })}
+              {recordings.length > 0 && (
+                <span className="bg-muted text-foreground rounded-full px-2 py-0.5 text-xs font-medium">
+                  {recordings.length}
+                </span>
+              )}
+            </h4>
+            {recordings.length > 0 ? (
+              <div className="grid gap-4 sm:grid-cols-2">
+                {recordings.map(({ recording, server }) => (
+                  <DvrRecordingCard
+                    key={`${server.serverId}:${recording.id}`}
+                    recording={recording}
+                    serverId={server.serverId}
+                    serverName={showServer ? server.serverName : undefined}
+                    now={now}
+                  />
+                ))}
+              </div>
+            ) : (
+              <p className="text-muted-foreground text-sm" data-testid="dispatcharr-not-recording">
+                {t('dashboard.recording.nothingRecording', {
+                  defaultValue: 'Nothing, absolutely nothing.',
+                })}
+              </p>
+            )}
+            {upcomingShown.length > 0 && (
+              <div className="mt-5">
+                <h4 className="mb-2 flex items-center gap-2 text-sm font-semibold">
+                  <CalendarClock className="text-muted-foreground h-4 w-4" aria-hidden="true" />
+                  {t('dashboard.recording.comingUp', { defaultValue: 'Coming Up' })}
+                  <span className="text-muted-foreground text-xs font-normal">
+                    {t('dashboard.recording.comingUpCaption', { defaultValue: 'next 24 hours' })}
+                  </span>
+                </h4>
+                <ul className="divide-y rounded-xl border">
+                  {upcomingShown.map(({ recording, server }) => (
+                    <DvrUpcomingRow
+                      key={`${server.serverId}:${recording.id}`}
+                      recording={recording}
+                      serverId={server.serverId}
+                      serverName={showServer ? server.serverName : undefined}
+                      now={now}
+                    />
+                  ))}
+                </ul>
+                {upcomingMore > 0 && (
+                  <p className="text-muted-foreground mt-2 text-xs">
+                    {t('dashboard.recording.moreComingUp', {
+                      defaultValue: '+{{count}} more in the next 24 hours',
+                      count: upcomingMore,
+                    })}
+                  </p>
+                )}
+              </div>
             )}
           </CardContent>
         )}

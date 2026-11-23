@@ -32,6 +32,7 @@ import {
 import type {
   DispatcharrEpgSource,
   DispatcharrProviderUsage,
+  DispatcharrRecordingEntry,
   DispatcharrStreamEntry,
 } from '@tracearr/shared';
 import {
@@ -40,7 +41,10 @@ import {
   dispatcharrLogoPath,
   parseEpgSources,
   parseProviders,
+  parseRecordingChannel,
   providerNamesByProfile,
+  splitRecordings,
+  withChannel,
 } from './overview.js';
 
 export type DispatcharrTokenMode = 'jwt' | 'api-key' | 'credentials' | 'none';
@@ -568,6 +572,8 @@ export class DispatcharrClient implements IMediaServerClient {
     providers: DispatcharrProviderUsage[];
     epgSources: DispatcharrEpgSource[];
     streams: DispatcharrStreamEntry[];
+    recordings: DispatcharrRecordingEntry[];
+    upcoming: DispatcharrRecordingEntry[];
   }> {
     const read = async (path: string) =>
       fetchJson<unknown>(`${this.baseUrl}${path}`, {
@@ -575,7 +581,7 @@ export class DispatcharrClient implements IMediaServerClient {
         service: 'dispatcharr',
         timeout: 10000,
       });
-    const [accounts, sources, live, vod, catchup, users] = await Promise.allSettled([
+    const [accounts, sources, live, vod, catchup, users, dvr] = await Promise.allSettled([
       read('/api/m3u/accounts/'),
       read('/api/epg/sources/'),
       this.getStatusSnapshot(),
@@ -584,6 +590,7 @@ export class DispatcharrClient implements IMediaServerClient {
       // Every user, Anonymous included: the card lists who shares each connection, whatever
       // the "ignore Anonymous streams" setting (that one is for Now Playing and history).
       this.getAllUsersById(),
+      read('/api/channels/recordings/'),
     ]);
     if (accounts.status === 'rejected') throw accounts.reason;
     // Without the live streams the count would read low, so it's left unknown instead.
@@ -598,9 +605,16 @@ export class DispatcharrClient implements IMediaServerClient {
     const liveChannels = live.status === 'fulfilled' ? live.value : [];
     const vodStats = vod.status === 'fulfilled' ? vod.value : undefined;
     const catchupStats = catchup.status === 'fulfilled' ? catchup.value : undefined;
-    const channels = await this.getChannelInfoByUuid(
-      liveChannels.map((channel) => String(channel.channel_id ?? ''))
-    );
+    const schedule =
+      dvr.status === 'fulfilled'
+        ? splitRecordings(dvr.value, Date.now())
+        : { recording: [], upcoming: [] };
+    const [channels, recordingChannels] = await Promise.all([
+      this.getChannelInfoByUuid(liveChannels.map((channel) => String(channel.channel_id ?? ''))),
+      this.getRecordingChannels(
+        [...schedule.recording, ...schedule.upcoming].map((r) => r.channelId)
+      ),
+    ]);
     return {
       providers: parseProviders(accounts.value, connections),
       epgSources: sources.status === 'fulfilled' ? parseEpgSources(sources.value) : [],
@@ -609,7 +623,68 @@ export class DispatcharrClient implements IMediaServerClient {
         userById: users.status === 'fulfilled' ? users.value : new Map<string, MediaUser>(),
         channels,
       }),
+      recordings: schedule.recording.map((r) => withChannel(r, recordingChannels.get(r.channelId))),
+      upcoming: schedule.upcoming.map((r) => withChannel(r, recordingChannels.get(r.channelId))),
     };
+  }
+
+  /**
+   * Name, number and logo of each channel a shown recording is on (fork), one
+   * `GET /api/channels/channels/<id>/` each: the recording list carries only the channel's id.
+   * A channel that can't be read is left out and its recording shows without it.
+   */
+  private async getRecordingChannels(
+    ids: (number | undefined)[]
+  ): Promise<Map<number | undefined, ReturnType<typeof parseRecordingChannel>>> {
+    const unique = [...new Set(ids.filter((id): id is number => id !== undefined))].slice(0, 30);
+    const found = new Map<number | undefined, ReturnType<typeof parseRecordingChannel>>();
+    await Promise.all(
+      unique.map(async (id) => {
+        try {
+          const data = await fetchJson<unknown>(`${this.baseUrl}/api/channels/channels/${id}/`, {
+            headers: await this.buildHeaders(),
+            service: 'dispatcharr',
+            timeout: 10000,
+          });
+          found.set(id, parseRecordingChannel(data));
+        } catch {
+          // The row still shows, without its channel
+        }
+      })
+    );
+    return found;
+  }
+
+  /**
+   * Stop a DVR recording in progress (fork): `POST /api/channels/recordings/<id>/stop/`.
+   * Dispatcharr keeps what was recorded so far.
+   */
+  async stopRecording(recordingId: number): Promise<void> {
+    const response = await fetch(`${this.baseUrl}/api/channels/recordings/${recordingId}/stop/`, {
+      method: 'POST',
+      headers: { ...(await this.buildHeaders()), 'Content-Type': 'application/json' },
+      body: '{}',
+      signal: AbortSignal.timeout(15000),
+    });
+    if (response.status === 409) throw new Error('The recording has already finished');
+    if (!response.ok) {
+      throw new Error(`Dispatcharr refused to stop the recording (HTTP ${response.status})`);
+    }
+  }
+
+  /**
+   * Cancel a scheduled DVR recording (fork): `DELETE /api/channels/recordings/<id>/`, as
+   * Dispatcharr's own Cancel does.
+   */
+  async cancelRecording(recordingId: number): Promise<void> {
+    const response = await fetch(`${this.baseUrl}/api/channels/recordings/${recordingId}/`, {
+      method: 'DELETE',
+      headers: await this.buildHeaders(),
+      signal: AbortSignal.timeout(15000),
+    });
+    if (!response.ok) {
+      throw new Error(`Dispatcharr refused to cancel the recording (HTTP ${response.status})`);
+    }
   }
 
   /**

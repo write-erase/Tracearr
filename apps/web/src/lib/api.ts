@@ -1243,6 +1243,12 @@ class ApiClient {
     /** Dispatcharr M3U accounts and guide sources, for the dashboard card (fork) */
     dispatcharrOverview: () =>
       this.request<DispatcharrOverviewResponse>('/sessions/dispatcharr-overview'),
+    /** Stop a Dispatcharr DVR recording in progress, or cancel a scheduled one (fork) */
+    dispatcharrRecording: (action: 'stop' | 'cancel', serverId: string, recordingId: number) =>
+      this.request<{ success: boolean }>(`/sessions/dispatcharr-recordings/${action}`, {
+        method: 'POST',
+        body: JSON.stringify({ serverId, recordingId }),
+      }),
     /** Stop a Channels DVR recording in progress; the partial recording is kept */
     stopRecording: (serverId: string, jobId: string) =>
       this.request<{ success: boolean }>('/sessions/recordings/stop', {
