@@ -57,6 +57,17 @@ export function useChannelsRecordings(enabled: boolean) {
   });
 }
 
+/** The Dispatcharr dashboard card (fork): only asked for while a Dispatcharr server is selected. */
+export function useDispatcharrOverview(enabled: boolean) {
+  return useQuery({
+    queryKey: ['sessions', 'dispatcharr-overview'],
+    queryFn: () => api.sessions.dispatcharrOverview(),
+    enabled,
+    staleTime: 1000 * 10,
+    refetchInterval: 1000 * 30,
+  });
+}
+
 /** Stop a Channels DVR recording; refreshes the Recording Now panel. */
 export function useStopRecording() {
   const { t } = useTranslation('pages');

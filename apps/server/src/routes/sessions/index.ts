@@ -23,6 +23,7 @@ import {
   type HistorySessionResponse,
   type HistoryAggregates,
   type ChannelsDvrScheduleResponse,
+  type DispatcharrOverviewResponse,
   DEFAULT_DISK_ALERT_PERCENT,
 } from '@tracearr/shared';
 import { db } from '../../db/client.js';
@@ -38,6 +39,7 @@ import { hasServerAccess, resolveServerIds } from '../../utils/serverFiltering.j
 import { terminateSession } from '../../services/termination.js';
 import { getCacheService } from '../../services/cache.js';
 import { ChannelsDvrClient } from '../../services/mediaServer/channelsDvr/client.js';
+import { DispatcharrClient } from '../../services/mediaServer/dispatcharr/client.js';
 import { getActiveAutomations } from '../../jobs/poller/database.js';
 import {
   assertInScope,
@@ -372,6 +374,44 @@ export const sessionRoutes: FastifyPluginAsync = async (app) => {
       recent: perServer.flatMap((s) => s.recent).sort((a, b) => b.endedAt.localeCompare(a.endedAt)),
     };
   });
+
+  /**
+   * GET /sessions/dispatcharr-overview - the Dispatcharr dashboard card (fork): each M3U
+   * account's refresh state and provider connections in use, each guide source's refresh
+   * state, and what's streaming now with who is watching, read live from every Dispatcharr server the user can see. A server that cannot be
+   * reached is left out. Its version comes with the server list, like Channels DVR's.
+   */
+  app.get(
+    '/dispatcharr-overview',
+    readSessions,
+    async (request): Promise<DispatcharrOverviewResponse> => {
+      const authUser = request.user;
+      const dispatcharrServers = await db
+        .select({
+          id: servers.id,
+          name: servers.name,
+          url: servers.url,
+          token: servers.token,
+        })
+        .from(servers)
+        .where(and(eq(servers.type, 'dispatcharr'), isNull(servers.historicalAt)));
+
+      const visible = dispatcharrServers.filter((server) => hasServerAccess(authUser, server.id));
+      const perServer = await Promise.all(
+        visible.map(async (server) => {
+          try {
+            const client = new DispatcharrClient({ url: server.url, token: server.token });
+            const overview = await client.getOverview();
+            return [{ serverId: server.id, serverName: server.name, ...overview }];
+          } catch (err) {
+            app.log.debug({ serverId: server.id, err }, 'Dispatcharr overview unavailable');
+            return [];
+          }
+        })
+      );
+      return { data: perServer.flat() };
+    }
+  );
 
   /**
    * POST /sessions/recordings/stop - stop a Channels DVR recording in progress

@@ -1,5 +1,56 @@
 # Tracearr Fork Information
 
+## November 23, 2026 — Dispatcharr card on the dashboard, beside Channels DVR's
+
+A Dispatcharr card joins the dashboard whenever a Dispatcharr server is selected. When a Channels
+DVR server is selected too, the two cards share the row half and half on wide screens and stack on
+narrow ones; either alone takes the full width, so a setup without Dispatcharr looks as before.
+In the shared row the Channels DVR card shows at most two recordings side by side instead of three.
+Read from Dispatcharr's own code (0.34.1, November 17):
+
+- Pills throughout, like the Channels DVR card. In the header, one per active M3U account with its
+  provider connections, "Primary: 1 of 5 connections", amber once every one is taken, like the
+  Channels DVR tuner pill. The limit is the sum of the account's active profiles' `max_streams`; a
+  0 there is unlimited ("no limit"). Dispatcharr keeps the live count in Redis
+  (`profile_connections:<profile id>`) with no endpoint for it, so Tracearr counts it from the
+  streams Dispatcharr reports: one per live channel (`/proxy/ts/status`, `m3u_profile_id`), one per
+  VOD client (`/proxy/vod/stats/`), one per catch-up stream (`/proxy/stats/`). Without the live
+  streams the count shows as unknown rather than low.
+- Below the header, only failed refreshes: a red pill per active M3U account
+  (`GET /api/m3u/accounts/`) or guide source (`GET /api/epg/sources/`) whose last refresh failed,
+  "M3U Primary: refresh failed" or "EPG XMLTV: refresh failed", with Dispatcharr's message on hover.
+  Guide sources are their own list in Dispatcharr (provider EPG, XMLTV, Schedules Direct), not tied
+  to any M3U account. With none failing, no refresh pills show. Custom dummy guides are left out,
+  and so is Dispatcharr's locked built-in "custom" M3U account (streams added by hand), which its
+  own M3U page hides as well.
+- Streaming Now: one row per provider connection, the same ones the pills count. A live channel
+  is one row however many share it, with a chip per viewer ("ESPN · Primary · 3 viewers · 1 h 5
+  min", Joe, Mom, Channels DVR): Dispatcharr serves later viewers of a channel from the stream it
+  already has open. VOD is one row per viewer, catch-up one per stream. Viewers are Dispatcharr
+  user names (`/api/accounts/users/`), Anonymous for a client without a user, or the IP address
+  for a user Dispatcharr no longer lists. An Anonymous client whose user agent names Channels DVR
+  (`channels-dvr`, `Channels DVR`) shows as "Channels DVR". Anonymous viewers show here whatever the server's
+  "ignore Anonymous streams" setting: they share the provider connection all the same, and the
+  setting only keeps them out of Now Playing and history. Channel names and logos come from `POST /api/channels/channels/by-uuids/`, the logo as
+  `/api/channels/logos/<id>/cache/` through the image proxy. "Nothing streaming." when idle.
+- Version: `DispatcharrClient.getSoftwareVersion()` reads `GET /api/core/version/` (no login), and
+  the update checker reads the newest release from Dispatcharr's GitHub (`v0.34.1` tags, compared
+  without the `v`). Owners and admins see "Update available" or "Up to date", linking to the
+  releases page. As with every other server type, a newer release also fires the server update
+  trigger, so a "Server update" automation now covers Dispatcharr.
+- Both card titles show the server's own logo (`MediaServerIcon`, as in the server list) instead of
+  a line icon; the Channels DVR card's record dot is gone.
+- The data comes from a new `GET /sessions/dispatcharr-overview` beside `/sessions/recordings`,
+  polled every 30 seconds while a Dispatcharr server is selected. A server that doesn't answer is
+  left out; with none answering, the card says so.
+- Recordings (Dispatcharr's DVR) are left for later.
+
+Covered by unit tests (parsing, counting, Streaming Now, the client calls, the version feed, the
+card and the dashboard layout). Checked on a running server: the connections pills, the version
+pill, Streaming Now with two viewers sharing one channel and connection, Anonymous listed while
+"ignore Anonymous streams" is on, and the shared row beside Channels DVR. Not yet seen there: a
+failed-refresh pill, the "Channels DVR" chip, and the logos in the card titles.
+
 ## November 23, 2026 — Dev images skip pushes that don't change the image
 
 `fork-ghcr-branch.yml` built the `dev` and `supervised-dev` images on every push to `dev`, including

@@ -30,6 +30,7 @@ vi.mock('@/hooks/queries', () => ({
   useActiveSessions: vi.fn(),
   // No Channels DVR server in these tests, so the recordings panel never renders
   useChannelsRecordings: vi.fn(() => ({ data: undefined })),
+  useDispatcharrOverview: vi.fn(() => ({ data: undefined })),
   useStopRecording: vi.fn(() => ({ mutate: vi.fn(), isPending: false })),
 }));
 
@@ -108,7 +109,12 @@ vi.mock('@/hooks/useServerColorMap', () => ({
   useServerColorMap: () => new Map(),
 }));
 
-import { useDashboardStats, useActiveSessions } from '@/hooks/queries';
+import {
+  useDashboardStats,
+  useActiveSessions,
+  useChannelsRecordings,
+  useDispatcharrOverview,
+} from '@/hooks/queries';
 import { useServerLiveStats, useMultiServerLiveStats } from '@/hooks/queries/useServers';
 import { useServer } from '@/hooks/useServer';
 import { ServerBandwidthChart } from '@/components/charts/BandwidthChart';
@@ -139,6 +145,13 @@ describe('Dashboard', () => {
     serverList.isSuccess = true;
     localStorage.clear();
     mockUseServer.mockReturnValue(serverReturn());
+    // clearAllMocks keeps a test's mockReturnValue; these go back to "nothing loaded".
+    vi.mocked(useChannelsRecordings).mockReturnValue({
+      data: undefined,
+    } as unknown as ReturnType<typeof useChannelsRecordings>);
+    vi.mocked(useDispatcharrOverview).mockReturnValue({
+      data: undefined,
+    } as unknown as ReturnType<typeof useDispatcharrOverview>);
     mockUseServerLiveStats.mockReturnValue({
       statistics: undefined,
       statisticsAverages: null,
@@ -224,6 +237,110 @@ describe('Dashboard', () => {
     renderDashboard();
 
     expect(screen.getByText(/common:count.channel/)).toBeInTheDocument();
+  });
+
+  describe('Dispatcharr card (fork)', () => {
+    const overview = {
+      data: [
+        {
+          serverId: 'dispatcharr-1',
+          serverName: 'Dispatcharr',
+          providers: [
+            {
+              id: 1,
+              name: 'Provider One',
+              status: 'success',
+              lastMessage: null,
+              refreshedAt: null,
+              inUse: 1,
+              maxStreams: 2,
+            },
+          ],
+          epgSources: [],
+          streams: [],
+        },
+      ],
+    };
+    const schedule = { data: [], upcoming: [], tuners: [], disks: [], recent: [] };
+
+    function stats() {
+      mockUseDashboardStats.mockReturnValue({
+        data: undefined,
+        isLoading: false,
+        isError: false,
+        error: null,
+        refetch: vi.fn(),
+      } as unknown as ReturnType<typeof useDashboardStats>);
+      mockUseActiveSessions.mockReturnValue({
+        data: [],
+        isError: false,
+        error: null,
+        refetch: vi.fn(),
+      } as unknown as ReturnType<typeof useActiveSessions>);
+    }
+
+    function select(servers: { id: string; type: string; name: string }[]) {
+      mockUseServer.mockReturnValue({
+        selectedServerIds: servers.map((s) => s.id),
+        selectedServers: servers,
+        isMultiServer: servers.length > 1,
+        selectedServerId: servers.length === 1 ? servers[0]?.id : null,
+      } as unknown as ReturnType<typeof useServer>);
+    }
+
+    it('asks for the overview only while a Dispatcharr server is selected', () => {
+      stats();
+      renderDashboard();
+      expect(vi.mocked(useDispatcharrOverview)).toHaveBeenLastCalledWith(false);
+
+      select([{ id: 'dispatcharr-1', type: 'dispatcharr', name: 'Dispatcharr' }]);
+      renderDashboard();
+      expect(vi.mocked(useDispatcharrOverview)).toHaveBeenLastCalledWith(true);
+    });
+
+    it('takes the full width when only Dispatcharr is selected', () => {
+      stats();
+      select([{ id: 'dispatcharr-1', type: 'dispatcharr', name: 'Dispatcharr' }]);
+      vi.mocked(useDispatcharrOverview).mockReturnValue({
+        data: overview,
+      } as unknown as ReturnType<typeof useDispatcharrOverview>);
+
+      renderDashboard();
+      const provider = screen.getByTestId('dispatcharr-connections');
+      expect(provider).toHaveTextContent('dashboard.dispatcharr.connections');
+      expect(provider.closest('section')?.parentElement?.className).not.toContain('lg:grid-cols-2');
+    });
+
+    it('splits the row with Channels DVR when both are selected', () => {
+      stats();
+      select([
+        { id: 'channels-1', type: 'channels_dvr', name: 'Channels' },
+        { id: 'dispatcharr-1', type: 'dispatcharr', name: 'Dispatcharr' },
+      ]);
+      vi.mocked(useChannelsRecordings).mockReturnValue({
+        data: schedule,
+      } as unknown as ReturnType<typeof useChannelsRecordings>);
+      vi.mocked(useDispatcharrOverview).mockReturnValue({
+        data: overview,
+      } as unknown as ReturnType<typeof useDispatcharrOverview>);
+
+      renderDashboard();
+      const row = screen.getByTestId('dispatcharr-connections').closest('section')?.parentElement;
+      expect(row?.className).toContain('lg:grid-cols-2');
+      expect(row?.children).toHaveLength(2);
+    });
+
+    it('leaves the Channels DVR card full width without a Dispatcharr server', () => {
+      stats();
+      select([{ id: 'channels-1', type: 'channels_dvr', name: 'Channels' }]);
+      vi.mocked(useChannelsRecordings).mockReturnValue({
+        data: schedule,
+      } as unknown as ReturnType<typeof useChannelsRecordings>);
+
+      renderDashboard();
+      expect(screen.queryByTestId('dispatcharr-connections')).not.toBeInTheDocument();
+      expect(document.querySelector('.lg\\:grid-cols-2')).toBeNull();
+    });
   });
 
   it('renders Dispatcharr bandwidth only after a valid zero-valued sample arrives', () => {

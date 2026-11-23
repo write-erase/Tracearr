@@ -66,6 +66,18 @@ describe('normalizeServerVersion', () => {
   });
 });
 
+describe('normalizeServerVersion for Dispatcharr', () => {
+  it('reads the version the server reports and the v-prefixed release tag alike', () => {
+    expect(normalizeServerVersion('dispatcharr', '0.34.1')).toBe('0.34.1');
+    expect(normalizeServerVersion('dispatcharr', 'v0.34.1')).toBe('0.34.1');
+  });
+
+  it('calls 0.34.1 newer than 0.33.0', () => {
+    expect(isNewerServerVersion('dispatcharr', 'v0.34.1', '0.33.0')).toBe(true);
+    expect(isNewerServerVersion('dispatcharr', 'v0.34.1', '0.34.1')).toBe(false);
+  });
+});
+
 describe('isNewerServerVersion', () => {
   it('compares Plex versions with their hashes stripped', () => {
     expect(isNewerServerVersion('plex', '1.44.0.11000-aa11bb22c', '1.43.3.10896-cb3ebc72d')).toBe(
@@ -128,6 +140,16 @@ describe('latestVersionFor', () => {
     await expect(latestVersionFor('emby')).resolves.toBe('4.9.5.0');
     expect(mockFetchJson).toHaveBeenCalledWith(
       'https://api.github.com/repos/MediaBrowser/Emby.Releases/releases/latest',
+      expect.objectContaining({ timeout: 10_000, service: 'github' })
+    );
+  });
+
+  it('reads the Dispatcharr release tag without its v', async () => {
+    mockFetchJson.mockResolvedValue({ tag_name: 'v0.34.1' });
+
+    await expect(latestVersionFor('dispatcharr')).resolves.toBe('0.34.1');
+    expect(mockFetchJson).toHaveBeenCalledWith(
+      'https://api.github.com/repos/Dispatcharr/Dispatcharr/releases/latest',
       expect.objectContaining({ timeout: 10_000, service: 'github' })
     );
   });

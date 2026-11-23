@@ -28,6 +28,7 @@ For the full feature tour, see [upstream's README](https://github.com/connorgall
 - Live TV card is aligned to Dispatcharr needs, showing speed threshold, watchtime,
 - Stream details for Live TV shows bitrate, codecs and video resolution,
 - Support for Catch-Up (Timeshift) sessions, with small badge and custom card.
+- A Dispatcharr card on the dashboard: connections in use per M3U account, an "Update available" pill, and what's streaming now with who's watching each channel (Anonymous viewers included, even when Anonymous streams are ignored for Now Playing). With a Channels DVR server selected too, the two cards share the row.
 
 > [!NOTE]
 > If you want to have "Server Resources" charts populated for Dispatcharr in Tracearr, you need to install this Dispatcharr plugin and align your Docker Compose file according to its README: [Tracearr SSE Metrics](https://github.com/d4rk-4lchemy/Tracearr-SSE-Metrics)

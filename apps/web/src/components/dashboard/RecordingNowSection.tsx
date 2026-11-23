@@ -23,6 +23,7 @@ import type {
   ChannelsDvrUpcomingEntry,
   Server,
 } from '@tracearr/shared';
+import { MediaServerIcon } from '@/components/icons/MediaServerIcon';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
@@ -59,6 +60,8 @@ interface RecordingNowSectionProps {
   linkBases?: Record<string, string>;
   /** Show which server each recording is on */
   showServer?: boolean;
+  /** Sharing the row with the Dispatcharr card: at most two recordings side by side (fork) */
+  halfWidth?: boolean;
 }
 
 function formatClock(iso: string): string {
@@ -66,7 +69,7 @@ function formatClock(iso: string): string {
 }
 
 /** Re-render every 10 s so time left and progress stay current between refetches. */
-function useNow(intervalMs = 10_000): number {
+export function useNow(intervalMs = 10_000): number {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), intervalMs);
@@ -251,7 +254,7 @@ function EndTime({ iso, now }: { iso: string; now: number }) {
 }
 
 /** "45 min", "1 h 5 min"; under a minute reads as "1 min". */
-function useFormatMinutes(): (seconds: number) => string {
+export function useFormatMinutes(): (seconds: number) => string {
   const { t } = useTranslation('pages');
   return (seconds) => {
     const minutes = Math.max(1, Math.round(seconds / 60));
@@ -335,8 +338,13 @@ function isNewerVersion(latest: string, installed: string): boolean {
  * A server missing either version (unreachable so far, or update checks turned off) is left out.
  */
 export function channelsVersionsFor(servers: Server[]): ChannelsDvrVersion[] {
+  return serverVersionsFor(servers, 'channels_dvr');
+}
+
+/** The same for any server type the update checker reads both versions for (fork). */
+export function serverVersionsFor(servers: Server[], type: Server['type']): ChannelsDvrVersion[] {
   return servers.flatMap((server) =>
-    server.type === 'channels_dvr' && server.version && server.latestVersion
+    server.type === type && server.version && server.latestVersion
       ? [
           {
             serverId: server.id,
@@ -352,9 +360,10 @@ export function channelsVersionsFor(servers: Server[]): ChannelsDvrVersion[] {
 
 /**
  * "Update available" while a newer release is waiting, otherwise a green "Up to date". Either
- * opens the Channels DVR web UI, where updates are installed.
+ * opens `linkBase`: the Channels DVR web UI, where updates are installed, or for Dispatcharr
+ * its releases page (fork).
  */
-function VersionPill({
+export function VersionPill({
   version,
   showServer,
   linkBase,
@@ -844,6 +853,7 @@ export function RecordingNowSection({
   versions = [],
   linkBases = {},
   showServer = false,
+  halfWidth = false,
 }: RecordingNowSectionProps) {
   const { t } = useTranslation('pages');
   const now = useNow();
@@ -860,7 +870,7 @@ export function RecordingNowSection({
       <Card>
         <CardHeader>
           <CardTitle className="flex flex-wrap items-center gap-2 text-sm font-medium">
-            <CircleDot className="h-4 w-4" aria-hidden="true" />
+            <MediaServerIcon type="channels_dvr" className="h-4 w-4 rounded-sm" alt="" />
             {title ?? t('dashboard.recording.panelTitle', { defaultValue: 'Channels DVR' })}
             {tuners.map((usage) => (
               <TunerPill key={usage.serverId} usage={usage} showServer={showServer} />
@@ -896,7 +906,7 @@ export function RecordingNowSection({
             )}
           </h4>
           {recordings.length > 0 ? (
-            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+            <div className={cn('grid gap-4 sm:grid-cols-2', !halfWidth && 'xl:grid-cols-3')}>
               {recordings.map((recording) => (
                 <RecordingCard
                   key={`${recording.serverId}:${recording.key}`}

@@ -12,9 +12,14 @@ import { compareVersions, maxVersion } from './pluginVersion.js';
 const logger = createLogger('server-versions');
 
 const PLEX_DOWNLOADS_URL = 'https://plex.tv/api/downloads/5.json';
-const GITHUB_LATEST: Record<JellyfinEmbyServerType, string> = {
+/** Server types whose newest release is the latest (non-pre-release) GitHub release. */
+type GithubFeedServerType = JellyfinEmbyServerType | 'dispatcharr';
+
+const GITHUB_LATEST: Record<GithubFeedServerType, string> = {
   jellyfin: 'https://api.github.com/repos/jellyfin/jellyfin/releases/latest',
   emby: 'https://api.github.com/repos/MediaBrowser/Emby.Releases/releases/latest',
+  // Tags read "v0.34.1"; the server's /api/core/version/ answers "0.34.1" (fork).
+  dispatcharr: 'https://api.github.com/repos/Dispatcharr/Dispatcharr/releases/latest',
 };
 
 /**
@@ -59,10 +64,10 @@ function versionDigits(type: ServerType, version: string): string {
     case 'plex':
       return version.split('-')[0] ?? '';
     case 'jellyfin':
+    case 'dispatcharr':
       return version.replace(/^v/, '');
     case 'emby':
     case 'tofa':
-    case 'dispatcharr':
     case 'channels_dvr':
       return version;
     default:
@@ -71,8 +76,8 @@ function versionDigits(type: ServerType, version: string): string {
 }
 
 /**
- * The comparable digits of a version: Plex appends a build hash, Jellyfin tags with a
- * leading `v`, Emby and tofa are already numeric. A two-part version gains a `.0` so the
+ * The comparable digits of a version: Plex appends a build hash, Jellyfin and Dispatcharr tag
+ * with a leading `v`, Emby and tofa are already numeric. A two-part version gains a `.0` so the
  * comparator can read it. Null when what is left is not two to four dotted numbers.
  */
 export function normalizeServerVersion(type: ServerType, raw: string): string | null {
@@ -103,7 +108,7 @@ async function latestPlexVersion(): Promise<string | null> {
   return maxVersion(versions);
 }
 
-async function latestGithubVersion(type: JellyfinEmbyServerType): Promise<string | null> {
+async function latestGithubVersion(type: GithubFeedServerType): Promise<string | null> {
   const release = await fetchJson<{ tag_name?: unknown }>(GITHUB_LATEST[type], {
     timeout: FEED_TIMEOUT_MS,
     service: 'github',
@@ -171,9 +176,9 @@ export async function latestVersionFor(type: FeedServerType): Promise<string | n
         return await latestPlexVersion();
       case 'jellyfin':
       case 'emby':
-        return await latestGithubVersion(type);
-      // Channels DVR is checked per server by its own track (latestChannelsVersions); Dispatcharr has no feed.
       case 'dispatcharr':
+        return await latestGithubVersion(type);
+      // Channels DVR is checked per server by its own track (latestChannelsVersions).
       case 'channels_dvr':
         return null;
       default:
