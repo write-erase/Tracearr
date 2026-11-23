@@ -252,7 +252,10 @@
       "kindVod": "VOD",
       "kindCatchup": "Catch-up",
       "viewers_one": "{{count}} viewer",
-      "viewers_other": "{{count}} viewers"
+      "viewers_other": "{{count}} viewers",
+      "stopped": "Recording stopped. What was recorded is kept in Dispatcharr.",
+      "stopConfirm": "Stop recording \"{{title}}\" now? What has been recorded so far stays in Dispatcharr.",
+      "cancelConfirm": "Cancel \"{{title}}\" at {{time}}? It will be removed from your Dispatcharr recordings."
     }
   },
   "yourStats": {

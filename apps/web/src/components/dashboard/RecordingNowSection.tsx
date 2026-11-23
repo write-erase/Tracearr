@@ -64,7 +64,7 @@ interface RecordingNowSectionProps {
   halfWidth?: boolean;
 }
 
-function formatClock(iso: string): string {
+export function formatClock(iso: string): string {
   return new Date(iso).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
 }
 
@@ -238,7 +238,7 @@ function isSameDay(a: Date, b: Date): boolean {
 }
 
 /** "2:00 PM" today, "Tomorrow 7:00 AM" otherwise (the list only looks a day ahead). */
-function StartTime({ iso, now }: { iso: string; now: number }) {
+export function StartTime({ iso, now }: { iso: string; now: number }) {
   const { t } = useTranslation('pages');
   const time = formatClock(iso);
   if (isSameDay(new Date(iso), new Date(now))) return <>{time}</>;

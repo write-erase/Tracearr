@@ -345,7 +345,7 @@ function ServerDashboard({ actions }: { actions?: ReactNode }) {
       {(showsChannels || showsDispatcharr) && (
         <div
           className={cn(
-            'grid items-start gap-6',
+            'grid items-start gap-4',
             showsChannels && showsDispatcharr && 'lg:grid-cols-2'
           )}
         >

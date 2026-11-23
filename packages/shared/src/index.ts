@@ -303,6 +303,7 @@ export type {
   DispatcharrProviderUsage,
   DispatcharrEpgSource,
   DispatcharrStreamEntry,
+  DispatcharrRecordingEntry,
   DispatcharrServerOverview,
   DispatcharrOverviewResponse,
   MediaAvailabilityEntry,

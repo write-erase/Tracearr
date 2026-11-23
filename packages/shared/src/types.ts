@@ -3439,6 +3439,24 @@ export interface DispatcharrStreamEntry {
   viewers: string[];
 }
 
+/** A Dispatcharr DVR recording in progress or starting in the next day (fork). */
+export interface DispatcharrRecordingEntry {
+  /** Dispatcharr's recording id, for Stop and Cancel */
+  id: number;
+  /** The programme's title, or the channel's name for a manual recording */
+  title: string;
+  episodeTitle: string | null;
+  seasonNumber: number | null;
+  episodeNumber: number | null;
+  channelName: string | null;
+  channelNumber: string | null;
+  /** Server-relative image path for the image proxy: the programme art, else the channel logo */
+  logoPath: string | null;
+  /** ISO times the recording starts and ends, padding included */
+  startsAt: string;
+  endsAt: string;
+}
+
 /** The Dispatcharr dashboard card for one server. */
 export interface DispatcharrServerOverview {
   serverId: string;
@@ -3447,6 +3465,10 @@ export interface DispatcharrServerOverview {
   epgSources: DispatcharrEpgSource[];
   /** Live channels first, then VOD and catch-up; empty when nothing is streaming */
   streams: DispatcharrStreamEntry[];
+  /** DVR recordings in progress, soonest to finish first */
+  recordings: DispatcharrRecordingEntry[];
+  /** DVR recordings starting in the next 24 hours, soonest first */
+  upcoming: DispatcharrRecordingEntry[];
 }
 
 /** GET /sessions/dispatcharr-overview: one entry per Dispatcharr server that answered. */

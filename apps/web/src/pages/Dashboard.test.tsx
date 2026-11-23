@@ -258,6 +258,8 @@ describe('Dashboard', () => {
           ],
           epgSources: [],
           streams: [],
+          recordings: [],
+          upcoming: [],
         },
       ],
     };
