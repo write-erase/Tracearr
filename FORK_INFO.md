@@ -1,5 +1,45 @@
 # Tracearr Fork Information
 
+## November 23, 2026 — Dev images skip pushes that don't change the image
+
+`fork-ghcr-branch.yml` built the `dev` and `supervised-dev` images on every push to `dev`, including
+README and FORK_INFO edits. It now has `paths-ignore`, so a push that only touches files the image
+never contains doesn't build: Markdown, `docs/`, `LICENSE`, issue and discussion templates,
+`renovate.json`, the `ci` and `release-ghcr` workflows, editor and service config (`.vscode/`,
+`.editorconfig`, `.coderabbit.yaml`, `codecov.yml`, `crowdin.yml`), and tests (`apps/e2e/`,
+`apps/server/test/`, `__tests__/`, `*.test.ts(x)`), which `.dockerignore` already leaves out.
+
+- A push that touches any other file still builds, and Run workflow still builds by hand.
+- `release-notes/*.json` still builds: the web app bundles it for What's New.
+- Not yet seen on GitHub; the first docs-only push to `dev` after this merges should show no run.
+
+## November 23, 2026 — Removed upstream repo files this fork doesn't use
+
+Files that described upstream's repository or served upstream's own processes. Nothing left in this
+fork references them.
+
+- `.github/FUNDING.yml`: the repo's Sponsor button pointed at upstream's GitHub Sponsors and Ko-fi.
+- `SECURITY.md`: upstream's security policy, written for reports that reach upstream's maintainer.
+  Reports through this fork's Security tab come to this fork.
+- `.github/ISSUE_TEMPLATE/mobile-bug-report.yml`: a bug form for the mobile app, which is upstream's
+  and which this fork can't change. The README's Mobile App section covers the known problem.
+- `.github/CODEOWNERS`: assigned every file to upstream's maintainer.
+- `.github/pr-unvouched-message`, `.github/DISCUSSION_TEMPLATE/vouch-requests.yml` and
+  `.github/advanced-issue-labeler.yml`: used only by upstream's Vouch and issue-labeler workflows,
+  which this fork removed earlier.
+- `.github/workflows/cut-release.yml` and `.github/scripts/render-release-notes.mjs`: upstream's
+  release process (helm chart bump, tag, Discord and Reddit announcement), which needs a
+  `RELEASE_PAT` secret and pushes to `main`. This fork releases by publishing a GitHub release, which
+  runs `release-ghcr.yml`; neither used them.
+- `docker/helm/`: upstream's Kubernetes chart, pointing at upstream's image. Upstream merges already
+  skipped its changes, and the README doesn't offer it.
+- `channels-dvr.patch`: the diff from the first Channels DVR commit (November 1), left at the repo
+  root. Its changes are in the code.
+
+`release-notes/` stays: upstream adds a file per release, and keeping it avoids conflicts.
+
+If upstream edits any of these, an upstream merge shows a modify/delete conflict; keep them deleted.
+
 ## November 23, 2026 — README rewritten for this fork
 
 The README was d4rk-4lchemy's fork notes followed by a full copy of upstream's README, so half of it
