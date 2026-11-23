@@ -1,5 +1,32 @@
 # Tracearr Fork Information
 
+## November 23, 2026 — README rewritten for this fork
+
+The README was d4rk-4lchemy's fork notes followed by a full copy of upstream's README, so half of it
+described upstream's images (`supervised`, `next`), issue tracker, contribution process and a Proxmox
+LXC install this fork doesn't have. It now describes this fork only:
+
+- Intro: an unofficial fork of Tracearr by Connor Gallopo, with Dispatcharr support from
+  d4rk-4lchemy's fork credited; problems go to this fork's issues. The warning keeps "back up first"
+  in plain wording.
+- What Tracearr Does: a short summary (Plex, Jellyfin, Emby and tofa, the server types upstream supports since 3.2.0) linking to upstream's README, tracearr.com and
+  docs.tracearr.com instead of the copied feature tour, comparison table, stack, roadmap, badges and
+  star history.
+- Dispatcharr and Channels DVR sections: the existing feature lists, connection notes and limitations,
+  unchanged in wording.
+- Mobile App: the iPhone app stops working on open while a Dispatcharr or Channels DVR server is added
+  and works again once they are removed (seen on an iPhone; Android untested), with a link to
+  a Discussions poll (#67) to vote on hiding those servers from the app or showing them as a type it knows.
+- Installing: this fork's tags (`latest`, `supervised-latest`, `3.2.1-r2`, `supervised-3.2.1-r2`,
+  `dev`, `supervised-dev`), a Quick Start that downloads this fork's compose file and swaps in
+  `ghcr.io/write-erase/tracearr:latest` with `sed`, switching back to the official image (the purge
+  scripts) and viewing logs.
+- Building and Development: the build example now uses 3.2.1-r2 instead of 3.1.7-r2.
+- Reporting Problems and License (AGPL-3.0, MaxMind GeoLite2 attribution).
+
+The Docker Compose examples still name upstream's image, as the README says. The README now passes
+Prettier.
+
 ## November 23, 2026 — Upstream main after 3.2.1 (through 6c9da518c)
 
 Merges connor's `main` from the 3.2.1 helm sync (`a0037ccf6`) through `6c9da518c`. Upstream is

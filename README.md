@@ -1,31 +1,25 @@
 <p align="center">
-  <b>This is a fork of Tracearr (https://github.com/connorgallopo/Tracearr) that adds Dispatcharr and Channels DVR integrations.
-  </b><br/>
-  <i>Do with it whatever you want, there is no guarantee it will work</i> ¯\_(ツ)_/¯<br/><br/>
+  <img src="apps/web/public/images/og_image.png" alt="Tracearr" width="600" />
 </p>
 
-> [!WARNING]  
-> You can do "in-place" replacement of your current Tracearr instance.<br>But **CREATE A BACKUP FIRST**, as I don't guarantee 100% success rate, and **I don't care if you break your setup** ¯\\\_(ツ)_/¯
+<p align="center">
+  <strong>Tracearr with Dispatcharr and Channels DVR support.</strong>
+</p>
 
-> [!NOTE]  
-> If you want to have "Server Resources" charts populated for Dispatcharr in Tracearr, you need to install this Dispatcharr plugin and align your Docker Compose file according to its README: [Tracearr SSE Metrics](https://github.com/d4rk-4lchemy/Tracearr-SSE-Metrics)
+This is an unofficial fork of [Tracearr](https://github.com/connorgallopo/Tracearr) by Connor Gallopo. It adds two server types, [Dispatcharr](https://github.com/Dispatcharr/Dispatcharr) and [Channels DVR](https://getchannels.com/dvr-server/), alongside Tracearr's Plex, Jellyfin, Emby and tofa support. Dispatcharr support started in [d4rk-4lchemy's fork](https://github.com/d4rk-4lchemy/Tracearr), which this one builds on.
 
-> [!NOTE]  
-> If you ever want to switch back from this fork to the official image, but you have already added a Dispatcharr or Channels DVR server and stored data from its sessions, run the corresponding command **while you are still using this forked image**. After running the appropriate command, you can stop this container and replace the image with the official Tracearr image.
+It is not supported by the Tracearr project. Please report problems with it [here](https://github.com/write-erase/Tracearr/issues), not upstream.
 
-**To remove Dispatcharr data:**
+> [!WARNING]
+> This image can replace an official Tracearr install in place, using the same database. **Back up first.** There is no guarantee that an update works on every setup.
 
-`docker exec -it {tracearr_container_name} node apps/server/dist/scripts/purge-dispatcharr.js`
+## What Tracearr Does
 
-**To remove Channels DVR data:**
+Tracearr monitors Plex, Jellyfin, Emby and tofa servers from one dashboard: live streams, watch history, playback and library analytics, a stream map, account-sharing detection with trust scores, automations, notifications and newsletters. This fork is merged with each upstream release.
 
-`docker exec -it {tracearr_container_name} node apps/server/dist/scripts/purge-channels-dvr.js`
+For the full feature tour, see [upstream's README](https://github.com/connorgallopo/Tracearr#readme), [tracearr.com](https://tracearr.com) and the manual at [docs.tracearr.com](https://docs.tracearr.com).
 
-Add `-y` to either command to skip the confirmation prompt. If you used both integrations, run both commands.
-
-**What's New:**
-
-_Dispatcharr_
+## Dispatcharr
 
 - Support for Dispatcharr servers, with Login/Password (for WebSocket integration) or API Key auth,
 - Shows currently running Live TV streams, as well as VOD Movies or VOD Shows,
@@ -35,7 +29,10 @@ _Dispatcharr_
 - Stream details for Live TV shows bitrate, codecs and video resolution,
 - Support for Catch-Up (Timeshift) sessions, with small badge and custom card.
 
-_Channels DVR_
+> [!NOTE]
+> If you want to have "Server Resources" charts populated for Dispatcharr in Tracearr, you need to install this Dispatcharr plugin and align your Docker Compose file according to its README: [Tracearr SSE Metrics](https://github.com/d4rk-4lchemy/Tracearr-SSE-Metrics)
+
+## Channels DVR
 
 - Support for Channels DVR servers, with automatic active session detection (no credentials needed),
 - Tracks Live TV, recordings and imported movies and shows, including playback in the Channels web player,
@@ -50,13 +47,13 @@ _Channels DVR_
 - Update checks for Channels DVR, following stable releases or pre-releases, with an "Update available" pill on the dashboard,
 - Viewers show the device maker's logo (Apple, Amazon, Google, Android); the Channels Mac app shows as a Mac.
 
-**Channels DVR Integration:**
+### Connecting
 
 Connect your Channels DVR server using its base URL and port `8089` (for example, `http://192.168.1.100:8089`). No authentication credentials are required.
 
 Channels DVR does not provide individual user accounts, so Tracearr identifies viewers by their client device name (or IP address). Two devices with the same name count as one viewer, so give each device its own name in Channels.
 
-**Current Limitations:**
+### Current Limitations
 
 - Library browsing covers TV shows, movies and imported videos. Quality details (resolution, codecs, audio channels) are read from filename tags such as `[Bluray-720p][AC3 2.0][x264]`, so files without them show no quality info. File sizes come from Channels' `/dvr/files` list.
 - Importing past watch history is not supported. Sessions Tracearr observes are still recorded in History.
@@ -67,150 +64,45 @@ Channels DVR does not provide individual user accounts, so Tracearr identifies v
 - The disk alert and the disk pill measure free space on the whole drive Channels records to, including anything else stored there.
 - Session, schedule and alert detection rely on Channels DVR's undocumented endpoints (`/dvr`, `/dvr/jobs`, `/api/v1/jobs`, `/devices`, `/status`), so changes to them may affect compatibility.
 
-**Docker images:**
+## Mobile App
 
-- `ghcr.io/write-erase/tracearr:latest` - standalone Tracearr with Dispatcharr and Channels DVR support, so you also need to deploy `timescale` and `redis`.
-- `ghcr.io/write-erase/tracearr:supervised-latest` - supervised Tracearr (database and Redis included) with Dispatcharr and Channels DVR support.
-- Pin a release with `ghcr.io/write-erase/tracearr:3.2.1-r2` or `ghcr.io/write-erase/tracearr:supervised-3.2.1-r2`.
+> [!WARNING]
+> **The Tracearr iPhone app stops working as soon as it opens while a Dispatcharr or Channels DVR server is added.** Removing those servers makes it work again. The Android app has not been tested.
 
-These are built from the `main` branch for each release and are published for both AMD64 and ARM64.
+The app is upstream's, so this fork can't change it, only what Tracearr sends to it. There are two ways to go:
 
-Development images, built from the `dev` branch (AMD64 and ARM64):
+- **Hide them:** Dispatcharr and Channels DVR servers are left out of what the app gets. The app loads and works for your other servers, but these don't appear in it.
+- **Show them as a type the app knows** (such as Plex or Jellyfin): not tried yet, and some details may look wrong or not work.
 
-- `ghcr.io/write-erase/tracearr:dev` - standalone
-- `ghcr.io/write-erase/tracearr:supervised-dev` - supervised
+**[Vote in the poll (#67)](https://github.com/write-erase/Tracearr/discussions/67)** on which you'd prefer.
+
+## Installing
+
+### Docker images
+
+All images are on `ghcr.io/write-erase/tracearr`, for AMD64 and ARM64. Release images are built from the `main` branch for each release; development images are built from the `dev` branch.
+
+| Tag                   | Description                                              |
+| --------------------- | -------------------------------------------------------- |
+| `latest`              | Latest release (requires external DB/Redis)              |
+| `supervised-latest`   | All-in-one latest release                                |
+| `3.2.1-r2`            | A pinned release (requires external DB/Redis)            |
+| `supervised-3.2.1-r2` | All-in-one pinned release                                |
+| `dev`                 | Built from the `dev` branch (requires external DB/Redis) |
+| `supervised-dev`      | All-in-one, built from the `dev` branch                  |
+
+The supervised image bundles the app, TimescaleDB and Redis in one container and generates its own secrets on first boot. The standalone image needs `timescale` and `redis` deployed alongside it.
 
 Dispatcharr-only images from the fork this one builds on are published by d4rk-4lchemy as `ghcr.io/d4rk-4lchemy/distracearr` (and `darkalchemy2137/distracearr`); they do not include Channels DVR support.
 
-To deploy, use one of the images above in place of the official image in the [Docker Compose examples](https://github.com/write-erase/Tracearr/tree/main/docker/examples).
-
-**Building your own image:**
-
-The stream map basemap is generated during a local Docker build if
-`data/basemap.pmtiles` is missing. The first build downloads the pinned
-Protomaps extract (about 550 MB) and needs network access; run `pnpm basemap`
-beforehand if you want to reuse the archive across image builds.
-
-```bash
-# Standalone image
-docker build -f docker/Dockerfile -t tracearr \
-  --build-arg APP_VERSION=3.1.7 --build-arg APP_TAG=v3.1.7-r2 \
-  --build-arg APP_UPSTREAM_VERSION=3.1.7 --build-arg APP_FORK_REVISION=2 --build-arg APP_FORK_VERSION=3.1.7-r2 \
-  --build-arg APP_FORK_REPO=write-erase/Tracearr --build-arg APP_IMAGE_REPO=ghcr.io/write-erase/tracearr \
-  --build-arg APP_COMMIT="$(git rev-parse --short HEAD)" --build-arg APP_BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)" .
-
-# Supervised image
-docker build -f docker/Dockerfile.supervised -t tracearr-supervised \
-  --build-arg APP_VERSION=3.1.7 --build-arg APP_TAG=supervised-3.1.7-r2 \
-  --build-arg APP_UPSTREAM_VERSION=3.1.7 --build-arg APP_FORK_REVISION=2 --build-arg APP_FORK_VERSION=3.1.7-r2 \
-  --build-arg APP_FORK_REPO=write-erase/Tracearr --build-arg APP_IMAGE_REPO=ghcr.io/write-erase/tracearr \
-  --build-arg APP_COMMIT="$(git rev-parse --short HEAD)" --build-arg APP_BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)" .
-```
-
----
-_Original README.md from https://github.com/connorgallopo/Tracearr_
-
----
-
-<p align="center">
-  <img src="apps/web/public/images/og_image.png" alt="Tracearr" width="600" />
-</p>
-
-<p align="center">
-  <strong>Real-time monitoring for Plex, Jellyfin, and Emby. One dashboard for all your servers.</strong>
-</p>
-
-<p align="center">
-  <a href="https://github.com/connorgallopo/Tracearr/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/connorgallopo/Tracearr/ci.yml?branch=main&style=flat-square&label=CI" alt="CI Status" /></a>
-  <a href="https://github.com/connorgallopo/Tracearr/releases"><img src="https://img.shields.io/github/v/release/connorgallopo/Tracearr?style=flat-square&color=18D1E7" alt="Latest Release" /></a>
-  <a href="https://ghcr.io/connorgallopo/tracearr"><img src="https://img.shields.io/badge/ghcr.io-tracearr-blue?style=flat-square&logo=docker&logoColor=white" alt="Docker" /></a>
-  <a href="https://github.com/connorgallopo/Tracearr/blob/main/LICENSE"><img src="https://img.shields.io/github/license/connorgallopo/Tracearr?style=flat-square" alt="License" /></a>
-  <a title="Crowdin" target="_blank" href="https://crowdin.com/project/tracearr"><img src="https://badges.crowdin.net/tracearr/localized.svg"></a>
-  <a href="https://docs.tracearr.com"><img src="https://img.shields.io/badge/docs-tracearr.com-18D1E7?style=flat-square" alt="Documentation" /></a>
-  <a href="https://discord.gg/a7n3sFd2Yw"><img src="https://img.shields.io/discord/1444393247978946684?style=flat-square&logo=discord&logoColor=white&label=Discord&color=5865F2" alt="Discord" /></a>
-  <a href="https://ko-fi.com/E1E21QRI1L"><img src="https://img.shields.io/badge/Ko--fi-Support-FF5E5B?style=flat-square&logo=kofi&logoColor=white" alt="Ko-Fi" /></a>
-</p>
-
----
-
-Tracearr is a monitoring platform for **Plex**, **Jellyfin**, and **Emby**. Track streams in real-time, dig into playback analytics, browse one catalog across every server, and spot account sharing before it gets out of hand.
-
-Screenshots and the feature tour are at [tracearr.com](https://tracearr.com), the manual at [docs.tracearr.com](https://docs.tracearr.com). Both are updated with every release. This file is the short version.
-
-## What It Does
-
-**Multi-Server Dashboard** - Connect Plex, Jellyfin, and Emby to a single interface. Active streams, server health, and per-server CPU, memory, and bandwidth charts sit on one page. Plex reports its own numbers; Jellyfin and Emby report theirs through the [Tracearr SSE plugin](https://github.com/Tracearr/Media-Server-SSE).
-
-**Session Tracking** - Complete session history: who watched what, when, where, and on what device. Every stream includes geolocation data with ASN, continent, and postal code.
-
-**Stream Analytics** - See what's transcoding vs direct playing, track bandwidth usage, and see what people watch. Codec breakdowns, resolution stats, device compatibility scores.
-
-**One Person, Many Accounts** - Someone with a Plex login and a Jellyfin login is one identity here. Merge duplicates by hand or take the suggestions, and split them again if you get it wrong. An identity's trust score is the worst of its active accounts, so merging never hides a problem.
-
-**Media Catalog** - One record per title, matched across servers by IMDb, TMDB, or TVDB id, with each server's copies attached. Six pages sit under Media:
-
-- **Overview** - Library stat cards, growth over time, recently added and most popular shelves, and a Dead Weight list of never-watched titles.
-- **Browse** - A poster grid over the whole catalog, filtered by type, server, library, genre, resolution, dynamic range, watched state, year, or file size.
-- **Genres** - Plays and watch time by genre, across every server in view.
-- **Quality** - Resolution and codec distribution. Track how your 4K vs 1080p ratio changes.
-- **Storage** - Usage predictions, duplicate detection across servers, stale content, and ROI analysis (watch hours per GB).
-- **Watch** - Engagement metrics, completion rates, viewing patterns by hour and month, binge detection.
-
-**Live TV & Music** - Track live TV sessions and music playback alongside movies and shows.
-
-**Stream Map** - Where your streams come from, on a world map you host yourself. The vector basemap ships inside the container, so there are no tile keys and no requests to a third-party tile service. Give a server a location and its local network plays show there too.
-
-**Automations** - A trigger fires, conditions decide whether it matters, actions run. Eighteen triggers cover sessions, accounts, library changes, server health, update availability, and newsletter results. Actions send a notification, adjust trust, message the client, or stop the stream, and an `if` action branches on conditions. Twenty-two templates ship built in, among them impossible travel, too many streams at once, simultaneous locations, device velocity, geo restrictions, account inactivity, no 4K transcodes, and stop paused streams. Any automation exports to a share code another instance can paste in.
-
-**Trust Scores** - Every account starts at 100. Violations lower it, an automation can adjust, set, or reset it, and an identity's score is the lowest of its active accounts.
-
-**Destinations** - Discord, generic JSON webhook, ntfy, Gotify, Apprise, Pushover, email over SMTP, mobile push, and a toast in the web UI.
-
-**Newsletters** - Mail your members what was added: movies, shows with their new seasons, albums, and optionally what got watched most. Per server, on a daily, weekly, monthly, or cron schedule, with a window that picks up where the last email stopped. Addresses come from a contact email you set, their Tracearr login, or their Plex account. Every email carries an unsubscribe link and a view-in-browser link, and each send lands in a history tab with per-recipient status and retry.
-
-**Public API** - Key-authenticated REST API for third-party integrations, v1 and v2. Generate a key under Settings, then read the [API reference](https://docs.tracearr.com/api) or the interactive Scalar page at `/api-docs` on your own instance.
-
-**Bulk Actions** - Multi-select operations across tables. Acknowledge or dismiss violations in bulk, reset trust scores, delete session history.
-
-**Data Import** - Bring history with you: Tautulli, a Jellystat backup file, or the Playback Reporting plugin read straight from Jellyfin or Emby.
-
-## Why Tracearr?
-
-Tautulli only works with Plex. Jellystat only works with Jellyfin and Emby. If you run multiple servers, you're stuck with multiple dashboards.
-
-Tracearr handles all three. One install, one interface.
-
-|                                | Tautulli | Jellystat | Tracearr |
-| ------------------------------ | -------- | --------- | -------- |
-| Watch history                  | ✅       | ✅        | ✅       |
-| Statistics & graphs            | ✅       | ✅        | ✅       |
-| Session monitoring             | ✅       | ✅        | ✅       |
-| Transcode analytics            | ✅       | ✅        | ✅       |
-| Live TV & Music                | ✅       | ✅        | ✅       |
-| Account sharing detection      | ❌       | ❌        | ✅       |
-| Impossible travel alerts       | ❌       | ❌        | ✅       |
-| Trust scoring                  | ❌       | ❌        | ✅       |
-| Plex support                   | ✅       | ❌        | ✅       |
-| Jellyfin support               | ❌       | ✅        | ✅       |
-| Emby support                   | ❌       | ✅        | ✅       |
-| Dispatcharr support            | ❌       | ❌        | ✅       |
-| Channels DVR support           | ❌       | ❌        | ✅       |
-| Multi-server dashboard         | ❌       | ❌        | ✅       |
-| Cross-server user identities   | ❌       | ❌        | ✅       |
-| Cross-server media catalog     | ❌       | ❌        | ✅       |
-| Cross-server duplicate finding | ❌       | ❌        | ✅       |
-| IP geolocation                 | ✅       | ✅        | ✅       |
-| Library analytics              | ✅       | ✅        | ✅       |
-| Public API                     | ✅       | ✅        | ✅       |
-| Newsletters                    | ✅       | ❌        | ✅       |
-| Import from Tautulli           | -        | ❌        | ✅       |
-| Import from Jellystat          | ❌       | -         | ✅       |
-
-## Quick Start
+### Quick Start
 
 ```bash
 # Download compose file
-curl -O https://raw.githubusercontent.com/connorgallopo/Tracearr/main/docker/examples/docker-compose.pg18.yml
+curl -O https://raw.githubusercontent.com/write-erase/Tracearr/main/docker/examples/docker-compose.pg18.yml
+
+# Use this fork's image instead of the official one
+sed -i.bak 's#ghcr.io/connorgallopo/tracearr:latest#ghcr.io/write-erase/tracearr:latest#' docker-compose.pg18.yml
 
 # Generate secrets
 echo "JWT_SECRET=$(openssl rand -hex 32)" > .env
@@ -220,29 +112,23 @@ echo "COOKIE_SECRET=$(openssl rand -hex 32)" >> .env
 docker compose -f docker-compose.pg18.yml up -d
 ```
 
-Open `http://localhost:3000` and connect your Plex, Jellyfin, or Emby server.
+Open `http://localhost:3000` and connect your servers.
 
-**Unraid users:** The supervised image bundles the app, TimescaleDB, and Redis in one container and generates its own secrets on first boot. See [docker/examples](docker/examples/README.md) for details.
+The [Docker Compose examples](docker/examples/README.md) cover the supervised image and other setups. They name the official image, so use one of the images above in its place.
 
-For Portainer deployment, alternative configurations, or detailed requirements, see the [Docker deployment guide](docker/examples/README.md). For full documentation, visit [docs.tracearr.com](https://docs.tracearr.com).
+### Switching back to the official image
 
-### Docker Tags
+If you have already added a Dispatcharr or Channels DVR server and stored data from its sessions, run the corresponding command **while you are still using this forked image**. After running the appropriate command, you can stop this container and replace the image with the official Tracearr image.
 
-| Tag                  | Description                                        |
-| -------------------- | -------------------------------------------------- |
-| `latest`             | Stable release (requires external DB/Redis)        |
-| `supervised`         | All-in-one stable release                          |
-| `next`               | Latest prerelease (requires external DB/Redis)     |
-| `supervised-next`    | All-in-one prerelease                              |
+**To remove Dispatcharr data:**
 
-```bash
-# All-in-one (easiest)
-docker pull ghcr.io/connorgallopo/tracearr:supervised
+`docker exec -it {tracearr_container_name} node apps/server/dist/scripts/purge-dispatcharr.js`
 
-# Stable (requires external services)
-docker pull ghcr.io/connorgallopo/tracearr:latest
+**To remove Channels DVR data:**
 
-```
+`docker exec -it {tracearr_container_name} node apps/server/dist/scripts/purge-channels-dvr.js`
+
+Add `-y` to either command to skip the confirmation prompt. If you used both integrations, run both commands.
 
 ### Viewing Logs
 
@@ -264,15 +150,32 @@ Available log files: `tracearr.log`, `tracearr-error.log`, `postgres.log`, `post
 
 Set `LOG_LEVEL=debug` for verbose output.
 
-**Proxmox VE LXC** - Each service runs as a systemd unit:
+## Building and Development
+
+### Building your own image
+
+The stream map basemap is generated during a local Docker build if
+`data/basemap.pmtiles` is missing. The first build downloads the pinned
+Protomaps extract (about 550 MB) and needs network access; run `pnpm basemap`
+beforehand if you want to reuse the archive across image builds.
 
 ```bash
-journalctl -u tracearr   # Application logs
-journalctl -u postgresql # Database logs
-journalctl -u redis      # Cache logs
+# Standalone image
+docker build -f docker/Dockerfile -t tracearr \
+  --build-arg APP_VERSION=3.2.1 --build-arg APP_TAG=v3.2.1-r2 \
+  --build-arg APP_UPSTREAM_VERSION=3.2.1 --build-arg APP_FORK_REVISION=2 --build-arg APP_FORK_VERSION=3.2.1-r2 \
+  --build-arg APP_FORK_REPO=write-erase/Tracearr --build-arg APP_IMAGE_REPO=ghcr.io/write-erase/tracearr \
+  --build-arg APP_COMMIT="$(git rev-parse --short HEAD)" --build-arg APP_BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)" .
+
+# Supervised image
+docker build -f docker/Dockerfile.supervised -t tracearr-supervised \
+  --build-arg APP_VERSION=3.2.1 --build-arg APP_TAG=supervised-3.2.1-r2 \
+  --build-arg APP_UPSTREAM_VERSION=3.2.1 --build-arg APP_FORK_REVISION=2 --build-arg APP_FORK_VERSION=3.2.1-r2 \
+  --build-arg APP_FORK_REPO=write-erase/Tracearr --build-arg APP_IMAGE_REPO=ghcr.io/write-erase/tracearr \
+  --build-arg APP_COMMIT="$(git rev-parse --short HEAD)" --build-arg APP_BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)" .
 ```
 
-### Development Setup
+### Development setup
 
 ```bash
 # Install dependencies (requires pnpm 12+, Node.js 26.13+)
@@ -295,130 +198,16 @@ pnpm basemap
 pnpm dev
 ```
 
-Frontend runs at `localhost:5173`, API at `localhost:3000`.
+Frontend runs at `localhost:5173`, API at `localhost:3000`. Tests need `TZ=UTC`.
 
-## Stack
+[FORK_INFO.md](FORK_INFO.md) records each change this fork makes and why.
 
-| Layer      | Tech                                                      |
-| ---------- | --------------------------------------------------------- |
-| Frontend   | React 19, TypeScript 7, Vite 8, Tailwind CSS 4, shadcn/ui |
-| Data layer | TanStack Query, TanStack Table                            |
-| Charts     | Highcharts 13                                             |
-| Maps       | MapLibre GL 6 over self-hosted PMTiles                    |
-| Backend    | Node.js 26, Fastify 5                                     |
-| Database   | TimescaleDB (PostgreSQL extension), Drizzle ORM           |
-| Jobs       | Redis and BullMQ                                          |
-| Real-time  | Socket.io                                                 |
-| Email      | React Email, SMTP through Nodemailer                      |
-| Monorepo   | pnpm 12, Turborepo, oxlint, Vitest                        |
+## Reporting Problems
 
-**TimescaleDB** handles session history. Regular Postgres works for a few months, but long query histories kill performance. TimescaleDB is built for time-series data, so dashboard stats stay fast: they're pre-computed, not recalculated every page load.
-
-**Fastify** over Express because it's measurably faster and schema validation catches bad requests before they hit handlers.
-
-**MapLibre with a bundled PMTiles basemap** replaces the old raster tiles. The archive is a zoom 8 extract of the Protomaps planet build, made at image build time by `scripts/fetch-basemap.sh`, and ships in the image, so the map works on an instance with no outbound internet access.
-
-**SSE for instant sessions** - Plex streams session updates in real-time via Server-Sent Events, so streams appear the moment they start. Jellyfin and Emby get the same through the [Tracearr SSE plugin](https://github.com/Tracearr/Media-Server-SSE); without it they fall back to polling.
-
-## Project Structure
-
-```
-tracearr/
-├── apps/
-│   ├── e2e/          # End-to-end suite
-│   ├── server/       # Fastify API, BullMQ workers, Drizzle/TimescaleDB
-│   └── web/          # React dashboard
-├── packages/
-│   ├── emails/       # React Email templates rendered by the server
-│   ├── shared/       # Types, Zod schemas, constants
-│   ├── test-utils/   # Factories, mocks, custom matchers
-│   └── translations/ # i18n strings
-├── docker/           # Compose files and images
-└── docs/             # Documentation
-```
-
-The Expo app is not in this repo. It lives at [Tracearr/Mobile-App](https://github.com/Tracearr/Mobile-App) and consumes `@tracearr/shared` and `@tracearr/translations` as published packages.
-
-## Community
-
-Got questions? Found a bug? Want to contribute? Check [docs.tracearr.com](https://docs.tracearr.com) first, then:
-
-[![Discord](https://img.shields.io/badge/Discord-Join%20the%20server-5865F2?style=for-the-badge&logo=discord&logoColor=white)](https://discord.gg/a7n3sFd2Yw)
-
-Or [open an issue](https://github.com/connorgallopo/Tracearr/issues) on GitHub.
-
-## Contributing
-
-Every change starts as an issue or a [Discussion](https://github.com/connorgallopo/Tracearr/discussions) before any code is written. A maintainer labels it `planned` or `help wanted`, vouches for your account with `!vouch`, and only then does a pull request stay open. A PR with no agreed issue behind it is closed regardless of the code, and so is one from an unvouched account. Documentation-only fixes are the one exception to the discussion step.
-
-AI tools are fine to use; you still have to be able to explain and change every line, and significant AI usage goes in the PR template. Submissions from autonomous agents are closed. [CONTRIBUTING.md](CONTRIBUTING.md) has the full rules, the PR checklist, and the testing commands.
-
-### Development with VS Code
-
-Use the included `.vscode/launch.json` to debug both server and web apps directly from VS Code.
-
-Run `pnpm dev` in a terminal to start both apps, then use the "Debug All" configuration to attach the debugger.
-
-## Roadmap
-
-**Shipped**
-
-- [x] Multi-server Plex, Jellyfin, and Emby support
-- [x] Session tracking with full history
-- [x] Automations: triggers, conditions, actions, and 22 built-in templates
-- [x] Share codes for exporting and importing an automation
-- [x] Nine destination kinds, including email over SMTP and mobile push
-- [x] Newsletters with schedules, per-recipient send history, and unsubscribe
-- [x] Cross-server identities with merge, split, and worst-account trust
-- [x] Media catalog: overview, browse, genres, quality, storage, watch
-- [x] Real-time WebSocket updates
-- [x] SSE for instant session detection (Plex built-in, Jellyfin/Emby via plugin)
-- [x] Live server CPU, memory, and bandwidth charts
-- [x] Self-hosted stream map (MapLibre + PMTiles, no tile keys)
-- [x] Trust scores
-- [x] Tautulli, Jellystat, and Playback Reporting history import
-- [x] Transcode analytics & device compatibility
-- [x] Live TV & music tracking
-- [x] Stream quality metrics (codec, resolution, bitrate)
-- [x] Stream termination
-- [x] Public REST API v1 and v2 with an interactive Scalar reference
-- [x] Bulk actions for violations, users, and sessions
-- [x] Enhanced IP geolocation (ASN, continent, postal code)
-- [x] Mobile app - [iOS](https://apps.apple.com/us/app/tracearr/id6755941553) and [Android](https://play.google.com/store/apps/details?id=com.tracearr.mobile)
-
-**Coming soon**
-
-- [ ] Tiered access controls
-
-## Project Statistics
-
-<p align="center">
-  <img
-    src="https://repobeats.axiom.co/api/embed/4632d7f3bb419e78c5525af0905a488d9f72a753.svg"
-    alt="Repobeats analytics"
-  />
-</p>
-
-## Star History
-
-<a href="https://www.star-history.com/?repos=connorgallopo%2FTracearr&type=date&legend=top-left">
- <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=connorgallopo/Tracearr&type=date&theme=dark&legend=top-left&sealed_token=gqNERdnUn6ObeSY81Y6zP40vLBLudEzd1HRVmVfMCjaDrF-MPIll0_KXFkm0b36agZvr6RxkGRX_2xeM81kTqylKJN4i8IpTj9RIq9oLT7AxiBYGK0Zrr2IZR0sQpGHAvmnQP0KtQaN03rFdvuUf6ce-MVOZ7XQ7tpf3UGbabcegW5GUP97_aQso0cq3" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=connorgallopo/Tracearr&type=date&legend=top-left&sealed_token=gqNERdnUn6ObeSY81Y6zP40vLBLudEzd1HRVmVfMCjaDrF-MPIll0_KXFkm0b36agZvr6RxkGRX_2xeM81kTqylKJN4i8IpTj9RIq9oLT7AxiBYGK0Zrr2IZR0sQpGHAvmnQP0KtQaN03rFdvuUf6ce-MVOZ7XQ7tpf3UGbabcegW5GUP97_aQso0cq3" />
-   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=connorgallopo/Tracearr&type=date&legend=top-left&sealed_token=gqNERdnUn6ObeSY81Y6zP40vLBLudEzd1HRVmVfMCjaDrF-MPIll0_KXFkm0b36agZvr6RxkGRX_2xeM81kTqylKJN4i8IpTj9RIq9oLT7AxiBYGK0Zrr2IZR0sQpGHAvmnQP0KtQaN03rFdvuUf6ce-MVOZ7XQ7tpf3UGbabcegW5GUP97_aQso0cq3" />
- </picture>
-</a>
+Problems with Dispatcharr or Channels DVR, or anything that only happens on this fork: [open an issue here](https://github.com/write-erase/Tracearr/issues). Problems that also happen on the official image belong [upstream](https://github.com/connorgallopo/Tracearr/issues).
 
 ## License
 
-[AGPL-3.0](LICENSE) - Open source with copyleft protection. If you modify Tracearr and offer it as a service, you share your changes.
+[AGPL-3.0](LICENSE), the same as upstream Tracearr. This fork's source is published here under the same license.
 
 This product includes GeoLite2 data created by MaxMind, available from https://www.maxmind.com.
-
----
-
-<p align="center">
-  <sub>For Plex, Jellyfin, and Emby admins who want to see what's actually happening.</sub>
-</p>
-
-This project is tested with BrowserStack.
