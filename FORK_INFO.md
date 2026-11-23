@@ -1,5 +1,22 @@
 # Tracearr Fork Information
 
+## November 23, 2026 — Upstream main after 3.2.1 (through 6c9da518c)
+
+Merges connor's `main` from the 3.2.1 helm sync (`a0037ccf6`) through `6c9da518c`. Upstream is
+still on 3.2.1; nothing here touches Dispatcharr, Channels DVR or the dashboard charts.
+
+- Taken: the rebuilt logo, favicon and app icons (`apps/web/public/`, `assets/logo.png`) and the
+  better-auth bump from 1.7.20 to 1.7.25 (`better-auth` and `@better-auth/core` in the server and
+  web `package.json`, with upstream's lockfile refreshes). The fork never changed those icon files,
+  so they merged without conflict.
+- Not taken: the helm chart change (`docker/helm/tracearr/Chart.yaml`) and the GitHub Actions
+  version bumps in the `renovate` and `vouch-*` workflows, which this fork removed.
+
+Checked on a local deploy: signing in with Plex works. The log's repeated `Cookie cache payload failed
+schema validation` warnings are not from this bump: r2 on 1.7.20 logs them too. better-auth's cookie
+cache requires a user `name` and `email`, which Tracearr's `users` table allows to be empty, so the
+cache is skipped and the session is read from the database.
+
 ## November 22, 2026 — Dashboard resource charts: chips stay inside the card, legend wraps again
 
 With enough servers, the "● Avg N%" chips under the CPU, RAM and Bandwidth charts wrap to a second
