@@ -5,6 +5,28 @@ on:
   push:
     branches:
       - dev
+    # Skip pushes that only touch files the image never contains: docs, repo metadata, other
+    # workflows, and tests (left out by .dockerignore). Any other file in the push still builds.
+    # release-notes/*.json is not listed: the web app bundles it for What's New.
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - 'LICENSE'
+      - '.github/ISSUE_TEMPLATE/**'
+      - '.github/DISCUSSION_TEMPLATE/**'
+      - '.github/renovate.json'
+      - '.github/workflows/ci.yml'
+      - '.github/workflows/release-ghcr.yml'
+      - '.vscode/**'
+      - '.editorconfig'
+      - '.coderabbit.yaml'
+      - 'codecov.yml'
+      - 'crowdin.yml'
+      - 'apps/e2e/**'
+      - 'apps/server/test/**'
+      - '**/__tests__/**'
+      - '**/*.test.ts'
+      - '**/*.test.tsx'
   workflow_dispatch:
 
 permissions:
