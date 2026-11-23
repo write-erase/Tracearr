@@ -63,6 +63,12 @@ describe('RecordingNowSection', () => {
     expect(container).toBeEmptyDOMElement();
   });
 
+  it("shows Channels DVR's own logo before the title", () => {
+    const { container } = render(<RecordingNowSection recordings={[]} />);
+    const logo = container.querySelector('[data-slot="card-title"] img');
+    expect(logo?.getAttribute('src')).toContain('images/servers/channels-dvr.svg');
+  });
+
   it('shows the panel even when the DVR is idle', () => {
     render(<RecordingNowSection recordings={[]} upcoming={[]} tuners={tuners(0)} />);
     expect(screen.getByText(/dashboard\.recording\.nothingRecording/)).toBeTruthy();

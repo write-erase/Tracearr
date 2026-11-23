@@ -33,6 +33,7 @@ export {
   useSessions,
   useActiveSessions,
   useChannelsRecordings,
+  useDispatcharrOverview,
   useStopRecording,
   useCancelRecording,
   useSkipRecording,

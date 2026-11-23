@@ -27,11 +27,18 @@ import { NowPlayingSection } from '@/components/dashboard/NowPlayingSection';
 import {
   RecordingNowSection,
   channelsVersionsFor,
+  serverVersionsFor,
 } from '@/components/dashboard/RecordingNowSection';
+import { DispatcharrSection } from '@/components/dashboard/DispatcharrSection';
 import { SectionHeading } from '@/components/dashboard/SectionHeading';
 import { PersonalDashboard } from '@/components/dashboard/PersonalDashboard';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
-import { useDashboardStats, useActiveSessions, useChannelsRecordings } from '@/hooks/queries';
+import {
+  useDashboardStats,
+  useActiveSessions,
+  useChannelsRecordings,
+  useDispatcharrOverview,
+} from '@/hooks/queries';
 import {
   useServers,
   useServerLiveStats,
@@ -73,6 +80,27 @@ function ServerDashboard({ actions }: { actions?: ReactNode }) {
     [canManageServers, channelsServers]
   );
   const { data: schedule } = useChannelsRecordings(channelsServerIds.length > 0);
+  // The Dispatcharr card (fork): only asked for when a Dispatcharr server is selected, and it
+  // shares the row with the Channels DVR card when one of those is selected too.
+  const dispatcharrServers = useMemo(
+    () => selectedServers.filter((s) => s.type === 'dispatcharr' && !s.historicalAt),
+    [selectedServers]
+  );
+  const dispatcharrServerIds = useMemo(
+    () => dispatcharrServers.map((s) => s.id),
+    [dispatcharrServers]
+  );
+  const dispatcharrVersions = useMemo(
+    () => (canManageServers ? serverVersionsFor(dispatcharrServers, 'dispatcharr') : []),
+    [canManageServers, dispatcharrServers]
+  );
+  const { data: dispatcharrData } = useDispatcharrOverview(dispatcharrServerIds.length > 0);
+  const dispatcharrOverview = useMemo(
+    () => dispatcharrData?.data.filter((server) => dispatcharrServerIds.includes(server.serverId)),
+    [dispatcharrData, dispatcharrServerIds]
+  );
+  const showsChannels = channelsServerIds.length > 0;
+  const showsDispatcharr = dispatcharrServerIds.length > 0;
   const dvr = useMemo(() => {
     if (!schedule) return undefined;
     const selected = (entry: { serverId: string }) => channelsServerIds.includes(entry.serverId);
@@ -314,17 +342,33 @@ function ServerDashboard({ actions }: { actions?: ReactNode }) {
 
       <NowPlayingSection sessions={sortedSessions} />
 
-      <RecordingNowSection
-        title={channelsServers.length === 1 ? channelsServers[0]?.name : undefined}
-        recordings={dvr?.recordings}
-        upcoming={dvr?.upcoming}
-        tuners={dvr?.tuners}
-        disks={dvr?.disks}
-        recent={dvr?.recent}
-        versions={channelsVersions}
-        linkBases={channelsLinkBases}
-        showServer={channelsServerIds.length > 1}
-      />
+      {(showsChannels || showsDispatcharr) && (
+        <div
+          className={cn(
+            'grid items-start gap-6',
+            showsChannels && showsDispatcharr && 'lg:grid-cols-2'
+          )}
+        >
+          <RecordingNowSection
+            title={channelsServers.length === 1 ? channelsServers[0]?.name : undefined}
+            recordings={dvr?.recordings}
+            upcoming={dvr?.upcoming}
+            tuners={dvr?.tuners}
+            disks={dvr?.disks}
+            recent={dvr?.recent}
+            versions={channelsVersions}
+            linkBases={channelsLinkBases}
+            showServer={channelsServerIds.length > 1}
+            halfWidth={showsDispatcharr}
+          />
+          <DispatcharrSection
+            title={dispatcharrServers.length === 1 ? dispatcharrServers[0]?.name : undefined}
+            overview={dispatcharrOverview}
+            versions={dispatcharrVersions}
+            showServer={dispatcharrServerIds.length > 1}
+          />
+        </div>
+      )}
 
       {/* Stream Map - only show when there are active streams */}
       {hasActiveStreams && (

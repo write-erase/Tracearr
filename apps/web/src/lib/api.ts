@@ -1,5 +1,6 @@
 import type {
   ChannelsDvrScheduleResponse,
+  DispatcharrOverviewResponse,
   ImportWaitingForLibrarySync,
   Server,
   ServerUpdateTrack,
@@ -1239,6 +1240,9 @@ class ApiClient {
       ),
     /** Channels DVR recordings in progress and coming up, and tuner usage (not viewing sessions) */
     recordings: () => this.request<ChannelsDvrScheduleResponse>('/sessions/recordings'),
+    /** Dispatcharr M3U accounts and guide sources, for the dashboard card (fork) */
+    dispatcharrOverview: () =>
+      this.request<DispatcharrOverviewResponse>('/sessions/dispatcharr-overview'),
     /** Stop a Channels DVR recording in progress; the partial recording is kept */
     stopRecording: (serverId: string, jobId: string) =>
       this.request<{ success: boolean }>('/sessions/recordings/stop', {

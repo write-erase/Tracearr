@@ -3382,6 +3382,78 @@ export interface ChannelsDvrScheduleResponse {
   recent: ChannelsDvrRecentEntry[];
 }
 
+/**
+ * Where a Dispatcharr M3U account or EPG source stands, as Dispatcharr reports it: `success` after
+ * a good refresh, `error` when the last one failed, `fetching`/`parsing` while one runs. Anything
+ * Dispatcharr adds later reads as `unknown`.
+ */
+export type DispatcharrSourceStatus =
+  'idle' | 'fetching' | 'parsing' | 'success' | 'error' | 'pending_setup' | 'disabled' | 'unknown';
+
+/** One active M3U account on a Dispatcharr server: its refresh state and provider connections. */
+export interface DispatcharrProviderUsage {
+  id: number;
+  name: string;
+  status: DispatcharrSourceStatus;
+  /** Dispatcharr's last message for the account, e.g. why a refresh failed */
+  lastMessage: string | null;
+  /** ISO time of the last successful refresh */
+  refreshedAt: string | null;
+  /**
+   * Provider connections open now, counted from the live channels, VOD and catch-up streams
+   * Dispatcharr reports (it keeps the exact counter to itself). Null when its live streams
+   * couldn't be read.
+   */
+  inUse: number | null;
+  /** The most it allows at once across its active profiles; null when any profile is unlimited */
+  maxStreams: number | null;
+}
+
+/** One active guide source on a Dispatcharr server (custom dummy guides are left out). */
+export interface DispatcharrEpgSource {
+  id: number;
+  name: string;
+  status: DispatcharrSourceStatus;
+  lastMessage: string | null;
+  /** ISO time of the last successful refresh */
+  refreshedAt: string | null;
+}
+
+/**
+ * One provider connection Dispatcharr has open: a live channel (shared by everyone watching it),
+ * a VOD title for one viewer, or a catch-up stream.
+ */
+export interface DispatcharrStreamEntry {
+  /** Stable within a server: `live:<channel uuid>`, `vod:<client id>`, `catchup:<session id>` */
+  key: string;
+  kind: 'live' | 'vod' | 'catchup';
+  /** Channel name, or the VOD title */
+  title: string;
+  /** Server-relative channel logo path for the image proxy; null for VOD or when unknown */
+  logoPath: string | null;
+  /** The M3U account it streams from; null when unknown */
+  providerName: string | null;
+  /** ISO time the stream started; null when unknown */
+  startedAt: string | null;
+  /** Who is watching: Dispatcharr user names, or an IP address when there's no user */
+  viewers: string[];
+}
+
+/** The Dispatcharr dashboard card for one server. */
+export interface DispatcharrServerOverview {
+  serverId: string;
+  serverName: string;
+  providers: DispatcharrProviderUsage[];
+  epgSources: DispatcharrEpgSource[];
+  /** Live channels first, then VOD and catch-up; empty when nothing is streaming */
+  streams: DispatcharrStreamEntry[];
+}
+
+/** GET /sessions/dispatcharr-overview: one entry per Dispatcharr server that answered. */
+export interface DispatcharrOverviewResponse {
+  data: DispatcharrServerOverview[];
+}
+
 export interface MediaAvailabilityEntry {
   serverId: string;
   serverType: string;
