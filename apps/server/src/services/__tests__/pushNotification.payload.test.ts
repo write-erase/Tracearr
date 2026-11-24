@@ -10,11 +10,12 @@ import type { ExpoPushMessage } from 'expo-server-sdk';
 import type { ViolationWithDetails } from '@tracearr/shared';
 import { createMockActiveSession } from '../../test/fixtures.js';
 
-const { sent, rows, activeSessionIds, claimSessionsSync } = vi.hoisted(() => ({
+const { sent, rows, activeSessionIds, claimSessionsSync, hiddenServerIds } = vi.hoisted(() => ({
   sent: [] as ExpoPushMessage[],
   rows: [] as Record<string, unknown>[],
   activeSessionIds: [] as string[],
   claimSessionsSync: vi.fn(),
+  hiddenServerIds: new Set<string>(),
 }));
 
 vi.mock('expo-server-sdk', () => {
@@ -43,6 +44,10 @@ vi.mock('../../db/client.js', () => {
   return { db: chain };
 });
 
+vi.mock('../../lib/mobileAppServers.js', () => ({
+  isHiddenFromMobileApp: async (serverId: string | undefined) =>
+    serverId !== undefined && hiddenServerIds.has(serverId),
+}));
 vi.mock('../cache.js', () => ({
   getCacheService: () => ({ getActiveSessionIds: async () => activeSessionIds }),
 }));
@@ -130,7 +135,53 @@ beforeEach(() => {
   rows.length = 0;
   activeSessionIds.length = 0;
   claimSessionsSync.mockReset().mockResolvedValue(true);
+  hiddenServerIds.clear();
   rows.push(device());
+});
+
+describe('a server the mobile app cannot show (fork)', () => {
+  it('sends nothing about a Dispatcharr or Channels DVR server', async () => {
+    hiddenServerIds.add(SERVER_ID);
+    const person = {
+      serverId: SERVER_ID,
+      serverName: 'Living Room',
+      serverType: 'dispatcharr',
+      serverUserId: SERVER_USER_ID,
+      userName: 'Alice',
+      username: 'alice',
+      identityName: 'Alice',
+    };
+
+    await pushNotificationService.notifyViolation(violation);
+    await pushNotificationService.notifySessionStarted(session);
+    await pushNotificationService.notifySessionStopped(session);
+    await pushNotificationService.notifyServerDown('Living Room', SERVER_ID);
+    await pushNotificationService.notifyServerUp('Living Room', SERVER_ID);
+    await pushNotificationService.notifyNewDevice({
+      ...person,
+      sessionId: 'session-1',
+      mediaTitle: 'Arrival',
+      mediaType: 'movie',
+      deviceName: 'Apple TV',
+      platform: null,
+      product: null,
+      location: null,
+    });
+    await pushNotificationService.notifyTrustChanged({
+      ...person,
+      previousScore: 100,
+      newScore: 80,
+      reason: null,
+    });
+
+    expect(sent).toEqual([]);
+  });
+
+  it('still sends about the servers it can show', async () => {
+    hiddenServerIds.add('another-server');
+    await pushNotificationService.notifySessionStarted(session);
+    expect(sent).toHaveLength(1);
+  });
 });
 
 describe('push category and thread', () => {

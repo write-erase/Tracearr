@@ -51,6 +51,7 @@ import { readSessionRow } from '../db/sessions/row.js';
 import { getCacheService } from '../services/cache.js';
 import { getAuth } from '../lib/auth.js';
 import { hasPermission } from '../lib/scope.js';
+import { MOBILE_APP_SERVER_TYPES } from '../lib/mobileAppServers.js';
 import { assertMobileClientSupported, failClosed } from '../plugins/auth.js';
 import { terminateSession } from '../services/termination.js';
 import { getSetting, setSetting } from '../services/settings.js';
@@ -775,8 +776,10 @@ export const mobileRoutes: FastifyPluginAsync = async (app) => {
           .orderBy(...serverOrderBy());
         const serverIds = allServers.map((s) => s.id);
 
-        // Get primary server info for the response (first server)
-        const primaryServer = allServers[0];
+        // Get primary server info for the response: the first one the app knows (fork: it
+        // can't show a Dispatcharr or Channels DVR server)
+        const primaryServer =
+          allServers.find((s) => MOBILE_APP_SERVER_TYPES.has(s.type)) ?? allServers[0];
         const serverId = primaryServer?.id || '';
         const serverType = primaryServer?.type || 'plex';
 

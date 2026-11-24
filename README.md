@@ -67,15 +67,10 @@ Channels DVR does not provide individual user accounts, so Tracearr identifies v
 
 ## Mobile App
 
-> [!WARNING]
-> **The Tracearr iPhone app stops working as soon as it opens while a Dispatcharr or Channels DVR server is added.** Removing those servers makes it work again. The Android app has not been tested.
+> [!NOTE]
+> **Dispatcharr and Channels DVR servers don't appear in the Tracearr mobile app.** The app doesn't know these server types and stopped working when it got one, so Tracearr leaves them out of everything it sends the app: the server list, Now Playing, history, stats, users, alerts and push notifications. Your other servers work as usual. The Android app has not been tested.
 
-The app is upstream's, so this fork can't change it, only what Tracearr sends to it. There are two ways to go:
-
-- **Hide them:** Dispatcharr and Channels DVR servers are left out of what the app gets. The app loads and works for your other servers, but these don't appear in it.
-- **Show them as a type the app knows** (such as Plex or Jellyfin): not tried yet, and some details may look wrong or not work.
-
-**[Vote in the poll (#67)](https://github.com/write-erase/Tracearr/discussions/67)** on which you'd prefer.
+The app is upstream's, so this fork can't change it, only what Tracearr sends to it. Cast your vote for the final decision in the [poll (#67)](https://github.com/write-erase/Tracearr/discussions/67).
 
 ## Installing
 

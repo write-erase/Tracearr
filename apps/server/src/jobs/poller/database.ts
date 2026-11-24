@@ -45,6 +45,7 @@ import { emailForSessionUser } from '../../services/mediaServer/byServerType.js'
 import { automationsLogger, createLogger } from '../../utils/logger.js';
 import { getPubSubService } from '../../services/cache.js';
 import { mapSessionRow } from './sessionMapper.js';
+import { clearMobileAppServerCache } from '../../lib/mobileAppServers.js';
 
 /** Library item types that group playable items; a session is never linked to one. */
 export const CONTAINER_MEDIA_TYPES = ['show', 'season', 'artist', 'album'] as const;
@@ -558,6 +559,7 @@ const serversLogger = createLogger('servers');
 /** Invalidate the servers cache. Call from every server create/update/delete path. */
 export function invalidateServersCache(): void {
   serversCache = null;
+  clearMobileAppServerCache();
 }
 
 /** Drop this instance's servers cache and tell the others to do the same. */
