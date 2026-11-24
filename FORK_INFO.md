@@ -27,8 +27,11 @@ sends on every API call (`apps/server/src/lib/mobileAppServers.ts`). For those r
 - Socket server down/up alerts for a hidden server skip the app's sockets (every app socket now
   joins a `mobile-app` room); the web still gets them.
 
-A server the filter can't find counts as hidden, so one added in the last 30 seconds stays out of
-the app until its list refreshes; the list also refreshes whenever servers change.
+The server types are cached for 30 seconds and the cache is cleared whenever servers change. A
+server missing from the cache is looked up again before a push or a 404 decides on it, so one
+added a moment ago isn't treated as hidden; one that still isn't found (deleted) is. The
+`pushPayloadIdentityFields` integration test caught the first version, which treated a server
+added after the cache was filled as hidden for up to 30 seconds.
 
 Covered by unit tests (the filter on a stand-in app at the real paths, the pushes, the socket
 alerts). Checked with the iPhone app on a running server on November 24, with Dispatcharr and

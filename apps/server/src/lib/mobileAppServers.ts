@@ -31,16 +31,25 @@ export const MOBILE_APP_SERVER_TYPES: ReadonlySet<string> = new Set<ServerType>(
 export const NO_SERVER_ID = '00000000-0000-4000-8000-000000000000';
 
 const CACHE_MS = 30_000;
-let cache: { ids: ReadonlySet<string>; at: number } | null = null;
+let cache: { types: ReadonlyMap<string, string>; at: number } | null = null;
+
+async function readServerTypes(): Promise<ReadonlyMap<string, string>> {
+  const rows = await db.select({ id: servers.id, type: servers.type }).from(servers);
+  const types = new Map(rows.map((row) => [row.id, row.type]));
+  cache = { types, at: Date.now() };
+  return types;
+}
+
+async function serverTypes(): Promise<ReadonlyMap<string, string>> {
+  return cache && Date.now() - cache.at < CACHE_MS ? cache.types : readServerTypes();
+}
 
 /** Ids of the servers the app can show. Cleared with the poller's servers cache. */
 export async function mobileAppServerIds(): Promise<ReadonlySet<string>> {
-  const now = Date.now();
-  if (cache && now - cache.at < CACHE_MS) return cache.ids;
-  const rows = await db.select({ id: servers.id, type: servers.type }).from(servers);
-  const ids = new Set(rows.filter((row) => MOBILE_APP_SERVER_TYPES.has(row.type)).map((r) => r.id));
-  cache = { ids, at: now };
-  return ids;
+  const types = await serverTypes();
+  return new Set(
+    [...types].filter(([, type]) => MOBILE_APP_SERVER_TYPES.has(type)).map(([id]) => id)
+  );
 }
 
 export function clearMobileAppServerCache(): void {
@@ -48,12 +57,15 @@ export function clearMobileAppServerCache(): void {
 }
 
 /**
- * Whether the app must not see this server. A server it doesn't find counts as hidden, so one
- * added since the last read stays out until the cache refreshes rather than reaching the app.
+ * Whether the app must not see this server. A server missing from the cached list is looked up
+ * again first, so one added a moment ago is shown at once; one still not found counts as hidden.
  */
 export async function isHiddenFromMobileApp(serverId: string | null | undefined): Promise<boolean> {
   if (!serverId) return false;
-  return !(await mobileAppServerIds()).has(serverId);
+  let types = await serverTypes();
+  if (!types.has(serverId)) types = await readServerTypes();
+  const type = types.get(serverId);
+  return type === undefined || !MOBILE_APP_SERVER_TYPES.has(type);
 }
 
 export function isMobileAppRequest(request: FastifyRequest): boolean {

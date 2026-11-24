@@ -142,6 +142,13 @@ describe('isHiddenFromMobileApp', () => {
     expect(await isHiddenFromMobileApp('55555555-5555-4555-8555-555555555555')).toBe(true);
     expect(await isHiddenFromMobileApp(undefined)).toBe(false);
   });
+
+  it('shows a server added since the list was read, without waiting for it to refresh', async () => {
+    const added = '66666666-6666-4666-8666-666666666666';
+    expect(await isHiddenFromMobileApp(PLEX)).toBe(false);
+    serverRows.push({ id: added, type: 'emby' });
+    expect(await isHiddenFromMobileApp(added)).toBe(false);
+  });
 });
 
 describe('requests from the mobile app', () => {
