@@ -1,5 +1,41 @@
 # Tracearr Fork Information
 
+## November 24, 2026 — Dispatcharr and Channels DVR servers hidden from the mobile app
+
+Tracearr's mobile app (Tracearr/Mobile-App, built on `@tracearr/shared` 3.2.1) looks each
+server's type up in its own tables (`SERVER_PROFILES[type].displayName` for the server picker,
+`SERVER_PROFILES[session.server.type]` on a session) and stops working on a type it doesn't have,
+which is every Dispatcharr and Channels DVR server. Decided in the poll (#67): Tracearr now leaves
+those servers out of what the app gets. The web app is unchanged.
+
+A request from the app is told apart by the `x-tracearr-client: mobile/<version>` header the app
+sends on every API call (`apps/server/src/lib/mobileAppServers.ts`). For those requests:
+
+- `GET /servers`, `GET /servers/health` and the `servers` in `GET /sessions/filter-options`
+  leave out every server whose type isn't Plex, Jellyfin, Emby or tofa.
+- The lists and stats the app asks for (Now Playing, history and its totals, filter options,
+  users, alerts and their count, and the dashboard, plays, platforms, quality and concurrent
+  stats) are narrowed to the servers it can show. "All servers" (no filter) becomes every server
+  it can show; a filter naming a hidden server drops it; a filter naming only hidden servers
+  matches nothing. A filter naming only servers it can show is left as it is.
+- Acknowledge-all on alerts acknowledges only alerts on the servers it can show.
+- `GET /sessions/<id>` for a session on a hidden server, and `GET /servers/<id>/...` for a hidden
+  server, answer 404 (the server routes don't run).
+- Pairing answers with the first server the app can show, rather than simply the first server.
+- No push notification goes out for a hidden server: violations, stream started and stopped,
+  server down and up, new device and trust score changes.
+- Socket server down/up alerts for a hidden server skip the app's sockets (every app socket now
+  joins a `mobile-app` room); the web still gets them.
+
+A server the filter can't find counts as hidden, so one added in the last 30 seconds stays out of
+the app until its list refreshes; the list also refreshes whenever servers change.
+
+Covered by unit tests (the filter on a stand-in app at the real paths, the pushes, the socket
+alerts). Checked with the iPhone app on a running server on November 24, with Dispatcharr and
+Channels DVR servers added: the app opens, the server picker lists only the other servers, Now
+Playing, History, the dashboard and a session's page load, and nothing from the hidden servers
+shows or pushes. The Android app has not been tested.
+
 ## November 23, 2026 — Dispatcharr card: Recording Now and Coming Up, with Stop and Cancel
 
 The Dispatcharr card gets the DVR half of the Channels DVR card, below Streaming Now. Read from

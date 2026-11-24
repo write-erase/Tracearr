@@ -25,6 +25,7 @@ import { pushEncryptionService } from './pushEncryption.js';
 import { getNetworkSettings } from '../routes/settings.js';
 import { buildPushPosterUrl, buildPushAvatarUrl, buildLogoUrl } from './imageProxy.js';
 import { hashSha256 } from '../utils/hash.js';
+import { isHiddenFromMobileApp } from '../lib/mobileAppServers.js';
 import type { NewDevicePayload, TrustChangedPayload } from './notifications/events.js';
 
 const PUSH_PAYLOAD_BYTES = 4096;
@@ -572,6 +573,7 @@ export class PushNotificationService {
     violation: ViolationWithDetails,
     override?: PushTextOverride
   ): Promise<void> {
+    if (await isHiddenFromMobileApp(violation.server?.id)) return; // fork: the app can't show it
     const sessions = await getSessionsWithPreferences();
     if (sessions.length === 0) return;
 
@@ -667,6 +669,7 @@ export class PushNotificationService {
    * Send session started notification to devices that have enabled stream alerts
    */
   async notifySessionStarted(session: ActiveSession, override?: PushTextOverride): Promise<void> {
+    if (await isHiddenFromMobileApp(session.server?.id)) return; // fork: the app can't show it
     const sessions = await getSessionsWithPreferences();
     if (sessions.length === 0) return;
 
@@ -739,6 +742,7 @@ export class PushNotificationService {
    * Send session stopped notification to devices that have enabled stream alerts
    */
   async notifySessionStopped(session: ActiveSession, override?: PushTextOverride): Promise<void> {
+    if (await isHiddenFromMobileApp(session.server?.id)) return; // fork: the app can't show it
     const sessions = await getSessionsWithPreferences();
     if (sessions.length === 0) return;
 
@@ -814,6 +818,7 @@ export class PushNotificationService {
     serverId: string,
     override?: PushTextOverride
   ): Promise<void> {
+    if (await isHiddenFromMobileApp(serverId)) return; // fork: the app can't show it
     const sessions = await getSessionsWithPreferences();
     if (sessions.length === 0) return;
 
@@ -870,6 +875,7 @@ export class PushNotificationService {
    * The per-device toggle is the opt-in here, unlike the update and library sends.
    */
   async notifyNewDevice(payload: NewDevicePayload, override?: PushTextOverride): Promise<void> {
+    if (await isHiddenFromMobileApp(payload.serverId)) return; // fork: the app can't show it
     const sessions = await getSessionsWithPreferences();
     if (sessions.length === 0) return;
 
@@ -918,6 +924,7 @@ export class PushNotificationService {
     payload: TrustChangedPayload,
     override?: PushTextOverride
   ): Promise<void> {
+    if (await isHiddenFromMobileApp(payload.serverId)) return; // fork: the app can't show it
     const sessions = await getSessionsWithPreferences();
     if (sessions.length === 0) return;
 
@@ -1076,6 +1083,7 @@ export class PushNotificationService {
     serverId: string,
     override?: PushTextOverride
   ): Promise<void> {
+    if (await isHiddenFromMobileApp(serverId)) return; // fork: the app can't show it
     const sessions = await getSessionsWithPreferences();
     if (sessions.length === 0) return;
 

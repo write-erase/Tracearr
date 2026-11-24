@@ -22,6 +22,7 @@ import { isTrustedOrigin, requestHost } from '../lib/origins.js';
 import { isTokenRevoked } from '../plugins/auth.js';
 import { ACCESS_CACHE_TTL_MS } from '../lib/scope.js';
 import { getPubSubService } from '../services/cache.js';
+import { isHiddenFromMobileApp } from '../lib/mobileAppServers.js';
 
 type TypedServer = Server<ClientToServerEvents, ServerToClientEvents>;
 type TypedSocket = Socket<ClientToServerEvents, ServerToClientEvents>;
@@ -205,6 +206,10 @@ export function initializeWebSocket(
     if (user?.mobile && user?.deviceId) {
       void socket.join(`mobile:${user.deviceId}`);
     }
+    // Every mobile app socket, so an event the app can't show can skip them all (fork)
+    if (user?.mobile) {
+      void socket.join(MOBILE_APP_ROOM);
+    }
 
     if (user && seesAllSessions(user)) {
       for (const serverId of user.serverIds) {
@@ -244,6 +249,23 @@ export function getIO(): TypedServer {
     throw new Error('WebSocket server not initialized');
   }
   return io;
+}
+
+/** Room of every mobile app socket (fork). */
+export const MOBILE_APP_ROOM = 'mobile-app';
+
+/**
+ * A server going down or coming back, to everyone watching sessions; the mobile app's sockets
+ * are left out for a Dispatcharr or Channels DVR server, which the app can't show (fork).
+ */
+export async function broadcastServerHealth<K extends 'server:down' | 'server:up'>(
+  event: K,
+  ...args: Parameters<ServerToClientEvents[K]>
+): Promise<void> {
+  if (!io) return;
+  const hidden = await isHiddenFromMobileApp(args[0].serverId);
+  const target = hidden ? io.to('sessions').except(MOBILE_APP_ROOM) : io.to('sessions');
+  (target.emit as (event: K, ...args: Parameters<ServerToClientEvents[K]>) => void)(event, ...args);
 }
 
 export function broadcastToSessions<K extends keyof ServerToClientEvents>(
