@@ -5,8 +5,8 @@
 Tracearr's mobile app (Tracearr/Mobile-App, built on `@tracearr/shared` 3.2.1) looks each
 server's type up in its own tables (`SERVER_PROFILES[type].displayName` for the server picker,
 `SERVER_PROFILES[session.server.type]` on a session) and stops working on a type it doesn't have,
-which is every Dispatcharr and Channels DVR server. Decided in the poll (#67): Tracearr now leaves
-those servers out of what the app gets. The web app is unchanged.
+which is every Dispatcharr and Channels DVR server. Tracearr now leaves those servers out of what
+the app gets; the poll (#67) stays open for the final decision. The web app is unchanged.
 
 A request from the app is told apart by the `x-tracearr-client: mobile/<version>` header the app
 sends on every API call (`apps/server/src/lib/mobileAppServers.ts`). For those requests:

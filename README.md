@@ -70,7 +70,7 @@ Channels DVR does not provide individual user accounts, so Tracearr identifies v
 > [!NOTE]
 > **Dispatcharr and Channels DVR servers don't appear in the Tracearr mobile app.** The app doesn't know these server types and stopped working when it got one, so Tracearr leaves them out of everything it sends the app: the server list, Now Playing, history, stats, users, alerts and push notifications. Your other servers work as usual. The Android app has not been tested.
 
-The app is upstream's, so this fork can't change it, only what Tracearr sends to it. This was decided in the [poll (#67)](https://github.com/write-erase/Tracearr/discussions/67).
+The app is upstream's, so this fork can't change it, only what Tracearr sends to it. Cast your vote for the final decision in the [poll (#67)](https://github.com/write-erase/Tracearr/discussions/67).
 
 ## Installing
 
