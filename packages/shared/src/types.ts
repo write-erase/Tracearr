@@ -3369,6 +3369,8 @@ export interface ChannelsDvrRecentEntry {
   thumbPath: string | null;
   /** Empty when it recorded cleanly; worst first */
   issues: ChannelsDvrRecordingIssue[];
+  /** An owner or admin cleared its issues: the dashboard stops flagging them (fork) */
+  issuesCleared: boolean;
 }
 
 /** GET /sessions/recordings */

@@ -1255,6 +1255,12 @@ class ApiClient {
         method: 'POST',
         body: JSON.stringify({ serverId, jobId }),
       }),
+    /** Stop flagging recent Channels DVR recordings' issues, for everyone (fork) */
+    clearRecordingIssues: (serverId: string, fileIds: string[]) =>
+      this.request<{ success: boolean }>('/sessions/recordings/clear-issues', {
+        method: 'POST',
+        body: JSON.stringify({ serverId, fileIds }),
+      }),
     /** Skip one airing a Channels DVR series pass scheduled, or undo that */
     setRecordingSkipped: (serverId: string, jobId: string, skipped: boolean) =>
       this.request<{ success: boolean }>('/sessions/recordings/skip', {

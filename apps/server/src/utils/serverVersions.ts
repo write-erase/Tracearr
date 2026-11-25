@@ -46,6 +46,77 @@ export const SERVER_RELEASE_PAGES: Record<ServerType, string> = {
   channels_dvr: 'https://getchannels.com/releases/',
 };
 
+/**
+ * A Dispatcharr dev image (fork). Dev images keep the release's version (0.34.1) and add the
+ * time they were built, which `/api/core/version/` reports as `timestamp`; Tracearr stores the
+ * pair as `0.34.1-dev.<YYYYMMDDHHMMSS UTC>`. Dispatcharr's own update check, for a dev image,
+ * compares that time with when the `dev` tag on Docker Hub was last pushed, and counts a push
+ * more than 10 minutes later as an update; Tracearr does the same.
+ */
+const DISPATCHARR_DEV = /^(\d+\.\d+\.\d+)-dev\.(\d{14})$/;
+const DISPATCHARR_DEV_THRESHOLD_MS = 10 * 60 * 1000;
+const DISPATCHARR_DEV_TAG =
+  'https://hub.docker.com/v2/repositories/dispatcharr/dispatcharr/tags/dev';
+/** Where a Dispatcharr dev image's update is announced: its Docker Hub tags. */
+export const DISPATCHARR_DEV_TAGS = 'https://hub.docker.com/r/dispatcharr/dispatcharr/tags';
+
+/**
+ * A build or push time as `YYYYMMDDHHMMSS` in UTC. Takes Dispatcharr's compact CI stamp, or an
+ * ISO time, read as UTC when it carries no zone (as Dispatcharr reads it). Null when unreadable.
+ */
+export function dispatcharrBuildStamp(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const text = value.trim();
+  if (/^\d{14}$/.test(text)) return text;
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(text)) return null;
+  const zoned = /(Z|[+-]\d{2}:?\d{2})$/i.test(text) ? text : `${text}Z`;
+  const ms = Date.parse(zoned.replace(/(\.\d{3})\d+/, '$1'));
+  return Number.isNaN(ms) ? null : new Date(ms).toISOString().replace(/\D/g, '').slice(0, 14);
+}
+
+/** The version Tracearr stores for a Dispatcharr image: dev when it reports a build time. */
+export function dispatcharrVersion(version: string, timestamp: unknown): string {
+  const stamp = dispatcharrBuildStamp(timestamp);
+  return stamp ? `${version.replace(/^v/, '')}-dev.${stamp}` : version;
+}
+
+export function isDispatcharrDevVersion(version: string | null | undefined): boolean {
+  return !!version && DISPATCHARR_DEV.test(version);
+}
+
+function stampMs(stamp: string): number {
+  const [y, mo, d, h, mi, s] = [0, 4, 6, 8, 10, 12].map((at, i) =>
+    Number(stamp.slice(at, at + (i === 0 ? 4 : 2)))
+  ) as [number, number, number, number, number, number];
+  return Date.UTC(y, mo - 1, d, h, mi, s);
+}
+
+/** When the `dev` tag on Docker Hub was last pushed, as a stamp; null when it can't be read. */
+export async function latestDispatcharrDevBuild(): Promise<string | null> {
+  try {
+    const tag = await fetchJson<{ last_updated?: unknown }>(DISPATCHARR_DEV_TAG, {
+      timeout: FEED_TIMEOUT_MS,
+      service: 'docker-hub',
+    });
+    return dispatcharrBuildStamp(tag.last_updated);
+  } catch (error) {
+    logger.warn('Dispatcharr dev build lookup failed', { error });
+    return null;
+  }
+}
+
+/**
+ * The newest dev image for a server running `installed`: the Docker Hub push when it's more than
+ * 10 minutes after the running build, otherwise the running build itself (up to date).
+ */
+export function dispatcharrDevLatest(installed: string, pushed: string | null): string | null {
+  const match = DISPATCHARR_DEV.exec(installed);
+  if (!match?.[1] || !match[2] || !pushed) return null;
+  return stampMs(pushed) - stampMs(match[2]) > DISPATCHARR_DEV_THRESHOLD_MS
+    ? `${match[1]}-dev.${pushed}`
+    : installed;
+}
+
 /** Server types whose vendor publishes a release feed. */
 export type FeedServerType = Exclude<ServerType, 'tofa'>;
 
@@ -82,12 +153,19 @@ function versionDigits(type: ServerType, version: string): string {
  */
 export function normalizeServerVersion(type: ServerType, raw: string): string | null {
   const candidate = versionDigits(type, raw.trim());
+  if (type === 'dispatcharr' && DISPATCHARR_DEV.test(candidate)) return candidate;
   if (!DOTTED.test(candidate)) return null;
   return candidate.split('.').length === 2 ? `${candidate}.0` : candidate;
 }
 
 /** An unparseable version on either side is never newer: a nudge needs both numbers. */
 export function isNewerServerVersion(type: ServerType, latest: string, installed: string): boolean {
+  if (type === 'dispatcharr' && (DISPATCHARR_DEV.test(latest) || DISPATCHARR_DEV.test(installed))) {
+    // Only a newer dev push counts against a dev image; a dev and a release never compare.
+    const pushed = DISPATCHARR_DEV.exec(latest)?.[2];
+    const built = DISPATCHARR_DEV.exec(installed)?.[2];
+    return !!pushed && !!built && stampMs(pushed) - stampMs(built) > DISPATCHARR_DEV_THRESHOLD_MS;
+  }
   const newer = normalizeServerVersion(type, latest);
   const current = normalizeServerVersion(type, installed);
   if (!newer || !current) return false;

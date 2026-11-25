@@ -227,6 +227,43 @@ describe('DispatcharrSection', () => {
       'https://github.com/Dispatcharr/Dispatcharr/releases/latest'
     );
   });
+
+  it('flags a newer dev push for a dev image, linking to Docker Hub (fork)', () => {
+    const versionsFor = (latestVersion: string) =>
+      serverVersionsFor(
+        [
+          {
+            id: 'd1',
+            name: 'Dispatcharr',
+            type: 'dispatcharr',
+            version: '0.34.1-dev.20261124013000',
+            latestVersion,
+          } as Server,
+        ],
+        'dispatcharr'
+      );
+
+    const { unmount } = render(
+      <DispatcharrSection
+        overview={[server()]}
+        versions={versionsFor('0.34.1-dev.20261124190000')}
+      />
+    );
+    expect(screen.getByTestId('dvr-update')).toHaveAttribute(
+      'href',
+      'https://hub.docker.com/r/dispatcharr/dispatcharr/tags'
+    );
+    unmount();
+
+    // The server stores the running build as latest when no newer push is waiting
+    render(
+      <DispatcharrSection
+        overview={[server()]}
+        versions={versionsFor('0.34.1-dev.20261124013000')}
+      />
+    );
+    expect(screen.getByTestId('dvr-up-to-date')).toBeInTheDocument();
+  });
 });
 
 describe('DispatcharrSection recordings', () => {

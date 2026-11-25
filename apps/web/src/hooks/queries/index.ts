@@ -38,6 +38,7 @@ export {
   useStopRecording,
   useCancelRecording,
   useSkipRecording,
+  useClearRecordingIssues,
   useOthersActive,
   useSession,
   useBulkDeleteSessions,
