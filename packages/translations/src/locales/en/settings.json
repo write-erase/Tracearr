@@ -121,7 +121,7 @@
       "plugin": "Realtime plugin",
       "pluginDesc": "Check for new releases of the Tracearr plugin your Jellyfin and Emby servers stream events through.",
       "server": "Media servers",
-      "serverDesc": "Compare what each Plex, Jellyfin, Emby, tofa and Channels DVR server runs with the newest release its makers publish."
+      "serverDesc": "Compare what each Plex, Jellyfin, Emby, tofa, Channels DVR and Dispatcharr server runs with the newest release its makers publish."
     },
     "imageCache": {
       "title": "Poster cache",

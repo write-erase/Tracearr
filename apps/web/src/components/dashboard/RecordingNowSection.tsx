@@ -36,7 +36,12 @@ import {
 } from '@/components/ui/dialog';
 import { Progress } from '@/components/ui/progress';
 import { useAuth } from '@/hooks/useAuth';
-import { useCancelRecording, useSkipRecording, useStopRecording } from '@/hooks/queries';
+import {
+  useCancelRecording,
+  useClearRecordingIssues,
+  useSkipRecording,
+  useStopRecording,
+} from '@/hooks/queries';
 import { imageProxyUrl } from '@/lib/api';
 import { formatBytes } from '@/lib/formatters';
 import { cn } from '@/lib/utils';
@@ -320,16 +325,26 @@ export interface ChannelsDvrVersion {
   updateAvailable: boolean;
 }
 
-/** Both versions are three or four dotted numbers; a missing part reads as zero. */
+/** A Dispatcharr dev image's version: the release, then its build time (fork). */
+const DEV_VERSION = /^(.+)-dev\.(\d{14})$/;
+
+/**
+ * Both versions are three or four dotted numbers; a missing part reads as zero. A Dispatcharr dev
+ * image (`0.34.1-dev.<build time>`, fork) compares by release, then by build time; the server
+ * already stores the running build as latest when no newer dev push is waiting.
+ */
 function isNewerVersion(latest: string, installed: string): boolean {
-  const a = latest.split('.').map(Number);
-  const b = installed.split('.').map(Number);
+  const devLatest = DEV_VERSION.exec(latest);
+  const devInstalled = DEV_VERSION.exec(installed);
+  const a = (devLatest?.[1] ?? latest).split('.').map(Number);
+  const b = (devInstalled?.[1] ?? installed).split('.').map(Number);
   for (let i = 0; i < 4; i++) {
     const na = a[i] ?? 0;
     const nb = b[i] ?? 0;
+    if (Number.isNaN(na) || Number.isNaN(nb)) return false;
     if (na !== nb) return na > nb;
   }
-  return false;
+  return !!devLatest?.[2] && !!devInstalled?.[2] && devLatest[2] > devInstalled[2];
 }
 
 /**
@@ -736,6 +751,65 @@ function IssueBadge({ issue }: { issue: ChannelsDvrRecordingIssue }) {
   );
 }
 
+/** Whether a recent recording still shows its issues: it has some and nobody cleared them. */
+function isFlagged(file: ChannelsDvrRecentEntry): boolean {
+  return file.issues.length > 0 && !file.issuesCleared;
+}
+
+/**
+ * Clears recent recordings' issue badges for everyone (fork): an X on one recording, or "Clear
+ * all" beside the count. Owner and admin only, like the other recording buttons.
+ */
+function ClearIssuesButton({
+  files,
+  all = false,
+}: {
+  files: ChannelsDvrRecentEntry[];
+  all?: boolean;
+}) {
+  const { t } = useTranslation('pages');
+  const { user } = useAuth();
+  const clear = useClearRecordingIssues();
+  if (user?.role !== 'admin' && user?.role !== 'owner') return null;
+
+  const onClick = () =>
+    clear.mutate(files.map((file) => ({ serverId: file.serverId, fileId: file.fileId })));
+
+  if (all) {
+    return (
+      <Button
+        variant="ghost"
+        size="sm"
+        className="text-muted-foreground h-6 shrink-0 px-2 text-xs font-normal"
+        title={t('dashboard.recording.clearAllIssuesHint', {
+          defaultValue: 'Stop flagging these recordings. They stay in the list.',
+        })}
+        disabled={clear.isPending}
+        onClick={onClick}
+        data-testid="recent-clear-all"
+      >
+        {t('dashboard.recording.clearAllIssues', { defaultValue: 'Clear all' })}
+      </Button>
+    );
+  }
+  return (
+    <Button
+      variant="ghost"
+      size="icon"
+      className="text-muted-foreground h-6 w-6 shrink-0"
+      title={t('dashboard.recording.clearIssuesHint', {
+        defaultValue: 'Clear this alert. The recording stays in the list.',
+      })}
+      aria-label={t('dashboard.recording.clearIssues', { defaultValue: 'Clear alert' })}
+      disabled={clear.isPending}
+      onClick={onClick}
+      data-testid="recent-clear"
+    >
+      <X className="h-3.5 w-3.5" />
+    </Button>
+  );
+}
+
 /** A recording that finished in the last day: when, what, how long, and how it went. */
 function RecentRow({
   file,
@@ -826,11 +900,12 @@ function RecentRow({
             .join(' · ')}
         </p>
       </div>
-      {file.issues.length > 0 && (
-        <div className="flex shrink-0 flex-wrap justify-end gap-1">
+      {isFlagged(file) && (
+        <div className="flex shrink-0 flex-wrap items-center justify-end gap-1">
           {file.issues.map((issue) => (
             <IssueBadge key={issue} issue={issue} />
           ))}
+          <ClearIssuesButton files={[file]} />
         </div>
       )}
     </li>
@@ -863,7 +938,8 @@ export function RecordingNowSection({
   const more = upcoming.length - shown.length;
   const recentShown = recent.slice(0, RECENT_SHOWN);
   const recentMore = recent.length - recentShown.length;
-  const recentIssues = recent.filter((file) => file.issues.length > 0).length;
+  const flaggedRecent = recent.filter(isFlagged);
+  const recentIssues = flaggedRecent.length;
 
   return (
     <section>
@@ -972,6 +1048,7 @@ export function RecordingNowSection({
                     })}
                   </span>
                 )}
+                {recentIssues > 1 && <ClearIssuesButton files={flaggedRecent} all />}
               </h4>
               <ul className="divide-y rounded-xl border">
                 {recentShown.map((file) => (

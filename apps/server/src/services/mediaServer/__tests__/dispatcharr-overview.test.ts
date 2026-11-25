@@ -192,6 +192,15 @@ describe('DispatcharrClient.getSoftwareVersion', () => {
     expect(String(fetchMock.mock.calls[0]?.[0])).toBe('http://dispatcharr:9191/api/core/version/');
   });
 
+  it('reads a dev image as its version plus its build time (fork)', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      jsonResponse({ version: '0.34.1', timestamp: '20261124013000' })
+    );
+    const client = new DispatcharrClient({ url: 'http://dispatcharr:9191/', token: 'api-key' });
+
+    await expect(client.getSoftwareVersion()).resolves.toBe('0.34.1-dev.20261124013000');
+  });
+
   it('answers null when the version cannot be read', async () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('nope', { status: 500 }));
     const client = new DispatcharrClient({ url: 'http://dispatcharr:9191', token: 'api-key' });

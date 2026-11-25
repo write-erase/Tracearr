@@ -154,6 +154,34 @@ export function useCancelRecording() {
  * Skip one airing a Channels DVR series pass scheduled, or undo that. The pass keeps going, and
  * a skipped airing stays in Coming Up so it can be unskipped.
  */
+/** Clear the issues of recent Channels DVR recordings, one request per server (fork). */
+export function useClearRecordingIssues() {
+  const { t } = useTranslation('pages');
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (files: { serverId: string; fileId: string }[]) => {
+      const byServer = new Map<string, string[]>();
+      for (const { serverId, fileId } of files) {
+        byServer.set(serverId, [...(byServer.get(serverId) ?? []), fileId]);
+      }
+      await Promise.all(
+        [...byServer].map(([serverId, fileIds]) =>
+          api.sessions.clearRecordingIssues(serverId, fileIds)
+        )
+      );
+    },
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: ['sessions', 'recordings'] });
+    },
+    onError: (error: Error) => {
+      toast.error(
+        t('dashboard.recording.clearIssuesFailed', { defaultValue: 'Could not clear the alert' }),
+        { description: error.message }
+      );
+    },
+  });
+}
+
 export function useSkipRecording() {
   const { t } = useTranslation('pages');
   const queryClient = useQueryClient();

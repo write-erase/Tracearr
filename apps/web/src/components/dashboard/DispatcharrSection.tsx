@@ -44,6 +44,8 @@ import { imageProxyUrl } from '@/lib/api';
 import { cn } from '@/lib/utils';
 
 const DISPATCHARR_RELEASES = 'https://github.com/Dispatcharr/Dispatcharr/releases/latest';
+/** A dev image's updates are pushes to the dev tag on Docker Hub (fork). */
+const DISPATCHARR_DEV_TAGS = 'https://hub.docker.com/r/dispatcharr/dispatcharr/tags';
 
 const PILL = 'inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium';
 const MUTED = 'bg-muted text-muted-foreground';
@@ -504,7 +506,9 @@ export function DispatcharrSection({
                 key={version.serverId}
                 version={version}
                 showServer={showServer}
-                linkBase={DISPATCHARR_RELEASES}
+                linkBase={
+                  version.installed.includes('-dev.') ? DISPATCHARR_DEV_TAGS : DISPATCHARR_RELEASES
+                }
               />
             ))}
           </CardTitle>

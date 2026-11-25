@@ -60,6 +60,9 @@ import {
 } from './history.js';
 import { mapHistoryRow } from './historyRow.js';
 
+/** How long cleared recording issues are kept: past the day Recently Recorded covers (fork). */
+const CLEARED_ISSUES_TTL_SECONDS = 2 * 24 * 60 * 60;
+
 export const sessionRoutes: FastifyPluginAsync = async (app) => {
   const readSessions = { preHandler: [app.requirePermission('sessions', 'read')] };
   const readHistory = { preHandler: [app.requirePermission('history', 'read')] };
@@ -349,11 +352,21 @@ export const sessionRoutes: FastifyPluginAsync = async (app) => {
           const client = new ChannelsDvrClient({ url: server.url, token: '' });
           const schedule = await client.getSchedule();
           const tag = { serverId: server.id, serverName: server.name };
+          // Recordings whose issues an owner or admin cleared (fork); Redis down clears none
+          const cleared = new Set(
+            await app.redis
+              .smembers(REDIS_KEYS.CHANNELS_DVR_CLEARED_ISSUES(server.id))
+              .catch(() => [] as string[])
+          );
           return {
             recordings: schedule.recordings.map((recording) => ({ ...recording, ...tag })),
             upcoming: schedule.upcoming.map((job) => ({ ...job, ...tag })),
             tuners: schedule.tuners ? [{ ...schedule.tuners, ...tag }] : [],
-            recent: schedule.recent.map((file) => ({ ...file, ...tag })),
+            recent: schedule.recent.map((file) => ({
+              ...file,
+              ...tag,
+              issuesCleared: cleared.has(file.fileId),
+            })),
             disks: schedule.disk
               ? [{ ...schedule.disk, ...tag, warnPercent: warnPercentFor(server.id) }]
               : [],
@@ -497,6 +510,47 @@ export const sessionRoutes: FastifyPluginAsync = async (app) => {
     app.log.info(
       { serverId, jobId, userId: request.user.userId },
       'Stopped Channels DVR recording'
+    );
+    return { success: true };
+  });
+
+  /**
+   * POST /sessions/recordings/clear-issues - stop flagging recent recordings' issues (fork)
+   * Body: { serverId, fileIds }. The recordings stay in Recently Recorded without their badges,
+   * for everyone. Same permission as stopping a recording. Kept two days, past the one-day list.
+   */
+  app.post('/recordings/clear-issues', terminateSessions, async (request, reply) => {
+    const body = request.body as { serverId?: unknown; fileIds?: unknown } | undefined;
+    const serverId = typeof body?.serverId === 'string' ? body.serverId : '';
+    const fileIds = Array.isArray(body?.fileIds) ? body.fileIds : [];
+    if (
+      !serverId ||
+      fileIds.length === 0 ||
+      fileIds.length > 100 ||
+      !fileIds.every((id) => typeof id === 'string' && /^[\w.-]{1,64}$/.test(id))
+    ) {
+      return reply.badRequest('serverId and 1 to 100 Channels DVR file ids are required');
+    }
+    if (!hasServerAccess(request.user, serverId)) {
+      return reply.forbidden('You do not have access to this server');
+    }
+    const [server] = await db
+      .select({ type: servers.type, historicalAt: servers.historicalAt })
+      .from(servers)
+      .where(eq(servers.id, serverId))
+      .limit(1);
+    if (!server || server.type !== 'channels_dvr' || server.historicalAt) {
+      return reply.notFound('Channels DVR server not found');
+    }
+    const key = REDIS_KEYS.CHANNELS_DVR_CLEARED_ISSUES(serverId);
+    await app.redis
+      .multi()
+      .sadd(key, ...(fileIds as string[]))
+      .expire(key, CLEARED_ISSUES_TTL_SECONDS)
+      .exec();
+    app.log.info(
+      { serverId, fileIds, userId: request.user.userId },
+      'Cleared Channels DVR recording issues'
     );
     return { success: true };
   });

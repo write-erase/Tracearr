@@ -143,6 +143,9 @@ export const REDIS_KEYS = {
   /** The Channels DVR lineup the lineup alert last saw, so a restart doesn't report old changes. */
   CHANNELS_DVR_LINEUP: (serverId: string) =>
     `${_redisPrefix}tracearr:servers:${serverId}:channels-dvr:lineup`,
+  /** File ids of recent Channels DVR recordings whose issues were cleared on the dashboard (fork). */
+  CHANNELS_DVR_CLEARED_ISSUES: (serverId: string) =>
+    `${_redisPrefix}tracearr:servers:${serverId}:channels-dvr:cleared-issues`,
   DOWNLOAD_CURSOR: (serverId: string) =>
     `${_redisPrefix}tracearr:servers:${serverId}:downloads:cursor`,
   SYNC_CURSOR: (serverId: string) =>

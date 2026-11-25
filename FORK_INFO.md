@@ -1,5 +1,56 @@
 # Tracearr Fork Information
 
+## November 24, 2026 — Dispatcharr dev images: updates from Docker Hub's dev tag
+
+A Dispatcharr dev image showed "Up to date" while a newer dev build was out. Dev images keep the
+release's version (`version.py` says 0.34.1 on both) and add their build time, which
+`/api/core/version/` reports as `timestamp` (`null` on a release image). Tracearr only compared the
+version with the latest GitHub release, so a dev image always matched.
+
+- A Dispatcharr server that reports a build time is stored as `0.34.1-dev.<build time, UTC>`.
+- Its latest is when the `dev` tag on Docker Hub was last pushed
+  (`hub.docker.com/v2/repositories/dispatcharr/dispatcharr/tags/dev`, `last_updated`), counted as
+  an update only when it's more than 10 minutes after the running build. That is Dispatcharr's
+  own check for dev images (`core/tasks.py` `check_for_version_update`, read from its `dev`
+  branch on November 24), so the two agree.
+- The version pill links to Dispatcharr's Docker Hub tags for a dev image, and to the GitHub
+  releases for a release image as before. The update alert links the same way.
+- A release image is unchanged. A dev image is never compared with GitHub releases, as in
+  Dispatcharr's check.
+- Every server type is now checked every six hours. Channels DVR's separate hourly check is gone,
+  so it matches Settings → General → Update checks, which already said "every six hours".
+  Dispatcharr's own check runs daily.
+- A Dispatcharr server with an update waiting is now asked what it runs every minute, as a Channels
+  DVR server already was, so "Update available" turns to "Up to date" within a minute of pulling
+  the new image (dev or release).
+- The Update checks card lists Dispatcharr among the media servers checked ("Plex, Jellyfin, Emby,
+  tofa, Channels DVR and Dispatcharr"). English only; other languages keep their text.
+
+Covered by unit tests (reading the build time, the 10-minute margin, the six-hourly sweep and the
+minute watch, the pill). Checked on a local build on November 24: a Dispatcharr dev image behind
+the latest push showed "Update available" linking to Docker Hub, and turned to "Up to date" within a
+minute of pulling the new image.
+
+## November 24, 2026 — Clear a Channels DVR recording's alert
+
+On the Channels DVR card, a recording in Recently Recorded that went wrong (interrupted, stopped
+early, started late) kept its badge and its place in "N had problems" for the full 24 hours it's
+listed. An owner or admin can now clear it:
+
+- An X beside a recording's badge clears that recording; "Clear all" beside the count (shown when
+  two or more are flagged) clears every flagged one, including any past the first five shown.
+- Clearing removes the badges and drops the recording from the count. The recording stays in
+  Recently Recorded, with its length ("17 min of 30 min") as before.
+- It's cleared for everyone: `POST /sessions/recordings/clear-issues` (body
+  `{ serverId, fileIds }`, the same permission as stopping a recording) adds the Channels DVR file
+  ids to a Redis set per server, kept two days, past the one-day list. `GET /sessions/recordings`
+  marks those recordings `issuesCleared`. If Redis can't be read the card still loads, with
+  nothing cleared.
+
+Covered by route and card tests. Checked on a local build on November 24: clearing a "Stopped
+early" recording removed its badge and the "had problems" pill, the recording stayed listed, and it
+stayed cleared after a refresh and in another browser.
+
 ## November 24, 2026 — Dispatcharr and Channels DVR servers hidden from the mobile app
 
 Tracearr's mobile app (Tracearr/Mobile-App, built on `@tracearr/shared` 3.2.1) looks each
@@ -59,9 +110,9 @@ Dispatcharr's own code (0.34.1):
   picked for the recording (`custom_properties.poster_logo_id`, from the guide, VOD, TMDB and so
   on; Dispatcharr fills it for upcoming recordings too), served as
   `/api/channels/logos/<id>/cache/`, which is what Dispatcharr's own DVR page shows. Without one,
-  the channel's logo; without that, an icon. On a running server so far only the channel logo has
-  been seen, for a KOCO recording where Dispatcharr found no art and saved the channel's logo as
-  the poster; a recording with real programme art has not been seen yet.
+  the channel's logo; without that, an icon. On a running server, a KOCO recording where
+  Dispatcharr found no art (and saved the channel's logo as the poster) showed the channel logo,
+  and on November 24 a recording with programme art showed that art.
 - Stop (in progress): `POST /api/channels/recordings/<id>/stop/`; Dispatcharr keeps what was
   recorded. Cancel (coming up): `DELETE /api/channels/recordings/<id>/`, which is what
   Dispatcharr's own Cancel does. Dispatcharr has no per-episode skip like a Channels DVR series
@@ -77,7 +128,7 @@ Dispatcharr's own code (0.34.1):
 Covered by unit tests (splitting the list, channel lookups, the client calls, the card and both
 buttons). Checked on a running server on November 23: Stop keeps the partial recording, Cancel
 removes the scheduled one, and the "Dispatcharr DVR" and "Channels DVR" names show in Streaming
-Now. Programme art is the one part not yet seen (above).
+Now. Programme art was seen on November 24 (above).
 
 ## November 23, 2026 — Dispatcharr card on the dashboard, beside Channels DVR's
 
@@ -127,8 +178,9 @@ Read from Dispatcharr's own code (0.34.1, November 17):
 Covered by unit tests (parsing, counting, Streaming Now, the client calls, the version feed, the
 card and the dashboard layout). Checked on a running server: the connections pills, the version
 pill, Streaming Now with two viewers sharing one channel and connection, Anonymous listed while
-"ignore Anonymous streams" is on, and the shared row beside Channels DVR. Not yet seen there: a
-failed-refresh pill, the "Channels DVR" chip, and the logos in the card titles.
+"ignore Anonymous streams" is on, and the shared row beside Channels DVR. The "Channels DVR" chip
+was seen on November 23 (Recording Now entry). Not yet seen there: a failed-refresh pill and the
+logos in the card titles.
 
 ## November 23, 2026 — Dev images skip pushes that don't change the image
 
@@ -141,7 +193,7 @@ never contains doesn't build: Markdown, `docs/`, `LICENSE`, issue and discussion
 
 - A push that touches any other file still builds, and Run workflow still builds by hand.
 - `release-notes/*.json` still builds: the web app bundles it for What's New.
-- Not yet seen on GitHub; the first docs-only push to `dev` after this merges should show no run.
+- Seen on GitHub on November 24: a docs-only push to `dev` started no image build.
 
 ## November 23, 2026 — Removed upstream repo files this fork doesn't use
 

@@ -46,6 +46,7 @@ import {
   splitRecordings,
   withChannel,
 } from './overview.js';
+import { dispatcharrVersion } from '../../../utils/serverVersions.js';
 
 export type DispatcharrTokenMode = 'jwt' | 'api-key' | 'credentials' | 'none';
 
@@ -554,8 +555,11 @@ export class DispatcharrClient implements IMediaServerClient {
         service: 'dispatcharr',
         timeout: 10000,
       });
-      const version = (data as { version?: unknown } | null)?.version;
-      return typeof version === 'string' && version.trim() ? version.trim() : null;
+      const { version, timestamp } = (data ?? {}) as { version?: unknown; timestamp?: unknown };
+      // A dev image also reports its build time (fork): stored as 0.34.1-dev.<build time>
+      return typeof version === 'string' && version.trim()
+        ? dispatcharrVersion(version.trim(), timestamp)
+        : null;
     } catch {
       return null;
     }
