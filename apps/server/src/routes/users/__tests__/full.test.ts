@@ -12,7 +12,7 @@ import Fastify, { type FastifyInstance } from 'fastify';
 import sensible from '@fastify/sensible';
 import { randomUUID } from 'node:crypto';
 import type { SQL } from 'drizzle-orm';
-import type { AuthUser } from '@tracearr/shared';
+import type { AuthUser, ServerType } from '@tracearr/shared';
 import { queryChain, renderCall, renderSql, renderedWheres } from '../../../test/helpers.js';
 
 vi.mock('../../../db/client.js', () => ({
@@ -87,7 +87,7 @@ describe('GET /users/:id/full violations panel', () => {
     }
   });
 
-  it('counts sessions for the identity in one grouped read instead of a count per row', async () => {
+  async function fullWithAccountsOn(siblingServerType: ServerType, siblingSessionCount = 0) {
     const serverUserId = randomUUID();
     const siblingId = randomUUID();
     const serverId = randomUUID();
@@ -107,11 +107,11 @@ describe('GET /users/:id/full violations panel', () => {
             ? [{ id: serverUserId, serverId, userId: randomUUID() }]
             : selectCall === 2
               ? [
-                  { id: serverUserId, serverId },
-                  { id: siblingId, serverId },
+                  { id: serverUserId, serverId, serverType: 'plex' },
+                  { id: siblingId, serverId, serverType: siblingServerType },
                 ]
-              : selectCall === 3
-                ? [{ serverUserId: siblingId, count: 4 }]
+              : selectCall === 3 && siblingSessionCount > 0
+                ? [{ serverUserId: siblingId, count: siblingSessionCount }]
                 : [];
         const chain = queryChain(vi.fn, rows);
         chains.push(chain);
@@ -122,8 +122,19 @@ describe('GET /users/:id/full violations panel', () => {
     vi.mocked((db as any).transaction).mockImplementation(async (callback: any) => callback(tx));
 
     const response = await app.inject({ method: 'GET', url: `/users/${serverUserId}/full` });
-
     expect(response.statusCode).toBe(200);
+    const profileChain = chains.find((chain) =>
+      renderCall(chain).text.startsWith('server_profiles.server_user_id in')
+    );
+    return { response, profileChain, ids: [serverUserId, siblingId] };
+  }
+
+  it('counts sessions for the identity in one grouped read instead of a count per row', async () => {
+    const {
+      response,
+      ids: [serverUserId, siblingId],
+    } = await fullWithAccountsOn('plex', 4);
+
     const countChain = chains[2];
     expect(renderCall(countChain).text).toBe(
       `sessions.server_user_id = ANY(ARRAY['${serverUserId}'::uuid,'${siblingId}'::uuid]) AND sessions.started_at >= $1 AND sessions.started_at <= $2`
@@ -132,6 +143,20 @@ describe('GET /users/:id/full violations panel', () => {
     expect(renderedWheres(chains).join(' ')).not.toContain('select count(*)::int from');
     expect(response.json().user.sessionCount).toBe(0);
     expect(response.json().identity.serverUsers.map((su: any) => su.sessionCount)).toEqual([0, 4]);
+  });
+
+  it('lists the profiles of every account of the identity, whatever the scope', async () => {
+    const { response, profileChain, ids } = await fullWithAccountsOn('tofa');
+
+    expect(renderCall(profileChain).params).toEqual(ids);
+    expect(response.json().profiles).toEqual([]);
+  });
+
+  it('reads no profiles when no account of the identity is on a server with profiles', async () => {
+    const { response, profileChain } = await fullWithAccountsOn('jellyfin');
+
+    expect(profileChain).toBeUndefined();
+    expect(response.json().profiles).toEqual([]);
   });
 
   it("carries the identity contact email and the Tracearr user's username in the identity block", async () => {

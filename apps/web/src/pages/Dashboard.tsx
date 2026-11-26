@@ -173,11 +173,7 @@ function ServerDashboard({ actions }: { actions?: ReactNode }) {
       (serverStats?.length ?? 0) > 0);
 
   const liveSelected = selectedServers.filter((s) => !s.historicalAt);
-  const singleProcessLabel = singleServer
-    ? singleServer.type === 'plex'
-      ? 'Plex Media Server'
-      : SERVER_PROFILES[singleServer.type].displayName
-    : undefined;
+  const singleProcessLabel = singleProfile?.displayName;
 
   const {
     series: multiLiveStats,
@@ -237,6 +233,7 @@ function ServerDashboard({ actions }: { actions?: ReactNode }) {
                   {
                     ...seriesMeta(server),
                     gapSeconds: liveStatsGapSeconds(server.type),
+                    hostFallback: server.type === 'dispatcharr' || server.type === 'channels_dvr',
                     data: s.statistics,
                   },
                 ]

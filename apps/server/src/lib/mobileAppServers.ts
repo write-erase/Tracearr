@@ -1,7 +1,7 @@
 /**
  * Keeps Dispatcharr and Channels DVR servers out of what Tracearr's mobile app gets (fork).
  *
- * The app (Tracearr/Mobile-App, built on @tracearr/shared 3.2.1) looks every server's type up in
+ * The app (Tracearr/Mobile-App, built on @tracearr/shared 3.3.0-beta.4) looks every server's type up in
  * its own tables (`SERVER_PROFILES[type].displayName` and the like) and stops working on a type
  * it doesn't have. For a request from the app, recognised by its `x-tracearr-client: mobile/...`
  * header:
@@ -19,12 +19,13 @@ import { API_BASE_PATH, MOBILE_CLIENT_HEADER, type ServerType } from '@tracearr/
 import { db } from '../db/client.js';
 import { servers } from '../db/schema.js';
 
-/** The server types the mobile app has in its tables. */
+/** The server types the mobile app has in its tables: upstream's, Silo included since 3.3.0. */
 export const MOBILE_APP_SERVER_TYPES: ReadonlySet<string> = new Set<ServerType>([
   'plex',
   'jellyfin',
   'emby',
   'tofa',
+  'silo',
 ]);
 
 /** Matches no server, so a filter naming only hidden servers never widens to "all". */

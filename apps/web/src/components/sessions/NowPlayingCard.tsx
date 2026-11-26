@@ -28,6 +28,7 @@ import { DeviceTypeIcon } from './DeviceTypeIcon';
 import { CatchupIcon } from './CatchupIcon';
 import { formatDispatcharrCatchupClock } from './useDispatcharrCatchupCardProgress';
 import { LocalBadge } from './LocalBadge';
+import { AvatarWithProfile } from './AvatarWithProfile';
 import { MediaPageLink } from '@/components/media/MediaPageLink';
 import {
   PLAYBACK_DECISION_LABEL_KEYS,
@@ -283,22 +284,28 @@ export function NowPlayingCard({ session, onClick }: NowPlayingCardProps) {
             {/* Top row: User and badges */}
             <div className="flex items-start justify-between gap-2">
               <div className="flex min-w-0 items-center gap-2">
-                <Avatar className="border-background h-7 w-7 shrink-0 border-2 shadow">
-                  <AvatarImage src={avatarUrl} alt={displayName} />
-                  <AvatarFallback className="text-xs">
-                    {/* Channels DVR "users" are devices with no picture: show the device maker's logo */}
-                    {isChannelsDvr ? (
-                      <DeviceBrandIcon
-                        platform={session.platform}
-                        device={session.device}
-                        product={session.product}
-                        className="h-3.5 w-3.5"
-                      />
-                    ) : (
-                      displayName.slice(0, 2).toUpperCase()
-                    )}
-                  </AvatarFallback>
-                </Avatar>
+                <AvatarWithProfile
+                  serverId={session.serverId}
+                  profile={session.nonMainProfile}
+                  initials="two"
+                >
+                  <Avatar className="border-background h-7 w-7 shrink-0 border-2 shadow">
+                    <AvatarImage src={avatarUrl} alt={displayName} />
+                    <AvatarFallback className="text-xs">
+                      {/* Channels DVR "users" are devices with no picture: show the device maker's logo */}
+                      {isChannelsDvr ? (
+                        <DeviceBrandIcon
+                          platform={session.platform}
+                          device={session.device}
+                          product={session.product}
+                          className="h-3.5 w-3.5"
+                        />
+                      ) : (
+                        displayName.slice(0, 2).toUpperCase()
+                      )}
+                    </AvatarFallback>
+                  </Avatar>
+                </AvatarWithProfile>
                 <span className="truncate text-sm font-medium" title={displayName}>
                   {displayName}
                 </span>

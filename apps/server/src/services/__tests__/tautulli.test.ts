@@ -28,20 +28,24 @@ import {
   TautulliUsersResponseSchema,
   isFatalImportError,
   mapStreamDataToSession,
-  parseHistoryGuid,
   type TautulliHistoryRecord,
   type TautulliUserRecord,
 } from '../tautulli.js';
 import { getSettings, rearmImportedHistoryLink } from '../settings.js';
 import { syncServer } from '../sync.js';
 import { db } from '../../db/client.js';
-import { checkAggregateNeedsRebuild, refreshAggregates } from '../../db/timescale.js';
+import {
+  checkAggregateNeedsRebuild,
+  getCompressedSessionChunkRanges,
+  MAX_POINT_UPDATES_PER_PASS,
+  refreshAggregates,
+} from '../../db/timescale.js';
 import {
   enqueueMaintenanceJob,
   enqueueServerLocationSyncIfBehind,
 } from '../../jobs/maintenanceQueue.js';
 import {
-  batchGetLibraryItemIdentity,
+  batchGetImportKeyIdentity,
   batchResolveMediaByPlexGuid,
 } from '../../jobs/poller/database.js';
 import {
@@ -56,6 +60,7 @@ import {
 import { queryChain, renderSql } from '../../test/helpers.js';
 import type * as ImportModule from '../import/index.js';
 import type { SQL } from 'drizzle-orm';
+import type * as TimescaleModule from '../../db/timescale.js';
 
 vi.mock('../geoip.js', () => ({
   geoipService: {
@@ -81,12 +86,20 @@ vi.mock('../../db/client.js', () => ({
   db: { execute: vi.fn(), select: vi.fn(), update: vi.fn(), transaction: vi.fn() },
 }));
 
-vi.mock('../../db/timescale.js', () => ({
-  refreshAggregates: vi.fn().mockResolvedValue(undefined),
-  checkAggregateNeedsRebuild: vi.fn().mockResolvedValue({ needsRebuild: false }),
-  uncapDecompressionForTx: vi.fn().mockResolvedValue(undefined),
-  getSessionChunkRanges: vi.fn().mockResolvedValue([]),
-}));
+vi.mock('../../db/timescale.js', async (importOriginal) => {
+  const { MAX_POINT_UPDATES_PER_PASS, rangeReachesChunk, sessionRowPoint } =
+    await importOriginal<typeof TimescaleModule>();
+  return {
+    MAX_POINT_UPDATES_PER_PASS,
+    rangeReachesChunk,
+    sessionRowPoint,
+    refreshAggregates: vi.fn().mockResolvedValue(undefined),
+    checkAggregateNeedsRebuild: vi.fn().mockResolvedValue({ needsRebuild: false }),
+    uncapDecompressionForTx: vi.fn().mockResolvedValue(undefined),
+    getSessionChunkRanges: vi.fn().mockResolvedValue([]),
+    getCompressedSessionChunkRanges: vi.fn().mockResolvedValue([]),
+  };
+});
 
 vi.mock('../../jobs/maintenanceQueue.js', () => ({
   enqueueMaintenanceJob: vi.fn().mockResolvedValue('job-1'),
@@ -98,7 +111,7 @@ vi.mock('../serverLocations.js', () => ({
 }));
 
 vi.mock('../../jobs/poller/database.js', () => ({
-  batchGetLibraryItemIdentity: vi.fn(async () => new Map()),
+  batchGetImportKeyIdentity: vi.fn(async () => new Map()),
   batchResolveMediaByPlexGuid: vi.fn(async () => new Map()),
 }));
 
@@ -1266,32 +1279,6 @@ describe('TautulliUsersResponseSchema', () => {
 });
 
 // ============================================================================
-// GUID PARSING TESTS
-// ============================================================================
-
-describe('parseHistoryGuid', () => {
-  it('parses legacy tvdb agent guids at series level', () => {
-    expect(parseHistoryGuid('com.plexapp.agents.thetvdb://121361/6/1?lang=en')).toEqual({
-      tvdbId: 121361,
-    });
-  });
-  it('parses legacy tmdb agent guids', () => {
-    expect(parseHistoryGuid('com.plexapp.agents.themoviedb://584?lang=en')).toEqual({
-      tmdbId: 584,
-    });
-  });
-  it('parses legacy imdb agent guids', () => {
-    expect(parseHistoryGuid('com.plexapp.agents.imdb://tt0322259?lang=en')).toEqual({
-      imdbId: 'tt0322259',
-    });
-  });
-  it('returns empty for new-style plex guids and null', () => {
-    expect(parseHistoryGuid('plex://movie/5d776b59ad5437001f79c6f8')).toEqual({});
-    expect(parseHistoryGuid(null)).toEqual({});
-  });
-});
-
-// ============================================================================
 // FIELD MAPPING TESTS
 // ============================================================================
 
@@ -2342,13 +2329,16 @@ describe('TautulliService.importHistory cutoff and safe updates', () => {
       new Map([[String(REAL_MOVIE_RECORD.user_id), SERVER_USER_ID]])
     );
     vi.mocked(getServerTrackingStart).mockResolvedValue(CUTOFF);
-    vi.mocked(db.select).mockReturnValue(queryChain(vi.fn, [{ machineIdentifier: PMS_ID }]));
+    vi.mocked(db.select).mockReturnValue(
+      queryChain(vi.fn, [{ type: 'plex', machineIdentifier: PMS_ID }])
+    );
     vi.mocked(queryExistingByExternalIds).mockResolvedValue(new Map());
     vi.mocked(queryExistingByTimeKeys).mockResolvedValue(new Map());
     vi.mocked(flushInsertBatch).mockResolvedValue(0);
     vi.mocked(flushUpdateBatch).mockResolvedValue(0);
     vi.mocked(db.transaction).mockImplementation((async (callback: (tx: unknown) => unknown) =>
       callback({ execute: vi.fn().mockResolvedValue({ rows: [] }) })) as never);
+    vi.mocked(db.execute).mockResolvedValue({ rows: [] } as never);
   });
 
   afterEach(() => {
@@ -2743,12 +2733,38 @@ describe('TautulliService.importHistory cutoff and safe updates', () => {
       );
     }
 
+    beforeEach(() => {
+      vi.mocked(getCompressedSessionChunkRanges).mockResolvedValue([]);
+    });
+
+    /** The first statement is the read on db, the rest run in the transaction */
     function mockMergeTransaction(results: Array<{ rows: unknown[] }>) {
       const execute = vi.fn().mockResolvedValue({ rows: [] });
       for (const result of results) execute.mockResolvedValueOnce(result);
+      vi.mocked(db.execute).mockImplementationOnce(execute);
       vi.mocked(db.transaction).mockImplementation((async (callback: (tx: unknown) => unknown) =>
         callback({ execute })) as never);
       return execute;
+    }
+
+    function absorbedRows(count: number, ref: (i: number) => string | null = () => null) {
+      return Array.from({ length: count }, (_, i) => ({
+        id: `absorbed-${i}`,
+        started_at: absorbedStartedIso,
+        server_user_id: SERVER_USER_ID,
+        r_id: `root-${i}`,
+        r_started: new Date(rootStarted * 1000).toISOString(),
+        r_server_user_id: SERVER_USER_ID,
+        r_ref: ref(i),
+      }));
+    }
+
+    /** A compressed chunk ending `endOffsetMs` after the group's start, the lower bound of every write */
+    function compressedChunkEnding(endOffsetMs: number) {
+      const end = new Date(rootStarted * 1000 + endOffsetMs);
+      vi.mocked(getCompressedSessionChunkRanges).mockResolvedValue([
+        { start: new Date(end.getTime() - 30 * DAY_SEC * 1000), end },
+      ]);
     }
 
     function statements(execute: ReturnType<typeof vi.fn>) {
@@ -2892,6 +2908,97 @@ describe('TautulliService.importHistory cutoff and safe updates', () => {
       expect(remove?.params).toContainEqual(['absorbed-session']);
     });
 
+    it("detaches and deletes by point writes on each row's constant key and segment when the span reaches a compressed chunk", async () => {
+      mockFetch = mockTautulliFetch([mergedRecord()], 1);
+      global.fetch = mockFetch as typeof global.fetch;
+      existingRoot();
+      compressedChunkEnding(1);
+      const execute = mockMergeTransaction([
+        { rows: absorbedRows(1, () => 'absorbed-0') },
+        { rows: [] },
+        { rows: [] },
+        { rows: [{ started_at: absorbedStartedIso }] },
+      ]);
+
+      const result = await TautulliService.importHistory(SERVER_ID);
+
+      const [, detach, , remove] = statements(execute);
+      expect(detach?.sql).toBe(
+        'UPDATE sessions r SET reference_id = NULL WHERE r.id = $1::uuid AND r.started_at = $2::timestamptz AND r.server_user_id = $3::uuid AND r.server_id = $4::uuid AND r.server_id = $5::uuid AND r.started_at >= $6::timestamptz AND r.reference_id = ANY($7::uuid[])'
+      );
+      expect(detach?.params).toEqual([
+        'root-0',
+        new Date(rootStarted * 1000).toISOString(),
+        SERVER_USER_ID,
+        SERVER_ID,
+        SERVER_ID,
+        new Date(rootStarted * 1000).toISOString(),
+        ['absorbed-0'],
+      ]);
+      expect(remove?.sql).toBe(
+        "DELETE FROM sessions s WHERE s.id = $1::uuid AND s.started_at = $2::timestamptz AND s.server_user_id = $3::uuid AND s.server_id = $4::uuid AND s.server_id = $5::uuid AND s.started_at >= $6::timestamptz AND (s.session_key = 'tautulli-' || s.external_session_id) RETURNING s.started_at"
+      );
+      expect(remove?.params).toEqual([
+        'absorbed-0',
+        absorbedStartedIso,
+        SERVER_USER_ID,
+        SERVER_ID,
+        SERVER_ID,
+        new Date(rootStarted * 1000).toISOString(),
+      ]);
+      expect(result.message).toContain(
+        '1 plays Tautulli merged into another play since the last import'
+      );
+    });
+
+    it('deletes up to the point-write limit one row at a time', async () => {
+      mockFetch = mockTautulliFetch([mergedRecord()], 1);
+      global.fetch = mockFetch as typeof global.fetch;
+      existingRoot();
+      compressedChunkEnding(1);
+      const execute = mockMergeTransaction([{ rows: absorbedRows(MAX_POINT_UPDATES_PER_PASS) }]);
+
+      await TautulliService.importHistory(SERVER_ID);
+
+      const deletes = statements(execute).filter((st) => st.sql.startsWith('DELETE'));
+      expect(deletes).toHaveLength(MAX_POINT_UPDATES_PER_PASS);
+      expect(deletes.every((st) => !st.sql.includes('unnest'))).toBe(true);
+    });
+
+    it('detaches and deletes more rows than the point-write limit with one statement each', async () => {
+      mockFetch = mockTautulliFetch([mergedRecord()], 1);
+      global.fetch = mockFetch as typeof global.fetch;
+      existingRoot();
+      compressedChunkEnding(1);
+      const execute = mockMergeTransaction([
+        { rows: absorbedRows(MAX_POINT_UPDATES_PER_PASS + 1, (i) => `absorbed-${i}`) },
+      ]);
+
+      await TautulliService.importHistory(SERVER_ID);
+
+      const writes = statements(execute).filter((st) => /^(UPDATE|DELETE)/.test(st.sql));
+      expect(writes.map((st) => st.sql.slice(0, 30))).toEqual([
+        'UPDATE sessions r SET referenc',
+        'DELETE FROM sessions s USING u',
+      ]);
+    });
+
+    it('writes with one statement each when the compressed chunks end at the span start', async () => {
+      mockFetch = mockTautulliFetch([mergedRecord()], 1);
+      global.fetch = mockFetch as typeof global.fetch;
+      existingRoot();
+      compressedChunkEnding(0);
+      const execute = mockMergeTransaction([{ rows: absorbedRows(1, () => 'absorbed-0') }]);
+
+      await TautulliService.importHistory(SERVER_ID);
+
+      const writes = statements(execute).filter((st) => /^(UPDATE|DELETE)/.test(st.sql));
+      expect(writes.map((st) => st.sql.slice(0, 30))).toEqual([
+        'UPDATE sessions r SET referenc',
+        'DELETE FROM sessions s USING u',
+      ]);
+    });
+
     it('deletes nothing when no import row matches the absorbed ids', async () => {
       mockFetch = mockTautulliFetch([mergedRecord()], 1);
       global.fetch = mockFetch as typeof global.fetch;
@@ -2901,6 +3008,7 @@ describe('TautulliService.importHistory cutoff and safe updates', () => {
       const result = await TautulliService.importHistory(SERVER_ID);
 
       expect(execute).toHaveBeenCalledTimes(1);
+      expect(db.transaction).not.toHaveBeenCalled();
       expect(result.message).not.toContain('merged');
     });
 
@@ -2999,7 +3107,9 @@ describe('TautulliService.importHistory Plex guid fallback', () => {
       new Map([[String(REAL_MOVIE_RECORD.user_id), SERVER_USER_ID]])
     );
     vi.mocked(getServerTrackingStart).mockResolvedValue(CUTOFF);
-    vi.mocked(db.select).mockReturnValue(queryChain(vi.fn, [{ machineIdentifier: PMS_ID }]));
+    vi.mocked(db.select).mockReturnValue(
+      queryChain(vi.fn, [{ type: 'plex', machineIdentifier: PMS_ID }])
+    );
     vi.mocked(queryExistingByExternalIds).mockResolvedValue(new Map());
     vi.mocked(queryExistingByTimeKeys).mockResolvedValue(new Map());
     vi.mocked(flushInsertBatch).mockResolvedValue(0);
@@ -3048,7 +3158,9 @@ describe('TautulliService.importHistory Plex guid fallback', () => {
   ])('never falls back to guid when $label', async ({ tracearr }) => {
     const record = { ...REAL_MOVIE_RECORD, started: Math.floor(CUTOFF.getTime() / 1000) - 3600 };
     global.fetch = mockTautulliFetch([record]) as typeof global.fetch;
-    vi.mocked(db.select).mockReturnValue(queryChain(vi.fn, [{ machineIdentifier: tracearr }]));
+    vi.mocked(db.select).mockReturnValue(
+      queryChain(vi.fn, [{ type: 'plex', machineIdentifier: tracearr }])
+    );
     let inserted: Array<Record<string, unknown>> | undefined;
     vi.mocked(flushInsertBatch).mockImplementation(async (batch) => {
       inserted = [...(batch as Array<Record<string, unknown>>)];
@@ -3081,8 +3193,10 @@ describe('TautulliService.importHistory Plex guid fallback', () => {
   it('still links by rating key when Tautulli monitors a different Plex server', async () => {
     const record = { ...REAL_MOVIE_RECORD, started: Math.floor(CUTOFF.getTime() / 1000) - 3600 };
     global.fetch = mockTautulliFetch([record]) as typeof global.fetch;
-    vi.mocked(db.select).mockReturnValue(queryChain(vi.fn, [{ machineIdentifier: 'pms-other' }]));
-    vi.mocked(batchGetLibraryItemIdentity).mockResolvedValueOnce(
+    vi.mocked(db.select).mockReturnValue(
+      queryChain(vi.fn, [{ type: 'plex', machineIdentifier: 'pms-other' }])
+    );
+    vi.mocked(batchGetImportKeyIdentity).mockResolvedValueOnce(
       new Map([
         [
           String(REAL_MOVIE_RECORD.rating_key),
@@ -3095,6 +3209,12 @@ describe('TautulliService.importHistory Plex guid fallback', () => {
             parentRatingKey: null,
             grandparentRatingKey: null,
             itemMediaType: 'movie',
+            itemGuid: null,
+            itemShowTitle: null,
+            itemSeason: null,
+            itemEpisode: null,
+            showTvdbId: null,
+            showTmdbId: null,
           },
         ],
       ])
@@ -3111,11 +3231,72 @@ describe('TautulliService.importHistory Plex guid fallback', () => {
     expect(inserted?.[0]).toMatchObject({ mediaId: 'media-by-key', imdbId: 'tt555' });
   });
 
+  it.each([
+    { type: 'plex', mediaId: null },
+    { type: 'jellyfin', mediaId: 'media-blacklist-s7e9' },
+  ] as const)(
+    'links an episode by a key whose item only the provably-reused rule accepts on $type: $mediaId',
+    async ({ type, mediaId }) => {
+      const record = {
+        ...REAL_EPISODE_RECORD,
+        user_id: REAL_MOVIE_RECORD.user_id,
+        full_title: 'Forged in Fire - The Zweihander',
+        title: 'The Zweihander',
+        grandparent_title: 'Forged in Fire',
+        year: 2020,
+        media_index: 17,
+        parent_media_index: 7,
+        guid: null,
+        group_count: 1,
+        group_ids: String(REAL_EPISODE_RECORD.reference_id),
+        started: Math.floor(CUTOFF.getTime() / 1000) - 3600,
+      };
+      global.fetch = mockTautulliFetch([record]) as typeof global.fetch;
+      vi.mocked(db.select).mockReturnValue(
+        queryChain(vi.fn, [{ type, machineIdentifier: 'pms-other' }])
+      );
+      vi.mocked(batchGetImportKeyIdentity).mockResolvedValueOnce(
+        new Map([
+          [
+            String(record.rating_key),
+            {
+              mediaId: 'media-blacklist-s7e9',
+              showMediaId: 'media-blacklist',
+              imdbId: null,
+              tmdbId: null,
+              tvdbId: null,
+              parentRatingKey: null,
+              grandparentRatingKey: null,
+              itemMediaType: 'episode',
+              itemTitle: 'Les Fleurs du Mal',
+              itemYear: 2019,
+              itemGuid: null,
+              itemShowTitle: 'The Blacklist',
+              itemSeason: 7,
+              itemEpisode: 9,
+              showTvdbId: null,
+              showTmdbId: null,
+            },
+          ],
+        ])
+      );
+      let inserted: Array<Record<string, unknown>> | undefined;
+      vi.mocked(flushInsertBatch).mockImplementation(async (batch) => {
+        inserted = [...(batch as Array<Record<string, unknown>>)];
+        return batch.length;
+      });
+
+      await TautulliService.importHistory(SERVER_ID);
+
+      expect(inserted?.[0]).toMatchObject({ mediaId });
+    }
+  );
+
   it('does not fall back to guid when the rating key resolved a row with no mediaId yet', async () => {
     const ratingKeyStr = String(REAL_MOVIE_RECORD.rating_key);
     const record = { ...REAL_MOVIE_RECORD, started: Math.floor(CUTOFF.getTime() / 1000) - 3600 };
     global.fetch = mockTautulliFetch([record]) as typeof global.fetch;
-    vi.mocked(batchGetLibraryItemIdentity).mockResolvedValue(
+    vi.mocked(batchGetImportKeyIdentity).mockResolvedValue(
       new Map([
         [
           ratingKeyStr,
@@ -3128,6 +3309,12 @@ describe('TautulliService.importHistory Plex guid fallback', () => {
             parentRatingKey: null,
             grandparentRatingKey: null,
             itemMediaType: 'movie',
+            itemGuid: null,
+            itemShowTitle: null,
+            itemSeason: null,
+            itemEpisode: null,
+            showTvdbId: null,
+            showTmdbId: null,
           },
         ],
       ])

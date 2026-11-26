@@ -1,8 +1,16 @@
-import { eq, ne, sql } from 'drizzle-orm';
+import { eq, ne, sql, type SQL } from 'drizzle-orm';
 import { LOCAL_NETWORK_COUNTRY } from '@tracearr/shared';
 import { db } from '../db/client.js';
 import { servers } from '../db/schema.js';
-import { uncapDecompressionForTx } from '../db/timescale.js';
+import {
+  getCompressedSessionChunkRanges,
+  MAX_POINT_UPDATES_PER_PASS,
+  rangeReachesChunk,
+  sessionRowPoint,
+  uncapDecompressionForTx,
+  type ChunkTimeRange,
+  type SessionRowPoint,
+} from '../db/timescale.js';
 import { geoipService } from '../services/geoip.js';
 import { locationRanges, type LocationRange } from '../services/serverLocationRanges.js';
 import { loadServerLocations } from '../services/serverLocations.js';
@@ -21,10 +29,7 @@ export const LOCATION_SYNC_BATCH_SIZE = 1000;
 const TAIL_RECHECK_MS = 60 * 60 * 1000;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-interface CandidateRow {
-  id: string;
-  /** Postgres text, microseconds intact */
-  started_at: string;
+interface CandidateRow extends SessionRowPoint {
   ip_address: string;
   is_local: boolean | null;
 }
@@ -41,10 +46,18 @@ function earlierOf(a: Date | null, b: Date | null): Date | null {
   return a < b ? a : b;
 }
 
+/**
+ * Places one batch of the server's local rows. The candidates are read first, so a batch with
+ * nothing to change opens no transaction. The rows are written by two statements bounded by the
+ * batch's span, which decompress every compressed batch of the server that span reaches; up to
+ * MAX_POINT_UPDATES_PER_PASS rows over a compressed chunk instead each take a point update on
+ * the row's constant key and segment, which decompresses only the batch holding the row.
+ */
 export async function syncLocationBatch(
   serverId: string,
   range: LocationRange,
   window: Required<BackfillWindow> | null,
+  compressed: ChunkTimeRange[],
   batchSize = LOCATION_SYNC_BATCH_SIZE,
   /** The previous batch's oldest started_at. Inclusive: a row this walk wrote no longer matches, so only its unwritten ties come back. */
   before?: string
@@ -70,66 +83,85 @@ export async function syncLocationBatch(
     sql` AND `
   );
 
-  return db.transaction(async (tx) => {
-    await uncapDecompressionForTx(tx);
-    const selected = await tx.execute(sql`
-      SELECT s.id, s.started_at, s.ip_address, s.is_local
-      FROM sessions s
-      WHERE ${bounds}
-        AND ${localSessionSql('s')}
-        AND (
-          s.is_local IS NULL
-          OR s.geo_city IS DISTINCT FROM ${city}::varchar
-          OR s.geo_region IS DISTINCT FROM ${region}::varchar
-          OR s.geo_country IS DISTINCT FROM ${country}::varchar
-          OR s.geo_lat IS DISTINCT FROM ${lat}
-          OR s.geo_lon IS DISTINCT FROM ${lon}
-          OR s.geo_continent IS NOT NULL
-          OR s.geo_postal IS NOT NULL
-        )
-      ORDER BY s.started_at DESC
-      LIMIT ${batchSize}
-    `);
-    const rows = selected.rows as unknown as CandidateRow[];
-    const newest = rows[0];
-    const oldest = rows.at(-1);
-    if (!newest || !oldest) return { count: 0, oldest: null };
+  const selected = await db.execute(sql`
+    SELECT s.id, s.started_at, s.server_user_id, s.server_id, s.ip_address, s.is_local
+    FROM sessions s
+    WHERE ${bounds}
+      AND ${localSessionSql('s')}
+      AND (
+        s.is_local IS NULL
+        OR s.geo_city IS DISTINCT FROM ${city}::varchar
+        OR s.geo_region IS DISTINCT FROM ${region}::varchar
+        OR s.geo_country IS DISTINCT FROM ${country}::varchar
+        OR s.geo_lat IS DISTINCT FROM ${lat}
+        OR s.geo_lon IS DISTINCT FROM ${lon}
+        OR s.geo_continent IS NOT NULL
+        OR s.geo_postal IS NOT NULL
+      )
+    ORDER BY s.started_at DESC
+    LIMIT ${batchSize}
+  `);
+  const rows = selected.rows as unknown as CandidateRow[];
+  const newest = rows[0];
+  const oldest = rows.at(-1);
+  if (!newest || !oldest) return { count: 0, oldest: null };
 
-    const placeIds: string[] = [];
-    const publicIds: string[] = [];
-    for (const row of rows) {
-      (row.is_local === true || geoipService.isPrivateIP(row.ip_address)
-        ? placeIds
-        : publicIds
-      ).push(row.id);
+  const placeRows: CandidateRow[] = [];
+  const publicRows: CandidateRow[] = [];
+  for (const row of rows) {
+    (row.is_local === true || geoipService.isPrivateIP(row.ip_address)
+      ? placeRows
+      : publicRows
+    ).push(row);
+  }
+  const placeSet = sql`
+    is_local = true,
+    geo_city = ${city},
+    geo_region = ${region},
+    geo_country = ${country},
+    geo_lat = ${lat},
+    geo_lon = ${lon},
+    geo_continent = NULL,
+    geo_postal = NULL`;
+  // An old label said local but the IP is public: record that and leave the row's geo as it is.
+  const publicSet = sql`is_local = false`;
+  const pointUpdates =
+    rows.length <= MAX_POINT_UPDATES_PER_PASS &&
+    rangeReachesChunk(compressed, {
+      start: new Date(oldest.started_at),
+      end: new Date(newest.started_at),
+      endInclusive: true,
+    });
+
+  await db.transaction(async (tx) => {
+    await uncapDecompressionForTx(tx);
+    if (pointUpdates) {
+      const point = (set: SQL, row: CandidateRow) =>
+        tx.execute(sql`
+          UPDATE sessions s SET ${set}
+          WHERE ${sessionRowPoint('s', row)}
+        `);
+      for (const row of placeRows) await point(placeSet, row);
+      for (const row of publicRows) await point(publicSet, row);
+      return;
     }
     const inBatch = sql`server_id = ${serverId}::uuid
       AND started_at >= ${oldest.started_at}::timestamptz
       AND started_at <= ${newest.started_at}::timestamptz`;
-
-    if (placeIds.length > 0) {
+    if (placeRows.length > 0) {
       await tx.execute(sql`
-        UPDATE sessions SET
-          is_local = true,
-          geo_city = ${city},
-          geo_region = ${region},
-          geo_country = ${country},
-          geo_lat = ${lat},
-          geo_lon = ${lon},
-          geo_continent = NULL,
-          geo_postal = NULL
-        WHERE ${inBatch} AND id = ANY(${uuidArraySql(placeIds)})
+        UPDATE sessions SET ${placeSet}
+        WHERE ${inBatch} AND id = ANY(${uuidArraySql(placeRows.map((row) => row.id))})
       `);
     }
-    // An old label said local but the IP is public: record that and leave the row's geo as it is.
-    if (publicIds.length > 0) {
+    if (publicRows.length > 0) {
       await tx.execute(sql`
-        UPDATE sessions SET is_local = false
-        WHERE ${inBatch} AND id = ANY(${uuidArraySql(publicIds)})
+        UPDATE sessions SET ${publicSet}
+        WHERE ${inBatch} AND id = ANY(${uuidArraySql(publicRows.map((row) => row.id))})
       `);
     }
-    return { count: rows.length, oldest: new Date(oldest.started_at), cursor: oldest.started_at };
   });
+  return { count: rows.length, oldest: new Date(oldest.started_at), cursor: oldest.started_at };
 }
 
 function overlaps(window: Required<BackfillWindow>, range: LocationRange): boolean {
@@ -171,6 +203,8 @@ export async function runServerLocationSyncWalk(deps: {
     plans.push({ ...server, ranges: untouched ? [] : locationRanges(entries) });
   }
   const windows = await sessionWalkWindows(null);
+  // Callers run the walk with compression paused, so no chunk becomes compressed during it.
+  const compressed = await getCompressedSessionChunkRanges();
 
   let total = 0;
   const failedRanges: string[] = [];
@@ -181,7 +215,7 @@ export async function runServerLocationSyncWalk(deps: {
   ) => {
     const result = await drainWindowsWithBisection(
       rangeWindows,
-      (window, before) => syncLocationBatch(serverId, range, window, batchSize, before),
+      (window, before) => syncLocationBatch(serverId, range, window, compressed, batchSize, before),
       {
         batchSize,
         label: 'ServerLocationSync',

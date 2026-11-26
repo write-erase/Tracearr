@@ -1,11 +1,18 @@
 import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
-import type { ServerUserFullDetail, SessionWithDetails, UserRangeStats } from '@tracearr/shared';
+import type {
+  ProfileFilterOption,
+  ServerUserFullDetail,
+  SessionWithDetails,
+  UserRangeStats,
+} from '@tracearr/shared';
 import { Button } from '@/components/ui/button';
 import { Card, CardAction, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import type { TimeRangePeriod } from '@/components/ui/time-range-picker';
 import { PlaysChart, priorRangeComparison } from '@/components/charts/PlaysChart';
+import { cn } from '@/lib/utils';
 import { MostFinishedCard } from './MostFinishedCard';
+import { ProfilesCard } from './ProfilesCard';
 import { UserSessionsTable } from './SessionsTab';
 import { WhatCard } from './WhatCard';
 import { WhenCard } from './WhenCard';
@@ -19,6 +26,8 @@ interface OverviewTabProps {
   period: TimeRangePeriod;
   detail: ServerUserFullDetail;
   showServer: boolean;
+  /** The profiles of the accounts in view, or none when none of them is shown */
+  profiles: ProfileFilterOption[];
   onSessionClick: (session: SessionWithDetails) => void;
   onShowSessions: () => void;
 }
@@ -29,6 +38,7 @@ export function OverviewTab({
   period,
   detail,
   showServer,
+  profiles,
   onSessionClick,
   onShowSessions,
 }: OverviewTabProps) {
@@ -58,6 +68,8 @@ export function OverviewTab({
     ];
   }, [stats, t]);
 
+  const showProfileSplit = stats !== undefined && stats.profiles.length > 1;
+
   return (
     <div className="space-y-6">
       <div className="grid gap-6 lg:grid-cols-5">
@@ -78,7 +90,12 @@ export function OverviewTab({
         <WhenCard stats={stats} isLoading={isLoading} className="lg:col-span-2" />
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-3">
+      <div
+        className={cn(
+          'grid gap-6',
+          showProfileSplit ? 'lg:grid-cols-2 2xl:grid-cols-4' : 'lg:grid-cols-3'
+        )}
+      >
         <WhatCard stats={stats} />
         <MostFinishedCard items={stats?.mostFinished} />
         <WhereCard
@@ -89,6 +106,7 @@ export function OverviewTab({
           allLocations={detail.locations}
           totalSessions={detail.sessions.total}
         />
+        {showProfileSplit && <ProfilesCard profiles={stats.profiles} className="self-start" />}
       </div>
 
       <Card>
@@ -106,6 +124,7 @@ export function OverviewTab({
             user={detail.user}
             personName={detail.user.identityName ?? detail.identity.username}
             showServer={showServer}
+            profiles={profiles}
             onSessionClick={onSessionClick}
           />
         </CardContent>

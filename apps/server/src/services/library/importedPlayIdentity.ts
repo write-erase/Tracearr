@@ -102,7 +102,7 @@ interface ShowTitle {
 }
 
 /** Plex history names a show "Title (2021)" where the library item is "Title"; split the two. */
-function showTitleOf(raw: string): ShowTitle {
+export function showTitleOf(raw: string): ShowTitle {
   const title = raw.trim();
   const [, base, year] = /^(.*\S)\s*\((\d{4})\)$/.exec(title) ?? [];
   return base && year ? { title, base, year: Number(year) } : { title, base: title, year: null };
@@ -179,6 +179,11 @@ function pickShow(candidates: ShowCandidate[], playYear: number | null): string 
  */
 const FOLD_CACHE_LIMIT = 10_000;
 const foldCache = new Map<string, string>();
+
+/** Forgets every remembered fold, for a caller that just changed which shows history files titles under. */
+export function clearFoldCache(): void {
+  foldCache.clear();
+}
 
 async function foldedShows(titles: string[]): Promise<Map<string, string | null>> {
   const found = new Map<string, string | null>();

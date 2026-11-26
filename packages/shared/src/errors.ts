@@ -34,9 +34,11 @@ export const ErrorCodes = {
   JELLYFIN_ERROR: 'EXT_002',
   GEOIP_ERROR: 'EXT_003',
   EMBY_ERROR: 'EXT_004',
-  TOFA_ERROR: 'EXT_007',
-  DISPATCHARR_ERROR: 'EXT_005',
-  CHANNELS_DVR_ERROR: 'EXT_006',
+  TOFA_ERROR: 'EXT_005',
+  SILO_ERROR: 'EXT_006',
+  // Fork server types, numbered apart so upstream's next codes can't collide (fork)
+  DISPATCHARR_ERROR: 'EXT_901',
+  CHANNELS_DVR_ERROR: 'EXT_902',
 } as const;
 
 export type ErrorCode = (typeof ErrorCodes)[keyof typeof ErrorCodes];

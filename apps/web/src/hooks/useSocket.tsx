@@ -380,7 +380,7 @@ export function SocketProvider({ children }: { children: ReactNode }) {
     newSocket.on(WS_EVENTS.IMPORT_PROGRESS, onImportProgress);
     newSocket.on(WS_EVENTS.IMPORT_JELLYSTAT_PROGRESS, onImportProgress);
     newSocket.on(WS_EVENTS.IMPORT_PLAYBACK_REPORTING_PROGRESS, onImportProgress);
-    newSocket.on(WS_EVENTS.IMPORT_TOFA_PROGRESS, onImportProgress);
+    newSocket.on(WS_EVENTS.IMPORT_SERVER_HISTORY_PROGRESS, onImportProgress);
 
     // Maintenance job progress - invalidate relevant caches when jobs complete
     newSocket.on(WS_EVENTS.MAINTENANCE_PROGRESS, (progress: MaintenanceJobProgress) => {
@@ -418,6 +418,7 @@ export function SocketProvider({ children }: { children: ReactNode }) {
           case 'backfill_session_identity':
           case 'remove_import_duplicates':
           case 'link_imported_history':
+          case 'repair_imported_links':
             void queryClient.invalidateQueries({ queryKey: ['sessions'] });
             void queryClient.invalidateQueries({ queryKey: ['stats'] });
             void queryClient.invalidateQueries({ queryKey: ['library'] });

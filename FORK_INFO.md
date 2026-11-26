@@ -1,5 +1,65 @@
 # Tracearr Fork Information
 
+## November 26, 2026 — Upstream main through 3.3.0-beta.4 (82a0cd1c), with Silo
+
+Merges Connor's `main` from `6c9da518` (November 22, merged in #66) through `82a0cd1c`, his
+3.3.0-beta.4: 39 commits. Upstream is a 3.3.0 beta from here on, so this waits for 3.3.0 before a
+release.
+
+What it brings: Silo as a fifth upstream server type (added by a code an admin approves in Silo,
+its own events socket, resources, requests, watch history and profiles); per-user profiles on a
+server (a `server_profiles` table, a Profile column in History); repair jobs that relink imported
+plays to the right library item; server colours taken from each logo. Migrations 0133–0137 run on
+start: back up first.
+
+Conflicts (61 files) and how each was settled:
+
+- Files this fork removed and upstream edited (the vouch, labeler and renovate workflows,
+  `SECURITY.md`, the helm chart) stay removed.
+- Server types: `plex, jellyfin, emby, tofa, silo, dispatcharr, channels_dvr`. Every switch,
+  profile, schema and test lists all seven. Dispatcharr and Channels DVR take upstream's new
+  profile fields: `reusesItemKeys: false`, `hasProfiles: false`, `versionKind: 'release'`, and
+  `builtInRequests: false` (now a boolean).
+- Error codes: upstream gave tofa `EXT_005` and Silo `EXT_006`, the codes this fork had given
+  Dispatcharr and Channels DVR. Upstream's types keep upstream's codes; Dispatcharr is now
+  `EXT_901` and Channels DVR `EXT_902`, numbered apart so upstream's next codes can't collide.
+  Nothing matched on the old codes but one test.
+- Brand colours: upstream's types take upstream's colours from their logos; Dispatcharr
+  (`#14B8A6`) and Channels DVR (`#0EA5E9`) keep theirs.
+- Editing a server: upstream moved the checks into `services/serverChange.ts`. This fork's
+  Dispatcharr sign-in (token or username and password) and its skipped identity check (Dispatcharr
+  reports none) moved there with it.
+- Update checks: Silo reports a build hash and has no release feed, so it gets no latest version,
+  as upstream has it; the six-hour sweep and the minute watch for Channels DVR and Dispatcharr are
+  unchanged.
+- CPU and RAM charts: a server that reports nothing gets no line (upstream), and Silo, which has
+  no process CPU, is left off the CPU chart (upstream). Dispatcharr and Channels DVR are still
+  drawn from their host figure as "Name (System)" where their process reports none (this fork, a
+  `hostFallback` flag on the series). The single-server process line is named by the server's display name, "Plex" rather than
+  "Plex Media Server" (upstream).
+- History table: upstream's column widths (`historyColumns.ts`) replace this fork's, which did the
+  same job; the catch-up badge, no watched-tier badge on live TV, and title truncation stay. The
+  fork's three tests of its own widths are gone; its six live TV and catch-up tests run against
+  upstream's table.
+- Image proxy: upstream resolves a Silo image to its signed URL first; Channels DVR channel logos
+  and Plex outside art keep their own paths.
+- Newsletters: Dispatcharr and Channels DVR still get no item links.
+- Request services: upstream renamed the built-in type `tofa` to `server`; Seerr matching for
+  Dispatcharr and Channels DVR keeps what it had.
+- Mobile app: Connor's app now builds against 3.3.0-beta.4 and knows Silo, so Silo servers are no
+  longer hidden from it; Dispatcharr and Channels DVR still are. An app older than 3.3.0 stops on a
+  Silo server, as it would with upstream's Tracearr.
+- README: Silo added where it lists Tracearr's server types.
+- Dispatcharr and Channels DVR clients answer upstream's three new client calls (account
+  profiles, requests, request posters) with "not needed", as Plex does. Silo is in the media
+  library capability list, so its library syncs and history import run.
+- Tests: the fork's image proxy test stubbed all of `utils/http.js`, which also stubbed Silo's
+  catalog reads; only the Channels DVR guide read is stubbed now. Silo's poll trigger expects the
+  `{ immediateStops: false }` the fork passes, as the tofa test already did.
+
+Typecheck, lint, the server build and every test suite pass. Not yet run on a running server.
+Silo itself is upstream's and untested here: this fork has no Silo server to try it on.
+
 ## November 26, 2026 — Release v3.2.1-r3
 
 Still on upstream 3.2.1, plus Connor's `main` up to `6c9da518` (November 22, merged in #66), which

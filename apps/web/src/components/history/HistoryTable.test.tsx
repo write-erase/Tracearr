@@ -1,379 +1,39 @@
-// @vitest-environment jsdom
+import { describe, it, expect, vi } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router';
-import { describe, expect, it, vi } from 'vitest';
 import type { ComponentProps } from 'react';
 import type { SessionWithDetails } from '@tracearr/shared';
-import { DEFAULT_COLUMN_VISIBILITY } from './HistoryFilters';
-import { HistoryTable } from './HistoryTable';
 import { TooltipProvider } from '@/components/ui/tooltip';
+import { HistoryTable } from './HistoryTable';
+import { DEFAULT_COLUMN_VISIBILITY } from './historyColumns';
 
+const { t } = vi.hoisted(() => ({ t: vi.fn((key: string) => key) }));
+vi.mock('react-i18next', () => ({ useTranslation: () => ({ t }) }));
+
+vi.mock('@/hooks/useServerColorMap', () => ({ useServerColorMap: () => new Map() }));
+
+// jsdom cannot lay out the real scroll container, so every row is rendered.
 vi.mock('@tanstack/react-virtual', () => ({
-  useVirtualizer: ({ count }: { count: number }) => ({
-    getTotalSize: () => count * 53,
+  useVirtualizer: (options: { count: number; estimateSize: () => number }) => ({
+    getTotalSize: () => options.count * options.estimateSize(),
     getVirtualItems: () =>
-      count > 0
-        ? [
-            {
-              index: 0,
-              key: 0,
-              start: 0,
-              end: 53,
-              size: 53,
-              lane: 0,
-            },
-          ]
-        : [],
+      Array.from({ length: options.count }, (_, index) => ({
+        index,
+        key: index,
+        start: index * options.estimateSize(),
+        size: options.estimateSize(),
+      })),
     measureElement: vi.fn(),
   }),
 }));
 
-vi.mock('@/hooks/useServerColorMap', () => ({
-  useServerColorMap: () => new Map(),
-}));
-
-function makeSession(overrides: Partial<SessionWithDetails> = {}): SessionWithDetails {
-  return {
-    id: 'session-1',
-    serverId: 'server-1',
-    serverUserId: 'user-1',
-    sessionKey: 'sk-1',
-    profileName: null,
-    state: 'stopped',
-    mediaType: 'movie',
-    mediaTitle: 'Very Long Movie Name That Should Be Truncated On Mobile Layout',
-    grandparentTitle: null,
-    seasonNumber: null,
-    episodeNumber: null,
-    year: 2026,
-    thumbPath: null,
-    serverVersionKey: null,
-    parentRatingKey: null,
-    grandparentRatingKey: null,
-    mediaId: null,
-    showMediaId: null,
-    imdbId: null,
-    tmdbId: null,
-    tvdbId: null,
-    startedAt: new Date(),
-    stoppedAt: new Date(),
-    durationMs: 120_000,
-    totalDurationMs: 7_200_000,
-    progressMs: 2_100_000,
-    lastPausedAt: null,
-    pausedDurationMs: 0,
-    referenceId: null,
-    watched: false,
-    ipAddress: '127.0.0.1',
-    geoCity: null,
-    geoRegion: null,
-    geoCountry: null,
-    geoContinent: null,
-    geoPostal: null,
-    geoLat: null,
-    geoLon: null,
-    geoAsnNumber: null,
-    geoAsnOrganization: null,
-    isLocal: false,
-    playerName: 'Player',
-    deviceId: 'device-1',
-    product: 'App',
-    device: 'Phone',
-    platform: 'iOS',
-    quality: null,
-    isTranscode: false,
-    videoDecision: 'directplay',
-    audioDecision: 'directplay',
-    bitrate: null,
-    sourceVideoCodec: null,
-    sourceAudioCodec: null,
-    sourceAudioChannels: null,
-    sourceVideoWidth: null,
-    sourceVideoHeight: null,
-    sourceVideoDetails: null,
-    sourceAudioDetails: null,
-    streamVideoCodec: null,
-    streamAudioCodec: null,
-    streamVideoDetails: null,
-    streamAudioDetails: null,
-    transcodeInfo: null,
-    subtitleInfo: null,
-    channelTitle: null,
-    channelIdentifier: null,
-    channelThumb: null,
-    artistName: null,
-    albumName: null,
-    trackNumber: null,
-    discNumber: null,
-    user: {
-      id: 'user-1',
-      username: 'alice',
-      thumbUrl: null,
-      identityName: null,
-    },
-    server: {
-      id: 'server-1',
-      name: 'Plex',
-      type: 'plex',
-    },
-    ...overrides,
-  };
-}
-
-describe('HistoryTable content layout', () => {
-  it('keeps content readable by restoring a scrollable minimum table width', () => {
-    render(
-      <TooltipProvider>
-        <MemoryRouter>
-          <HistoryTable sessions={[makeSession()]} columnVisibility={DEFAULT_COLUMN_VISIBILITY} />
-        </MemoryRouter>
-      </TooltipProvider>
-    );
-
-    const table = screen.getByRole('table');
-    expect(table.className).toContain('w-full');
-    expect(table).toHaveStyle({ minWidth: '1264px' });
-
-    const title = screen.getByText(
-      'Very Long Movie Name That Should Be Truncated On Mobile Layout'
-    );
-    expect(title.closest('span')?.className).toContain('truncate');
-    expect(title.closest('span')?.className).toContain('min-w-0');
-    expect(title.closest('span')?.className).toContain('flex-1');
-
-    const contentHeader = screen.getByRole('columnheader', { name: 'labels.content' });
-    expect(contentHeader).toHaveStyle({ width: '300px', minWidth: '300px' });
-
-    const contentCell = title.closest('td');
-    expect(contentCell).not.toBeNull();
-    expect(contentCell).toHaveStyle({ width: '300px', minWidth: '300px' });
-    expect(contentCell?.className).toContain('overflow-hidden');
-  });
-
-  it('accounts for the server column only in multi-server mode', () => {
-    const { rerender } = render(
-      <TooltipProvider>
-        <MemoryRouter>
-          <HistoryTable
-            sessions={[makeSession()]}
-            columnVisibility={DEFAULT_COLUMN_VISIBILITY}
-            isMultiServer
-          />
-        </MemoryRouter>
-      </TooltipProvider>
-    );
-
-    expect(screen.getByRole('table')).toHaveStyle({ minWidth: '1414px' });
-
-    rerender(
-      <TooltipProvider>
-        <MemoryRouter>
-          <HistoryTable sessions={[makeSession()]} columnVisibility={DEFAULT_COLUMN_VISIBILITY} />
-        </MemoryRouter>
-      </TooltipProvider>
-    );
-
-    expect(screen.getByRole('table')).toHaveStyle({ minWidth: '1264px' });
-  });
-
-  it('recalculates its minimum width when visible columns change', () => {
-    render(
-      <TooltipProvider>
-        <MemoryRouter>
-          <HistoryTable
-            sessions={[makeSession()]}
-            columnVisibility={{ ...DEFAULT_COLUMN_VISIBILITY, content: false, ip: true }}
-          />
-        </MemoryRouter>
-      </TooltipProvider>
-    );
-
-    expect(screen.getByRole('table')).toHaveStyle({ minWidth: '1094px' });
-  });
-});
-
-describe('HistoryTable live content display', () => {
-  it('shows the channel as primary and programme as secondary for unified live TV', () => {
-    render(
-      <TooltipProvider>
-        <MemoryRouter>
-          <HistoryTable
-            sessions={[
-              makeSession({
-                mediaType: 'live',
-                mediaTitle: 'Evening Movie',
-                channelTitle: 'Classic Hits TV',
-                year: null,
-                server: {
-                  id: 'server-1',
-                  name: 'Dispatcharr',
-                  type: 'dispatcharr',
-                },
-              }),
-            ]}
-            columnVisibility={DEFAULT_COLUMN_VISIBILITY}
-          />
-        </MemoryRouter>
-      </TooltipProvider>
-    );
-
-    expect(screen.getByText('Classic Hits TV')).toBeInTheDocument();
-    expect(screen.getByText('Evening Movie')).toBeInTheDocument();
-    expect(screen.queryByText('pages:yourStats.tier.abandoned')).not.toBeInTheDocument();
-    expect(screen.queryByText('Sampled')).not.toBeInTheDocument();
-    expect(screen.queryByText('Engaged')).not.toBeInTheDocument();
-    expect(screen.queryByText('common:playback.watched')).not.toBeInTheDocument();
-  });
-
-  it('falls back to the media title when a live session has no channel name', () => {
-    render(
-      <TooltipProvider>
-        <MemoryRouter>
-          <HistoryTable
-            sessions={[
-              makeSession({
-                mediaType: 'live',
-                mediaTitle: 'Fallback Channel',
-                channelTitle: null,
-                year: null,
-              }),
-            ]}
-            columnVisibility={DEFAULT_COLUMN_VISIBILITY}
-          />
-        </MemoryRouter>
-      </TooltipProvider>
-    );
-
-    expect(screen.getByText('Fallback Channel')).toBeInTheDocument();
-  });
-
-  it('does not render engagement badges for Dispatcharr catch-up history rows', () => {
-    render(
-      <TooltipProvider>
-        <MemoryRouter>
-          <HistoryTable
-            sessions={[
-              makeSession({
-                mediaType: 'live',
-                mediaTitle: 'Morning News',
-                channelTitle: 'News 24',
-                year: null,
-                totalDurationMs: 5_400_000,
-                progressMs: 4_900_000,
-                dispatcharrPlaybackKind: 'catchup',
-                server: {
-                  id: 'server-1',
-                  name: 'Dispatcharr',
-                  type: 'dispatcharr',
-                },
-              }),
-            ]}
-            columnVisibility={DEFAULT_COLUMN_VISIBILITY}
-          />
-        </MemoryRouter>
-      </TooltipProvider>
-    );
-
-    expect(screen.getByText('News 24')).toBeInTheDocument();
-    expect(screen.queryByText('common:playback.watched')).not.toBeInTheDocument();
-    expect(screen.queryByText('Engaged')).not.toBeInTheDocument();
-    expect(screen.queryByText('Sampled')).not.toBeInTheDocument();
-    expect(screen.queryByText('pages:yourStats.tier.abandoned')).not.toBeInTheDocument();
-  });
-
-  it('shows a catch-up icon for Dispatcharr catch-up history rows', () => {
-    const { container } = render(
-      <TooltipProvider>
-        <MemoryRouter>
-          <HistoryTable
-            sessions={[
-              makeSession({
-                mediaType: 'live',
-                mediaTitle: 'Morning News',
-                channelTitle: 'News 24',
-                year: null,
-                dispatcharrPlaybackKind: 'catchup',
-                server: {
-                  id: 'server-1',
-                  name: 'Dispatcharr',
-                  type: 'dispatcharr',
-                },
-              }),
-            ]}
-            columnVisibility={DEFAULT_COLUMN_VISIBILITY}
-          />
-        </MemoryRouter>
-      </TooltipProvider>
-    );
-
-    expect(screen.getByText('News 24')).toBeInTheDocument();
-    expect(screen.getByTitle('Catch-up')).toBeInTheDocument();
-    expect(container.querySelector('[data-testid="history-catchup-badge"]')).toBeTruthy();
-  });
-
-  it('does not show a catch-up icon for normal Dispatcharr live history rows', () => {
-    const { container } = render(
-      <TooltipProvider>
-        <MemoryRouter>
-          <HistoryTable
-            sessions={[
-              makeSession({
-                mediaType: 'live',
-                mediaTitle: 'Evening Show',
-                channelTitle: 'Live Channel',
-                year: null,
-                dispatcharrPlaybackKind: 'live',
-                server: {
-                  id: 'server-1',
-                  name: 'Dispatcharr',
-                  type: 'dispatcharr',
-                },
-              }),
-            ]}
-            columnVisibility={DEFAULT_COLUMN_VISIBILITY}
-          />
-        </MemoryRouter>
-      </TooltipProvider>
-    );
-
-    expect(screen.queryByTitle('Catch-up')).not.toBeInTheDocument();
-    expect(container.querySelector('[data-testid="history-catchup-badge"]')).toBeNull();
-  });
-
-  it('does not show a catch-up icon for non-Dispatcharr history rows', () => {
-    const { container } = render(
-      <TooltipProvider>
-        <MemoryRouter>
-          <HistoryTable
-            sessions={[
-              makeSession({
-                mediaType: 'live',
-                mediaTitle: 'Catch-up Looking Title',
-                channelTitle: 'Plex Live',
-                year: null,
-                dispatcharrPlaybackKind: 'catchup',
-                server: {
-                  id: 'server-1',
-                  name: 'Plex',
-                  type: 'plex',
-                },
-              }),
-            ]}
-            columnVisibility={DEFAULT_COLUMN_VISIBILITY}
-          />
-        </MemoryRouter>
-      </TooltipProvider>
-    );
-
-    expect(screen.queryByTitle('Catch-up')).not.toBeInTheDocument();
-    expect(container.querySelector('[data-testid="history-catchup-badge"]')).toBeNull();
-  });
-});
-
 function renderTable(
   overrides: Partial<SessionWithDetails>,
   onSessionClick?: (session: SessionWithDetails) => void,
-  sort?: Pick<ComponentProps<typeof HistoryTable>, 'sortBy' | 'sortDir' | 'onSortChange'>
+  options?: Pick<
+    ComponentProps<typeof HistoryTable>,
+    'sortBy' | 'sortDir' | 'onSortChange' | 'profileNames' | 'isMultiServer'
+  >
 ) {
   const session = {
     id: 'session-1',
@@ -401,7 +61,7 @@ function renderTable(
           sessions={[session]}
           onSessionClick={onSessionClick}
           columnVisibility={{ ...DEFAULT_COLUMN_VISIBILITY, progress: true }}
-          {...sort}
+          {...options}
         />
       </TooltipProvider>
     </MemoryRouter>
@@ -445,6 +105,48 @@ describe('HistoryTable', () => {
 
     renderTable({ segmentCount: 1 });
     expect(screen.queryByLabelText('count.segment')).not.toBeInTheDocument();
+  });
+
+  it('names the profile in its own column when given the names', () => {
+    renderTable({ profileId: 'p-robin' }, undefined, {
+      profileNames: new Map([['p-robin', 'Robin']]),
+    });
+
+    expect(screen.getByRole('columnheader', { name: 'labels.profile' })).toBeInTheDocument();
+    expect(screen.getByRole('cell', { name: 'Robin' })).toBeInTheDocument();
+  });
+
+  it('names a play whose profile has no row by the name it stored', () => {
+    renderTable({ profileId: null, profileName: 'Kids' }, undefined, { profileNames: new Map() });
+
+    expect(screen.getByRole('cell', { name: 'Kids' })).toBeInTheDocument();
+  });
+
+  it('shows the missing-value marker for a play with no profile', () => {
+    renderTable({ profileId: null }, undefined, { profileNames: new Map() });
+    const headers = screen.getAllByRole('columnheader').map((header) => header.textContent);
+    const cells = screen.getAllByRole('cell');
+    expect(cells[headers.indexOf('labels.profile')]).toHaveTextContent(/^\u2014$/);
+  });
+
+  it('mutes a removed profile over the account avatar and says so in its title', () => {
+    renderTable({ nonMainProfile: { name: 'Sam', thumbUrl: null, removed: true } });
+
+    const profile = screen.getByRole('img', { name: 'labels.profileRemoved' });
+    expect(profile).toHaveAttribute('title', 'labels.profileRemoved');
+    expect(t).toHaveBeenCalledWith('labels.profileRemoved', { name: 'Sam' });
+    expect(screen.getByRole('link', { name: /alice/ })).not.toHaveTextContent('Sam');
+  });
+
+  it('keeps room for the content column past the fixed columns, so a narrow window scrolls', () => {
+    renderTable({}, undefined, { isMultiServer: true, profileNames: new Map() });
+
+    const fixedWidth = screen
+      .getAllByRole('columnheader')
+      .filter((header) => header.style.width.endsWith('px'))
+      .reduce((sum, header) => sum + parseFloat(header.style.width), 0);
+    const tableMinWidth = parseFloat(screen.getByRole('table').style.minWidth);
+    expect(tableMinWidth - fixedWidth).toBeGreaterThanOrEqual(280);
   });
 
   it('sorts the data table from its date header', () => {
@@ -491,5 +193,83 @@ describe('HistoryTable', () => {
 
     expect(screen.getByRole('link', { name: /Pilot/ })).toHaveAttribute('href', '/media/episode-1');
     expect(onSessionClick).not.toHaveBeenCalled();
+  });
+});
+
+describe('HistoryTable live content display (fork)', () => {
+  const dispatcharr = { id: 'server-1', name: 'Dispatcharr', type: 'dispatcharr' } as const;
+
+  it('shows the channel as primary and programme as secondary for unified live TV', () => {
+    renderTable({
+      mediaType: 'live',
+      mediaTitle: 'Evening Movie',
+      channelTitle: 'Classic Hits TV',
+      year: null,
+      server: dispatcharr,
+    });
+
+    expect(screen.getByText('Classic Hits TV')).toBeInTheDocument();
+    expect(screen.getByText('Evening Movie')).toBeInTheDocument();
+    expect(screen.queryByText('pages:yourStats.tier.abandoned')).not.toBeInTheDocument();
+    expect(screen.queryByText('common:playback.watched')).not.toBeInTheDocument();
+  });
+
+  it('falls back to the media title when a live session has no channel name', () => {
+    renderTable({ mediaType: 'live', mediaTitle: 'Fallback Channel', channelTitle: null });
+
+    expect(screen.getByText('Fallback Channel')).toBeInTheDocument();
+  });
+
+  it('does not render engagement badges for Dispatcharr catch-up history rows', () => {
+    renderTable({
+      mediaType: 'live',
+      mediaTitle: 'Morning News',
+      channelTitle: 'News 24',
+      year: null,
+      totalDurationMs: 5_400_000,
+      progressMs: 4_900_000,
+      dispatcharrPlaybackKind: 'catchup',
+      server: dispatcharr,
+    });
+
+    expect(screen.getByText('News 24')).toBeInTheDocument();
+    expect(screen.queryByText('common:playback.watched')).not.toBeInTheDocument();
+    expect(screen.queryByText('pages:yourStats.tier.abandoned')).not.toBeInTheDocument();
+  });
+
+  it('shows a catch-up icon for Dispatcharr catch-up history rows', () => {
+    renderTable({
+      mediaType: 'live',
+      mediaTitle: 'Morning News',
+      channelTitle: 'News 24',
+      dispatcharrPlaybackKind: 'catchup',
+      server: dispatcharr,
+    });
+
+    expect(screen.getByTestId('history-catchup-badge')).toHaveAttribute('title', 'Catch-up');
+  });
+
+  it('does not show a catch-up icon for normal Dispatcharr live history rows', () => {
+    renderTable({
+      mediaType: 'live',
+      mediaTitle: 'Evening Show',
+      channelTitle: 'Live Channel',
+      dispatcharrPlaybackKind: 'live',
+      server: dispatcharr,
+    });
+
+    expect(screen.queryByTestId('history-catchup-badge')).toBeNull();
+  });
+
+  it('does not show a catch-up icon for non-Dispatcharr history rows', () => {
+    renderTable({
+      mediaType: 'live',
+      mediaTitle: 'Catch-up Looking Title',
+      channelTitle: 'Plex Live',
+      dispatcharrPlaybackKind: 'catchup',
+      server: { id: 'server-1', name: 'Plex', type: 'plex' },
+    });
+
+    expect(screen.queryByTestId('history-catchup-badge')).toBeNull();
   });
 });

@@ -48,6 +48,7 @@
       "codeExpired": "",
       "newCode": "",
       "refused": "",
+      "signInUnavailable": "",
       "notPermitted": ""
     }
   },
@@ -301,6 +302,7 @@
     "overallTrust": "",
     "serverScope": "",
     "allServers": "",
+    "allProfiles": "",
     "title": "",
     "editIdentity": "",
     "editIdentityDescription": "",
@@ -404,6 +406,7 @@
       "clearUsers": "",
       "clearPlatforms": "",
       "clearCountries": "",
+      "clearProfiles": "",
       "clearFilters": "",
       "selected_other": ""
     },
@@ -881,7 +884,8 @@
         "sourceVideoCodec": "",
         "seasonNumber": "",
         "episodeNumber": "",
-        "name": ""
+        "name": "",
+        "profile": ""
       },
       "server": {
         "name": "",

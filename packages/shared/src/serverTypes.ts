@@ -3,6 +3,7 @@ export const SERVER_TYPES = [
   'jellyfin',
   'emby',
   'tofa',
+  'silo',
   'dispatcharr',
   'channels_dvr',
 ] as const;

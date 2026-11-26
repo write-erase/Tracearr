@@ -10,6 +10,7 @@
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import Fastify, { type FastifyInstance } from 'fastify';
+import type { Redis } from 'ioredis';
 import sensible from '@fastify/sensible';
 import { randomUUID } from 'node:crypto';
 import { APIError } from 'better-auth/api';
@@ -34,13 +35,11 @@ vi.mock('../../utils/crypto.js', () => ({
 
 const mockChannelsRunCheck = vi.hoisted(() => vi.fn());
 const mockDispatcharrGetUsers = vi.hoisted(() => vi.fn());
-const { mockTofaIdentity } = vi.hoisted(() => ({ mockTofaIdentity: vi.fn() }));
+const { mockServerIdentity } = vi.hoisted(() => ({ mockServerIdentity: vi.fn() }));
 
 vi.mock('../../services/mediaServer/index.js', () => ({
   verifyServerAdmin: vi.fn(),
-  TofaClient: class {
-    getServerIdentity = mockTofaIdentity;
-  },
+  createMediaServerClient: () => ({ getServerIdentity: mockServerIdentity }),
   PlexClient: {
     getAccountInfo: vi.fn(),
     AdminVerifyError: {
@@ -135,13 +134,18 @@ vi.mock('../../jobs/requestSyncQueue.js', () => ({
 }));
 
 vi.mock('../../jobs/importQueue.js', () => ({
-  holdTofaImport: vi.fn().mockResolvedValue(undefined),
+  holdServerHistoryImport: vi.fn().mockResolvedValue(undefined),
   dropHeldImport: vi.fn().mockResolvedValue(undefined),
+}));
+
+vi.mock('../../services/import/siloHistory.js', () => ({
+  clearHistoryCursor: vi.fn().mockResolvedValue(undefined),
 }));
 
 import type { SQL } from 'drizzle-orm';
 import { db } from '../../db/client.js';
-import { dropHeldImport, holdTofaImport } from '../../jobs/importQueue.js';
+import { dropHeldImport, holdServerHistoryImport } from '../../jobs/importQueue.js';
+import { clearHistoryCursor } from '../../services/import/siloHistory.js';
 import {
   enqueueLibrarySync,
   rebuildAutoSyncSchedules,
@@ -241,9 +245,10 @@ function mockDbUpdateReturning(result: unknown[]) {
   return chain;
 }
 
-async function buildTestApp(authUser: AuthUser): Promise<FastifyInstance> {
+async function buildTestApp(authUser: AuthUser, redis?: Redis): Promise<FastifyInstance> {
   const app = Fastify({ logger: false });
   await app.register(sensible);
+  if (redis) app.decorate('redis', redis);
 
   // Mock authenticate
   app.decorate('authenticate', async (request: unknown) => {
@@ -734,7 +739,7 @@ describe('Server Routes', () => {
             : { version: '0.13.2' }
         )
       );
-      mockTofaIdentity.mockResolvedValueOnce('tofa-server-1');
+      mockServerIdentity.mockResolvedValueOnce('tofa-server-1');
       let selectCall = 0;
       vi.mocked(db.select).mockImplementation(() => {
         selectCall++;
@@ -776,7 +781,7 @@ describe('Server Routes', () => {
             : { version: '0.13.2' }
         )
       );
-      mockTofaIdentity.mockResolvedValueOnce('tofa-server-1');
+      mockServerIdentity.mockResolvedValueOnce('tofa-server-1');
       const byUrl = vi
         .fn()
         .mockResolvedValueOnce([])
@@ -795,6 +800,91 @@ describe('Server Routes', () => {
           type: 'tofa',
           url: 'http://192.168.1.20:33333',
           token: 'tofa_3b9e1c7a5d2f8e4b',
+        },
+      });
+
+      expect(response.statusCode).toBe(409);
+      expect(response.json().message).toBe('This server is already connected');
+      expect(db.insert).not.toHaveBeenCalled();
+    });
+
+    it('adds a Silo server by a pasted key and stores the identity it reports', async () => {
+      app = await buildTestApp(ownerUser);
+      mockServerIdentity.mockResolvedValueOnce('6a0f3e1c-9b7d-4c52-8e14-2d5f7a9b0c31');
+      let selectCall = 0;
+      vi.mocked(db.select).mockImplementation(() => {
+        selectCall++;
+        const chain = {
+          from: vi.fn().mockReturnThis(),
+          where: vi.fn().mockReturnThis(),
+          limit: vi.fn().mockResolvedValue([]),
+        };
+        if (selectCall === 3) {
+          chain.from = vi.fn().mockResolvedValue([]);
+        }
+        return chain as never;
+      });
+      const insert = mockDbInsert([{ ...mockServer, id: randomUUID(), type: 'silo' }]);
+
+      const response = await app.inject({
+        method: 'POST',
+        url: '/servers',
+        payload: { name: 'Silo', type: 'silo', url: 'http://silo.local:8090', token: 'silo-key' },
+      });
+
+      expect(response.statusCode).toBe(201);
+      expect(verifyServerAdmin).toHaveBeenCalledWith('silo', 'silo-key', 'http://silo.local:8090');
+      expect(insert.values).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'silo',
+          machineIdentifier: '6a0f3e1c-9b7d-4c52-8e14-2d5f7a9b0c31',
+        })
+      );
+    });
+
+    it('refuses a Silo key without the scopes Tracearr needs', async () => {
+      app = await buildTestApp(ownerUser);
+      const message =
+        'This Silo API key lacks a scope Tracearr needs. Create a key with admin:monitor:read, admin:sessions:control and libraries:read. An unscoped admin key does not work; Tracearr needs a key with exactly those three scopes.';
+      vi.mocked(verifyServerAdmin).mockResolvedValueOnce({
+        success: false,
+        code: 'MISSING_SCOPES',
+        message,
+      });
+      mockDbSelectLimit([]);
+
+      const response = await app.inject({
+        method: 'POST',
+        url: '/servers',
+        payload: { name: 'Silo', type: 'silo', url: 'http://silo.local:8090', token: 'silo-key' },
+      });
+
+      expect(response.statusCode).toBe(403);
+      expect(response.json().message).toBe(message);
+      expect(db.insert).not.toHaveBeenCalled();
+    });
+
+    it('refuses a Silo server already connected at another address', async () => {
+      app = await buildTestApp(ownerUser);
+      mockServerIdentity.mockResolvedValueOnce('6a0f3e1c-9b7d-4c52-8e14-2d5f7a9b0c31');
+      const byUrl = vi
+        .fn()
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([{ id: mockServer.id }]);
+      vi.mocked(db.select).mockReturnValue({
+        from: vi.fn().mockReturnThis(),
+        where: vi.fn().mockReturnThis(),
+        limit: byUrl,
+      } as never);
+
+      const response = await app.inject({
+        method: 'POST',
+        url: '/servers',
+        payload: {
+          name: 'Silo',
+          type: 'silo',
+          url: 'http://192.168.1.20:8090',
+          token: 'silo-key',
         },
       });
 
@@ -854,7 +944,7 @@ describe('Server Routes', () => {
       await vi.waitFor(() => expect(enqueueRequestSync).toHaveBeenCalledWith(serviceId, 'full'));
       expect(scheduleRequestSync).toHaveBeenCalled();
       const { id } = response.json<{ id: string }>();
-      expect(holdTofaImport).toHaveBeenCalledExactlyOnceWith(id);
+      expect(holdServerHistoryImport).toHaveBeenCalledExactlyOnceWith(id, 'tofa');
       expect(enqueueLibrarySync).toHaveBeenCalledExactlyOnceWith(id, 'event', { firstSync: true });
       expect(dropHeldImport).not.toHaveBeenCalled();
     });
@@ -1389,8 +1479,39 @@ describe('Server Routes', () => {
       expect(readServerIdentity).toHaveBeenCalledWith(
         expect.objectContaining({ url: 'http://192.168.1.20:8096', token: 'new-key' })
       );
-      expect(update.set).toHaveBeenCalledWith({ token: 'new-key', updatedAt: expect.any(Date) });
+      expect(update.set).toHaveBeenCalledWith({
+        token: 'new-key',
+        apiKeyId: null,
+        updatedAt: expect.any(Date),
+      });
       expect(sseManager.refresh).toHaveBeenCalled();
+    });
+
+    it('forgets the id of a key Tracearr made when a key is pasted over it', async () => {
+      app = await buildTestApp(ownerUser);
+      const silo = {
+        ...mockServer,
+        type: 'silo' as const,
+        url: 'http://silo.local:8090',
+        token: 'made-key',
+        apiKeyId: 'key-1',
+        machineIdentifier: 'silo-1',
+      };
+      vi.mocked(verifyServerAdmin).mockResolvedValue({ success: true });
+      vi.mocked(readServerIdentity).mockResolvedValue('silo-1');
+      mockDbSelectLimit([silo]);
+      const update = mockDbUpdateReturning([silo]);
+
+      const response = await app.inject({
+        method: 'PATCH',
+        url: `/servers/${silo.id}`,
+        payload: { apiKey: 'pasted-key' },
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(update.set).toHaveBeenCalledWith(
+        expect.objectContaining({ token: 'pasted-key', apiKeyId: null })
+      );
     });
 
     it('verifies a new URL and key as a pair and records the identity it confirmed', async () => {
@@ -1426,6 +1547,7 @@ describe('Server Routes', () => {
       expect(update.set).toHaveBeenCalledWith({
         url: 'http://new-host:8096',
         token: 'new-key',
+        apiKeyId: null,
         machineIdentifier: 'jf-1',
         updatedAt: expect.any(Date),
       });
@@ -1497,6 +1619,7 @@ describe('Server Routes', () => {
       );
       expect(update.set).toHaveBeenCalledWith({
         token: 'new-key',
+        apiKeyId: null,
         machineIdentifier: 'jf-1',
         updatedAt: expect.any(Date),
       });
@@ -1792,7 +1915,8 @@ describe('Server Routes', () => {
 
   describe('DELETE /servers/:id', () => {
     it('deletes server for owner', async () => {
-      app = await buildTestApp(ownerUser);
+      const redis = { name: 'route redis' } as unknown as Redis;
+      app = await buildTestApp(ownerUser, redis);
 
       mockDbSelectLimit([mockServer]);
       mockDbDelete();
@@ -1805,6 +1929,7 @@ describe('Server Routes', () => {
       expect(response.statusCode).toBe(200);
       expect(response.json().success).toBe(true);
       expect(dropHeldImport).toHaveBeenCalledExactlyOnceWith(mockServer.id);
+      expect(clearHistoryCursor).toHaveBeenCalledExactlyOnceWith(redis, mockServer.id);
     });
 
     it("refuses to delete the server holding the owner's last way to sign in", async () => {

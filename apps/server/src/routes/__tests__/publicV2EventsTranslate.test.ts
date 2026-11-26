@@ -8,6 +8,7 @@ import {
   type PublicEvent,
   type Translated,
 } from '../publicV2/eventsTranslate.js';
+import { KIDS } from '../../services/notifications/__tests__/fixtures.js';
 
 const AT = '2026-10-06T10:00:00.000Z';
 
@@ -38,6 +39,10 @@ const session = {
   sourceVideoHeight: 1080,
   canTerminate: true,
 } as unknown as ActiveSession;
+
+const kidsStream = { ...session, nonMainProfile: KIDS } as unknown as ActiveSession;
+
+const KIDS_V2 = { name: 'Kids', thumb_url: null, removed: false };
 
 const violation = {
   id: 'v-1',
@@ -85,7 +90,11 @@ describe('translateChannelMessage', () => {
       server_id: 'srv-1',
       library_id: null,
       genres: null,
+      profile: null,
     });
+
+    const kids = translateChannelMessage({ event: 'session:started', data: kidsStream, at: AT });
+    expect(firstEvent(kids).data).toMatchObject({ profile: KIDS_V2 });
   });
 
   it.each(['live', 'catchup', 'vod'] as const)(
@@ -118,7 +127,7 @@ describe('translateChannelMessage', () => {
   );
 
   it('carries the last snapshot into stream.stopped and forgets it', () => {
-    translateChannelMessage({ event: 'session:started', data: session, at: AT });
+    translateChannelMessage({ event: 'session:started', data: kidsStream, at: AT });
     const stopped = translateChannelMessage({ event: 'session:stopped', data: 'sess-1', at: AT });
     expect(firstEvent(stopped)).toMatchObject({
       type: 'stream.stopped',
@@ -126,7 +135,7 @@ describe('translateChannelMessage', () => {
       streamId: 'sess-1',
     });
     expect(firstEvent(stopped).data).toMatchObject({ id: 'sess-1', server_id: 'srv-1' });
-    expect(stoppedSnapshot(stopped)).toMatchObject({ id: 'sess-1' });
+    expect(stoppedSnapshot(stopped)).toMatchObject({ id: 'sess-1', profile: KIDS_V2 });
 
     const again = translateChannelMessage({ event: 'session:stopped', data: 'sess-1', at: AT });
     if (again?.kind !== 'events') throw new Error('expected events');

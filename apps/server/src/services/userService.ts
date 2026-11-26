@@ -614,6 +614,7 @@ export async function syncUserFromMediaServer(
       isDisabled: mediaUser.isDisabled ?? false,
       libraryIds,
       ...cloudIdentity,
+      ...(mediaUser.joinedAt ? { joinedAt: mediaUser.joinedAt } : {}),
     };
 
     const advancedActivity = advancedActivityAt(mediaUser.lastActivityAt, existing.lastActivityAt);
@@ -623,7 +624,11 @@ export async function syncUserFromMediaServer(
 
     const updated = await writeChanges(existing, changes);
 
-    if (advancedActivity || updated.thumbUrl !== existing.thumbUrl) {
+    if (
+      advancedActivity ||
+      updated.thumbUrl !== existing.thumbUrl ||
+      updated.joinedAt?.getTime() !== existing.joinedAt?.getTime()
+    ) {
       await recompute(existing.userId);
     }
     await clearScopeOnLibraryChange(existing);

@@ -15,6 +15,7 @@ import {
   type TranscodeInfo,
   type SubtitleInfo,
 } from '@tracearr/shared';
+import type { MappedRequest } from '../requests/mapping.js';
 
 // ============================================================================
 // Session Types
@@ -68,8 +69,10 @@ export interface MediaSession {
     /** Dispatcharr only: the account's sign-in (XC) name, when it differs from `username` */
     login?: string;
     thumb?: string;
-    /** The profile that plays, where one account holds several (tofa) */
+    /** The profile that plays, where one account holds several (tofa, Silo) */
     profileName?: string;
+    /** The server's id for that profile */
+    profileId?: string;
   };
 
   /** Media metadata */
@@ -252,10 +255,20 @@ export interface MediaUser {
   lastLoginAt?: Date;
   /** Last activity timestamp */
   lastActivityAt?: Date;
-  /** When user joined/was added to media server (Plex only - from createdAt/joinedAt) */
+  /** When the user joined or was added to the media server (Plex and Silo report it) */
   joinedAt?: Date;
   /** tofa only: the cloud account that signs in as this user, null when none may */
   cloudIdentityId?: string | null;
+}
+
+/** One of the profiles a server account plays under; a flag is null where the server does not say */
+export interface MediaProfile {
+  /** The server's profile id */
+  id: string;
+  name: string;
+  thumb: string | null;
+  isPrimary: boolean | null;
+  isChild: boolean | null;
 }
 
 // ============================================================================
@@ -549,6 +562,17 @@ export interface LibraryChangeFeed {
   revision: number;
 }
 
+/** A server's own requests, mapped, or its answer that requests are turned off there */
+export type ServerRequests =
+  | {
+      requestsOn: true;
+      version: string | null;
+      requests: MappedRequest[];
+      /** Requests the server listed in a state Tracearr cannot map; their stored rows stay as they are */
+      unmappedIds?: string[];
+    }
+  | { requestsOn: false; version: string | null };
+
 /** The server no longer holds every change since the cursor, so only a full scan is complete */
 export class FullSyncRequiredError extends Error {}
 
@@ -592,6 +616,12 @@ export interface IMediaServerClient {
    * Get all users with access to this server
    */
   getUsers(): Promise<MediaUser[]>;
+
+  /**
+   * The profiles an account plays under, by the account's id on the server. Servers whose
+   * accounts have no profiles answer NOT_NEEDED.
+   */
+  getAccountProfiles(accountExternalId: string): Promise<MediaProfile[] | NotNeeded>;
 
   /**
    * Get all libraries on this server
@@ -794,6 +824,23 @@ export interface IMediaServerClient {
    * @returns Rating key -> version key -> whether the file exists
    */
   checkFilesExist(ratingKeys: string[]): Promise<Map<string, Map<string, boolean>> | NotNeeded>;
+
+  /**
+   * Every request the server keeps of its own, walking all pages where the server pages
+   * them, or its answer that requests are turned off there. The request sync marks any
+   * request missing from the list as deleted. Servers without requests of their own answer
+   * NOT_NEEDED.
+   */
+  getRequests(): Promise<ServerRequests | NotNeeded>;
+
+  /**
+   * The poster the server serves for a requested title, held in its library or not. Servers
+   * without requests of their own answer NOT_NEEDED.
+   */
+  getRequestPosterPath(
+    mediaType: 'movie' | 'tv',
+    tmdbId: number
+  ): Promise<string | null | NotNeeded>;
 }
 
 /**

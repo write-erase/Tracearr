@@ -57,6 +57,7 @@ vi.mock('../../../services/sseManager.js', () => ({
 vi.mock('../../notificationQueue.js', () => ({ enqueueNotification: vi.fn() }));
 vi.mock('../database.js', () => ({
   onActiveAutomationsRefill: vi.fn(),
+  onServersCacheInvalidated: vi.fn(),
   getCachedServers: () => mockDbSelect().from(servers),
   getActiveAutomations: vi.fn().mockResolvedValue([]),
   batchGetIdentityServerUserIds: vi.fn().mockResolvedValue(new Map()),
@@ -102,6 +103,8 @@ function jellyfinPlay(overrides: Partial<ProcessedSession> = {}): ProcessedSessi
   return {
     sessionKey: 'jf-session-abc',
     ratingKey: 'item-777',
+    profileExternalId: null,
+    profileId: null,
     externalUserId: 'jf-user-1',
     username: 'alice',
     userThumb: '',

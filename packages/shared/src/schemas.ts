@@ -7,6 +7,7 @@ import { LOGIN_ACCESS, isValidTimezone } from './constants.js';
 import { listDateBoundSchema, listSortSchema } from './listQuery.js';
 import { PLAYBACK_DECISIONS } from './playbackDecision.js';
 import { SERVER_TYPES, assertNever } from './serverTypes.js';
+import { MEDIA_TYPES } from './types.js';
 
 // ============================================================================
 // Shared Enum Constants
@@ -14,9 +15,9 @@ import { SERVER_TYPES, assertNever } from './serverTypes.js';
 
 export const serverTypeSchema = z.enum(SERVER_TYPES);
 
-/** Media types for content filtering */
-const MEDIA_TYPES = ['movie', 'episode', 'track', 'live'] as const;
-export const mediaTypeSchema = z.enum(MEDIA_TYPES);
+/** The media types a single-type filter takes */
+const SINGLE_MEDIA_TYPE_FILTERS = ['movie', 'episode', 'track', 'live'] as const;
+export const mediaTypeSchema = z.enum(SINGLE_MEDIA_TYPE_FILTERS);
 export type MediaType = z.infer<typeof mediaTypeSchema>;
 
 /** Time periods for statistics queries */
@@ -160,7 +161,10 @@ export const memberPasswordSignInSchema = z.object({
 
 export const quickConnectInitiateSchema = z.object({ serverId: z.uuid() });
 
-export const quickConnectCheckSchema = z.object({ handle: z.string().regex(/^[0-9a-f]{64}$/) });
+/** 32 random bytes, hex: the handle a browser holds for a sign-in request Tracearr keeps server-side */
+const requestHandleSchema = z.string().regex(/^[0-9a-f]{64}$/);
+
+export const quickConnectCheckSchema = z.object({ handle: requestHandleSchema });
 
 const permissiveUrlSchema = z.string().refine(
   (val) => {
@@ -223,6 +227,7 @@ export const createServerSchema = z
       case 'jellyfin':
       case 'emby':
       case 'tofa':
+      case 'silo':
         if (!data.token?.trim()) {
           ctx.addIssue({ code: 'custom', message: 'Token is required', path: ['token'] });
         }
@@ -239,6 +244,7 @@ export const createServerSchema = z
         case 'jellyfin':
         case 'emby':
         case 'tofa':
+        case 'silo':
         case 'dispatcharr':
         case 'channels_dvr':
           return true;
@@ -249,6 +255,24 @@ export const createServerSchema = z
     { message: PUBLIC_URL_PLEX_MESSAGE, path: ['publicUrl'] }
   );
 
+export const siloPairStartSchema = z.discriminatedUnion('purpose', [
+  z.object({
+    purpose: z.literal('add-server'),
+    url: createServerSchema.shape.url,
+    name: createServerSchema.shape.name,
+    publicUrl: createServerSchema.shape.publicUrl,
+  }),
+  z.object({ purpose: z.enum(['rekey', 'link']), serverId: uuidSchema }),
+]);
+
+export const siloPairCheckSchema = z.object({
+  handle: requestHandleSchema,
+  pin: z.string().min(1).max(72).optional(),
+});
+
+export const siloPairCancelSchema = z.object({ handle: requestHandleSchema });
+
+/** Body of the Jellyfin and Emby connect-api-key routes, which are how the add dialog creates those servers. */
 export const apiKeyConnectSchema = z.object({
   serverUrl: z.url(),
   serverName: z.string().min(1).max(100),
@@ -518,10 +542,12 @@ export const sessionQuerySchema = paginationSchema.extend({
  * Supports cursor-based pagination for efficient infinite scroll and
  * all available session fields for filtering.
  */
-const commaSeparatedArray = (schema: z.ZodType) =>
+const commaSeparatedArray = <T extends z.ZodType>(schema: T) =>
   z
-    .union([schema.array(), z.string().transform((s) => (s ? s.split(',') : []))])
-    .optional()
+    .preprocess(
+      (value) => (typeof value === 'string' ? (value ? value.split(',') : []) : value),
+      schema.array().optional()
+    )
     .transform((arr) => (arr && arr.length > 0 ? arr : undefined));
 
 export const historyQuerySchema = z.object({
@@ -531,14 +557,15 @@ export const historyQuerySchema = z.object({
 
   // User filter - supports multi-select (comma-separated UUIDs in query string)
   serverUserIds: commaSeparatedArray(uuidSchema),
+  profileIds: commaSeparatedArray(uuidSchema),
 
   // Server filter - serverIds takes precedence over serverId when both are provided
   serverId: uuidSchema.optional(),
   serverIds: serverIdsQuerySchema,
   state: z.enum(['playing', 'paused', 'stopped']).optional(),
 
-  // Media type filter - supports multi-select
-  mediaTypes: commaSeparatedArray(mediaTypeSchema),
+  // Media type filter - supports multi-select, over every type a session is stored with
+  mediaTypes: commaSeparatedArray(z.enum(MEDIA_TYPES)),
 
   startDate: z.coerce.date().optional(),
   endDate: z.coerce.date().optional(),
@@ -581,6 +608,10 @@ export const historyAggregatesQuerySchema = historyQuerySchema.omit({
   pageSize: true,
   orderBy: true,
   orderDir: true,
+});
+
+export const userSessionsQuerySchema = identityScopedPaginationSchema.extend({
+  profileIds: commaSeparatedArray(uuidSchema),
 });
 
 // Filter options query - scoping params for /sessions/filter-options dropdowns
@@ -1219,7 +1250,7 @@ export const playbackReportingTestSchema = z.object({
   serverId: uuidSchema,
 });
 
-export const tofaImportSchema = z.object({
+export const serverHistoryImportSchema = z.object({
   serverId: uuidSchema,
 });
 

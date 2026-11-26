@@ -13,10 +13,12 @@ import {
 import {
   isPlacedLocal,
   LOCAL_NETWORK_COUNTRY,
+  SERVER_PROFILES,
   SESSION_WRITE_RETRY,
   TIME_MS,
   type ActiveSession,
   type EngineAutomation,
+  type NonMainProfile,
   type Session,
   type StreamDetailFields,
   type ServerType,
@@ -136,6 +138,8 @@ export interface BuildActiveSessionInput {
     progressMs: number;
     serverVersionKey?: string | null;
     profileName?: string | null;
+    profileId: string | null;
+    nonMainProfile?: NonMainProfile;
     ipAddress: string;
     playerName: string;
     deviceId: string;
@@ -296,7 +300,9 @@ export function buildActiveSession(input: BuildActiveSessionInput): ActiveSessio
     geoAsnNumber: geo.asnNumber,
     geoAsnOrganization: geo.asnOrganization,
     isLocal: geo.isLocal,
+    profileId: processed.profileId,
     profileName: processed.profileName ?? null,
+    nonMainProfile: processed.nonMainProfile,
     playerName: processed.playerName,
     deviceId: processed.deviceId || null,
     ...(server.type === 'dispatcharr'
@@ -430,7 +436,9 @@ export function buildPendingActiveSession(pendingData: PendingSessionData): Acti
     geoAsnNumber: geo.asnNumber,
     geoAsnOrganization: geo.asnOrganization,
     isLocal: withLocalFlag(geo, processed.ipAddress).isLocal,
+    profileId: processed.profileId,
     profileName: processed.profileName ?? null,
+    nonMainProfile: processed.nonMainProfile,
     playerName: processed.playerName,
     deviceId: processed.deviceId || null,
     ...(server.type === 'dispatcharr'
@@ -776,6 +784,13 @@ export async function createSessionWithRulesAtomic(
 
   let referenceId: string | null = null;
   let qualityChange: QualityChangeResult | null = null;
+  const { profileId } = processed;
+  // Each profile of an account keeps its own chains; on other servers every profile_id is null
+  const sameProfile = SERVER_PROFILES[server.type].hasProfiles
+    ? profileId
+      ? eq(sessions.profileId, profileId)
+      : isNull(sessions.profileId)
+    : undefined;
 
   // STEP 1: Check for quality change (active session with same user+device+ratingKey)
   if (processed.ratingKey) {
@@ -794,6 +809,7 @@ export async function createSessionWithRulesAtomic(
           eq(sessions.serverUserId, serverUser.id),
           eq(sessions.ratingKey, processed.ratingKey),
           deviceCondition,
+          sameProfile,
           isNull(sessions.stoppedAt),
           gte(sessions.startedAt, chunkBound)
         )
@@ -861,6 +877,7 @@ export async function createSessionWithRulesAtomic(
         and(
           eq(sessions.serverUserId, serverUser.id),
           eq(sessions.ratingKey, processed.ratingKey),
+          sameProfile,
           gte(sessions.stoppedAt, oneDayAgo),
           gte(sessions.startedAt, chunkBound),
           eq(sessions.watched, false)
@@ -962,6 +979,7 @@ export async function createSessionWithRulesAtomic(
               geoAsnNumber: geo.asnNumber,
               geoAsnOrganization: geo.asnOrganization,
               isLocal: geo.isLocal,
+              profileId,
               profileName: processed.profileName ?? null,
               playerName: processed.playerName,
               deviceId: processed.deviceId || null,
@@ -1012,7 +1030,7 @@ export async function createSessionWithRulesAtomic(
             })
             .where(eq(users.id, serverUser.userId));
 
-          const session = toRuleSession(inserted);
+          const session = toRuleSession(inserted, { nonMainProfile: processed.nonMainProfile });
           const ruleServer = { id: server.id, name: server.name, type: server.type };
           const inputs = {
             activeAutomations,

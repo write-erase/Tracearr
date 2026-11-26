@@ -1,13 +1,16 @@
 /**
- * tofa sessions through the poller: the session list read on a socket event, on a missed
- * frame, after a reconnect, and while the socket is down.
+ * Sessions through the poller for tofa and Silo, the servers that key a play by the server's
+ * own session id: the session list read on a socket event, on a missed frame, after a
+ * reconnect, and while the socket is down, and the profiles its plays name.
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { SESSION_LIMITS } from '@tracearr/shared';
+import silo from '../../../test/mediaServerResponses/silo.json' with { type: 'json' };
 import tofa from '../../../test/mediaServerResponses/tofa.json' with { type: 'json' };
 
 const {
+  chainResolving,
   mockIsInFallback,
   serverRow,
   mockCreateMediaServerClient,
@@ -55,6 +58,7 @@ const {
   const setPayloads: unknown[] = [];
 
   return {
+    chainResolving,
     mockIsInFallback: vi.fn().mockReturnValue(false),
     mockCreateMediaServerClient: vi.fn(),
     mockBatchFindActiveSessionsByKey: vi.fn(),
@@ -77,6 +81,7 @@ const {
           return { where: vi.fn(() => ({ returning: async () => [{ id: 'session-1' }] })) };
         }),
       })),
+      execute: vi.fn(async (): Promise<{ rows: unknown[] }> => ({ rows: [] })),
     },
   };
 });
@@ -108,6 +113,7 @@ vi.mock('../../notificationQueue.js', () => ({ enqueueNotification: vi.fn() }));
 vi.mock('../database.js', () => ({
   getCachedServers: vi.fn(async () => [serverRow]),
   onActiveAutomationsRefill: vi.fn(),
+  onServersCacheInvalidated: vi.fn(),
   getActiveAutomations: vi.fn().mockResolvedValue([]),
   batchGetIdentityServerUserIds: vi.fn().mockResolvedValue(new Map()),
   batchGetRecentUserSessions: vi.fn().mockResolvedValue(new Map()),
@@ -144,8 +150,16 @@ import {
 } from '../sessionLifecycle.js';
 import { getActiveAutomations } from '../database.js';
 import { dispatch } from '../../../services/automations/events/dispatcher.js';
-import { fakeTofaClient } from '../../../test/mediaServerFakes.js';
+import {
+  fakeEmbyClient,
+  fakeJellyfinClient,
+  fakePlexClient,
+  fakeSiloClient,
+  fakeTofaClient,
+} from '../../../test/mediaServerFakes.js';
+import { parseSiloSession } from '../../../services/mediaServer/silo/parser.js';
 import { parseTofaMedia, parseTofaSession } from '../../../services/mediaServer/tofa/parser.js';
+import { terminationSessionId } from '../sessionIdentity.js';
 import { calculateStopDuration } from '../stateTracker.js';
 import { resetDbWriteThrottle } from '../dbWriteThrottle.js';
 import type { MediaSession } from '../../../services/mediaServer/types.js';
@@ -188,30 +202,36 @@ function existingRow(overrides: Record<string, unknown> = {}) {
   };
 }
 
-describe('tofa sessions in the poller', () => {
+/** A fresh poller over a cache stub, which is returned */
+function startPoller(): Record<string, ReturnType<typeof vi.fn>> {
+  vi.clearAllMocks();
+  mockSetPayloads.length = 0;
+  resetDbWriteThrottle();
+  vi.spyOn(console, 'log').mockImplementation(() => {});
+  const cacheService = {
+    getAllActiveSessions: vi.fn().mockResolvedValue([]),
+    getPendingSession: vi.fn().mockResolvedValue(null),
+    setPendingSession: vi.fn(),
+    addActiveSession: vi.fn(),
+    withSessionCreateLock: vi.fn().mockImplementation(async (_s, _k, op) => op()),
+    hasTerminationCooldown: vi.fn().mockResolvedValue(false),
+    getTerminationCooldownsComposite: vi.fn().mockResolvedValue(new Map()),
+    clearTerminationCooldownsComposite: vi.fn(),
+    setServerHealth: vi.fn().mockResolvedValue(true),
+    resetServerFailCount: vi.fn(),
+  };
+  initializePoller(
+    cacheService as unknown as Parameters<typeof initializePoller>[0],
+    { publish: vi.fn(), subscribe: vi.fn() } as unknown as Parameters<typeof initializePoller>[1]
+  );
+  return cacheService;
+}
+
+describe('tofa and Silo sessions in the poller', () => {
   let cacheService: Record<string, ReturnType<typeof vi.fn>>;
 
   beforeEach(() => {
-    vi.clearAllMocks();
-    mockSetPayloads.length = 0;
-    resetDbWriteThrottle();
-    vi.spyOn(console, 'log').mockImplementation(() => {});
-    cacheService = {
-      getAllActiveSessions: vi.fn().mockResolvedValue([]),
-      getPendingSession: vi.fn().mockResolvedValue(null),
-      setPendingSession: vi.fn(),
-      addActiveSession: vi.fn(),
-      withSessionCreateLock: vi.fn().mockImplementation(async (_s, _k, op) => op()),
-      hasTerminationCooldown: vi.fn().mockResolvedValue(false),
-      getTerminationCooldownsComposite: vi.fn().mockResolvedValue(new Map()),
-      clearTerminationCooldownsComposite: vi.fn(),
-      setServerHealth: vi.fn().mockResolvedValue(true),
-      resetServerFailCount: vi.fn(),
-    };
-    initializePoller(
-      cacheService as unknown as Parameters<typeof initializePoller>[0],
-      { publish: vi.fn(), subscribe: vi.fn() } as unknown as Parameters<typeof initializePoller>[1]
-    );
+    cacheService = startPoller();
   });
 
   afterEach(() => {
@@ -716,5 +736,203 @@ describe('tofa sessions in the poller', () => {
     await pollMovie(movieMedia);
 
     expect(cacheService.setPendingSession).not.toHaveBeenCalled();
+  });
+
+  describe('profiles', () => {
+    const morgan = recorded(tofa.userProfiles.filter((profile) => profile.is_primary));
+    const robin = recorded(tofa.userProfiles.filter((profile) => profile.is_kids));
+
+    beforeEach(() => {
+      mockBatchFindActiveSessionsByKey.mockResolvedValue(new Map());
+    });
+
+    it('resolves every profile a poll names in one statement, each pending play carrying its own', async () => {
+      const robinThumb = '/api/v1/profiles/avatars/kaiju.png';
+      mockDb.execute.mockResolvedValueOnce({
+        rows: [
+          {
+            id: 'profile-morgan',
+            external_id: morgan.id,
+            server_user_id: 'server-user-1',
+            name: morgan.name,
+            thumb_url: null,
+            is_primary: true,
+            removed: false,
+          },
+          {
+            id: 'profile-robin',
+            external_id: robin.id,
+            server_user_id: 'server-user-1',
+            name: robin.name,
+            thumb_url: robinThumb,
+            is_primary: false,
+            removed: false,
+          },
+        ],
+      });
+      const robinRow = {
+        ...movieRow,
+        session_id: 'robin-session',
+        device_id: 'robin-device',
+        profile_id: robin.id,
+        profile_name: robin.name,
+      };
+      mockCreateMediaServerClient.mockReturnValue(
+        fakeTofaClient({
+          getSessions: vi.fn(async () => [
+            parseTofaSession(movieRow, movieNowPlaying, movieMedia),
+            parseTofaSession(robinRow, movieNowPlaying, movieMedia),
+          ]),
+        })
+      );
+
+      await triggerServerPoll('server-1');
+
+      expect(mockDb.execute).toHaveBeenCalledOnce();
+      const pending = cacheService.setPendingSession?.mock.calls.map(
+        ([, , data]) => data.processed
+      );
+      expect(pending).toEqual([
+        expect.objectContaining({
+          profileName: 'Morgan',
+          profileId: 'profile-morgan',
+          nonMainProfile: undefined,
+        }),
+        expect.objectContaining({
+          profileName: 'Robin',
+          profileId: 'profile-robin',
+          nonMainProfile: { name: 'Robin', thumbUrl: robinThumb, removed: false },
+        }),
+      ]);
+    });
+
+    it('makes no profile statement when no play names a profile', async () => {
+      mockCreateMediaServerClient.mockReturnValue(
+        fakeTofaClient({
+          getSessions: vi.fn(async () => [
+            parseTofaSession(
+              { ...movieRow, profile_id: null, profile_name: null },
+              movieNowPlaying,
+              movieMedia
+            ),
+          ]),
+        })
+      );
+
+      await triggerServerPoll('server-1');
+
+      expect(cacheService.setPendingSession).toHaveBeenCalled();
+      expect(mockDb.execute).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ['plex', fakePlexClient],
+      ['jellyfin', fakeJellyfinClient],
+      ['emby', fakeEmbyClient],
+    ] as const)('makes no profile statement on a poll of a %s server', async (type, fakeClient) => {
+      mockDb.select.mockImplementationOnce(() => ({
+        from: vi.fn(() => chainResolving([{ ...serverRow, type }])),
+      }));
+      const plays = await fakeClient().getSessions();
+      const account = recorded(tofa.users).id;
+      mockCreateMediaServerClient.mockReturnValue(
+        fakeClient({
+          getSessions: vi.fn(async () =>
+            plays.map((play) => ({ ...play, user: { ...play.user, id: account } }))
+          ),
+        })
+      );
+
+      await triggerServerPoll('server-1');
+
+      expect(cacheService.setPendingSession).toHaveBeenCalled();
+      expect(mockDb.execute).not.toHaveBeenCalled();
+    });
+  });
+});
+
+describe('Silo sessions in the poller', () => {
+  let cacheService: Record<string, ReturnType<typeof vi.fn>>;
+  const listed = recorded(silo.sessions.items);
+  /** A paused session left listed, and the one its device started after it, on one account */
+  const leftover = {
+    ...listed,
+    session_id: '74bb3687-6a17-4de1-819a-db80c7bac488',
+    user_id: 'b1e4c7a2-5d38-4f91-8a6c-2e7f0d3b9c14',
+    is_paused: true,
+  };
+  const restarted = {
+    ...leftover,
+    session_id: 'a613750c-52f6-4ef2-b2a8-616135598312',
+    is_paused: false,
+  };
+
+  beforeEach(() => {
+    serverRow.type = 'silo';
+    cacheService = startPoller();
+    mockCreateMediaServerClient.mockReturnValue(
+      fakeSiloClient({
+        getSessions: vi.fn(async () =>
+          [leftover, restarted].map((row) => parseSiloSession(row, 'iPhone'))
+        ),
+      })
+    );
+  });
+
+  afterEach(() => {
+    serverRow.type = 'tofa';
+  });
+
+  it('opens a play for each session id Silo lists on one account and device', async () => {
+    mockBatchFindActiveSessionsByKey.mockResolvedValue(new Map());
+
+    await triggerServerPoll('server-1');
+
+    expect(cacheService.setPendingSession?.mock.calls.map(([, key]) => key)).toEqual([
+      leftover.session_id,
+      restarted.session_id,
+    ]);
+  });
+
+  it('keeps each tracked play on its own session id and state, and stops it by that id', async () => {
+    const rows = [
+      existingRow({ id: 'session-a', sessionKey: leftover.session_id, state: 'paused' }),
+      existingRow({ id: 'session-b', sessionKey: restarted.session_id, state: 'playing' }),
+    ].map((row) => ({
+      ...row,
+      ratingKey: listed.media_item_id,
+      deviceId: listed.device_id,
+      lastPausedAt: row.state === 'paused' ? new Date(Date.now() - 30_000) : null,
+    }));
+    cacheService.getAllActiveSessions?.mockResolvedValue(
+      rows.map((row) => ({ ...row, serverId: 'server-1' }))
+    );
+    mockBatchFindActiveSessionsByKey.mockResolvedValue(
+      new Map(rows.map((row) => [row.sessionKey, [row]]))
+    );
+
+    await triggerServerPoll('server-1');
+    await triggerServerPoll('server-1');
+
+    const updated = vi
+      .mocked(processPollResults)
+      .mock.calls.map(([results]) => results.updatedSessions.map((s) => s.id));
+    expect(updated).toEqual([
+      ['session-a', 'session-b'],
+      ['session-a', 'session-b'],
+    ]);
+    expect(cacheService.setPendingSession).not.toHaveBeenCalled();
+    for (const payload of mockSetPayloads as Record<string, unknown>[]) {
+      expect(payload).not.toHaveProperty('sessionKey');
+    }
+    expect(mockSetPayloads.map((payload) => (payload as { state: string }).state)).toEqual([
+      'paused',
+      'playing',
+      'paused',
+      'playing',
+    ]);
+    expect(
+      rows.map((row) => terminationSessionId('silo', { plexSessionId: null, ...row }))
+    ).toEqual([leftover.session_id, restarted.session_id]);
   });
 });

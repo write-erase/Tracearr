@@ -14,6 +14,7 @@ import * as schema from '../db/schema.js';
 import { servers, serverUsers, serverUserLinks } from '../db/schema.js';
 import { revokeSessionsForServerUsers } from '../lib/revoke.js';
 import { clearScope } from '../lib/scope.js';
+import { enqueueTofaProfileBackfillIfNeeded } from '../jobs/maintenanceQueue.js';
 import { publishServersChanged } from '../jobs/poller/database.js';
 import {
   createMediaServerClient,
@@ -31,6 +32,7 @@ import {
 } from './userService.js';
 import { readServerFacts } from './mediaServer/byServerType.js';
 import type { TofaLinkedAccount } from './mediaServer/tofa/parser.js';
+import { syncAccountProfiles } from './profiles.js';
 import { ensureServerIdentifier } from './serverIdentity.js';
 import { ServerHistoricalError } from './liveServers.js';
 import { NotFoundError } from '../utils/errors.js';
@@ -356,16 +358,51 @@ async function syncTofaUsers(
 ): Promise<UserSyncResult> {
   try {
     const client = new TofaClient({ url: serverUrl, token, id: serverId });
-    const result = await syncServerUsers(serverId, await client.getUsers());
+    const users = await client.getUsers();
+    const result = await syncServerUsers(serverId, users);
     try {
       await saveAccountLinks(serverId, await client.getAccountLinks());
     } catch (err) {
       // The links only feed merge suggestions; the ones already saved stay until the next sync
       console.warn('[Sync] tofa account links failed:', err);
     }
+    const profilesSynced = await syncAccountProfiles(
+      serverId,
+      client,
+      users.map((user) => user.id)
+    );
+    // The backfill stores the profiles only history names as removed, so it needs every list saved
+    if (profilesSynced) {
+      try {
+        await enqueueTofaProfileBackfillIfNeeded(serverId);
+      } catch (err) {
+        // The next sync queues it again
+        console.warn('[Sync] tofa profile backfill not queued:', err);
+      }
+    }
     return result;
   } catch (err) {
     return failedUserSync('tofa', err);
+  }
+}
+
+async function syncSiloUsers(
+  serverId: string,
+  serverUrl: string,
+  token: string
+): Promise<UserSyncResult> {
+  try {
+    const client = createMediaServerClient({ type: 'silo', url: serverUrl, token, id: serverId });
+    const users = await client.getUsers();
+    const result = await syncServerUsers(serverId, users);
+    await syncAccountProfiles(
+      serverId,
+      client,
+      users.map((user) => user.id)
+    );
+    return result;
+  } catch (err) {
+    return failedUserSync('Silo', err);
   }
 }
 
@@ -498,6 +535,9 @@ export async function syncServer(
         userResult = { ...users, errors: [...users.errors, ...factErrors] };
         break;
       }
+      case 'silo':
+        userResult = await syncSiloUsers(serverId, serverUrl, token);
+        break;
       default:
         return assertNever(server.type);
     }

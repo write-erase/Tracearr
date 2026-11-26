@@ -1,7 +1,10 @@
 /**
  * Live server stats (CPU/RAM and bandwidth). Plex and tofa are fetched behind a
- * short Redis cache; plugin-backed sources arrive as realtime events into rolling
- * buffers, so their charts empty when a plugin goes quiet.
+ * short Redis cache; Jellyfin/Emby arrive as SSE plugin events into a rolling
+ * buffer, so their charts empty when a plugin goes quiet. Silo's readings are
+ * fetched like tofa's and kept in the same buffer, one point per Silo sample.
+ * Dispatcharr's metrics plugin also arrives as realtime events, and Channels DVR
+ * is sampled into the same buffer (fork).
  */
 
 import type { Redis } from 'ioredis';
@@ -19,6 +22,8 @@ import type { ServerBandwidthDataPoint, ServerResourceDataPoint } from '@tracear
 import { fetchSystemStats } from './mediaServer/channelsDvr/system.js';
 import { PlexClient } from './mediaServer/plex/client.js';
 import type { PlexBandwidthStats, PlexStatisticsDataPoint } from './mediaServer/plex/parser.js';
+import { SiloClient } from './mediaServer/silo/client.js';
+import { parseSiloResources } from './mediaServer/silo/parser.js';
 import { TofaClient } from './mediaServer/tofa/client.js';
 import { parseTofaMetrics } from './mediaServer/tofa/parser.js';
 
@@ -187,15 +192,21 @@ export async function recordServerStatsSample(
 
   // Re-stamp with our clock - the plugin sends its host's, and a drifting
   // host shifts its whole line against the others
-  const point: ServerResourceDataPoint = {
+  await pushServerStatsPoint(redis, serverId, {
     at: Math.floor(Date.now() / 1000),
     timespan: PLUGIN_SAMPLE_INTERVAL_SECONDS,
     hostCpuUtilization: sample.hostCpuUtilization,
     processCpuUtilization: sample.processCpuUtilization,
     hostMemoryUtilization: sample.hostMemoryUtilization,
     processMemoryUtilization: sample.processMemoryUtilization,
-  };
+  });
+}
 
+async function pushServerStatsPoint(
+  redis: Redis,
+  serverId: string,
+  point: ServerResourceDataPoint
+): Promise<void> {
   const key = REDIS_KEYS.SERVER_STATS_SAMPLES(serverId);
   try {
     // Best-effort: calls are concurrent, so a race can still let both
@@ -340,13 +351,7 @@ export async function getServerLiveStats(redis: Redis, server: ServerRow) {
     case 'plexStatistics':
       return getPlexLiveStats(redis, server);
     case 'ssePlugin':
-      return {
-        statistics: await getPluginServerStats(redis, server.id),
-        bandwidth: [],
-        bandwidthSamples: [],
-        bandwidthAccounts: [],
-        bandwidthDevices: [],
-      };
+      return getBufferedLiveStats(redis, server.id);
     case 'tofaMetrics':
       return getTofaLiveStats(redis, server);
     case 'dispatcharrPlugin': {
@@ -371,9 +376,21 @@ export async function getServerLiveStats(redis: Redis, server: ServerRow) {
         bandwidthAccounts: [],
         bandwidthDevices: [],
       };
+    case 'siloResources':
+      return getSiloLiveStats(redis, server);
     default:
       return assertNever(hostStats);
   }
+}
+
+async function getBufferedLiveStats(redis: Redis, serverId: string) {
+  return {
+    statistics: await getPluginServerStats(redis, serverId),
+    bandwidth: [],
+    bandwidthSamples: [],
+    bandwidthAccounts: [],
+    bandwidthDevices: [],
+  };
 }
 
 async function getPlexLiveStats(redis: Redis, server: ServerConnection) {
@@ -416,4 +433,26 @@ async function getTofaLiveStats(redis: Redis, server: ServerConnection) {
     bandwidthAccounts: [],
     bandwidthDevices: [],
   };
+}
+
+// Silo keeps only its latest sample, so each one read becomes a point in the plugin buffer. It
+// is placed at Silo's own sample time, so the same sample read twice lands on one second and
+// the buffer keeps it once.
+async function getSiloLiveStats(redis: Redis, server: ServerConnection) {
+  const body = await cachedFetch(
+    redis,
+    REDIS_KEYS.SERVER_STATS_RESOURCES(server.id),
+    CACHE_TTL.SERVER_STATS_RESOURCES,
+    () => new SiloClient({ url: server.url, token: server.token }).getSystemResources()
+  );
+  const point = parseSiloResources(body);
+  if (point) {
+    await pushServerStatsPoint(redis, server.id, {
+      ...point,
+      at: point.at + serverClockShift([point]),
+      timespan: body.attribution?.sample_interval_seconds ?? 5,
+    });
+  }
+
+  return getBufferedLiveStats(redis, server.id);
 }

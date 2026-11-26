@@ -2,6 +2,7 @@ import { dispatcharrDeviceIdSql } from '../../services/mediaServer/dispatcharr/d
 import { eq } from 'drizzle-orm';
 import { db } from '../../db/client.js';
 import { sessions, serverUsers, servers, users } from '../../db/schema.js';
+import { shownProfile, type CurrentProfiles } from '../../services/profiles.js';
 import { personNameColumn } from '../../utils/representativeAccount.js';
 import { isLocalSession, readSessionRow } from '../../db/sessions/index.js';
 
@@ -52,6 +53,7 @@ export async function fetchSessionDetailRow(
         geoAsnNumber: sessions.geoAsnNumber,
         geoAsnOrganization: sessions.geoAsnOrganization,
         isLocal: sessions.isLocal,
+        profileId: sessions.profileId,
         profileName: sessions.profileName,
         playerName: sessions.playerName,
         deviceId: sessions.deviceId,
@@ -92,7 +94,7 @@ export async function fetchSessionDetailRow(
 type SessionDetailRow = NonNullable<Awaited<ReturnType<typeof fetchSessionDetailRow>>>;
 
 /** The detail row in the nested user and server shape the history rows use. */
-export function mapSessionDetail(row: SessionDetailRow) {
+export function mapSessionDetail(row: SessionDetailRow, profiles: CurrentProfiles) {
   return {
     id: row.id,
     serverId: row.serverId,
@@ -139,7 +141,7 @@ export function mapSessionDetail(row: SessionDetailRow) {
     geoAsnNumber: row.geoAsnNumber,
     geoAsnOrganization: row.geoAsnOrganization,
     isLocal: isLocalSession(row),
-    profileName: row.profileName,
+    ...shownProfile(profiles, row.profileId, row.profileName),
     playerName: row.playerName,
     deviceId: row.deviceId,
     dispatcharrDeviceId: row.dispatcharrDeviceId,

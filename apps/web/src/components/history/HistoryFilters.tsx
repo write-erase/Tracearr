@@ -18,6 +18,7 @@ import {
   Search,
   ListFilter,
   User,
+  UserRound,
   Globe,
   MapPin,
   Wifi,
@@ -32,6 +33,7 @@ import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
@@ -43,35 +45,16 @@ import {
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { TimeRangePicker, type TimeRangeValue } from '@/components/ui/time-range-picker';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { showsProfiles, useProfileOptionLabel } from '@/components/sessions/useProfileLabel';
 import type { HistoryFilters } from '@/hooks/queries/useHistory';
 import { PLAYBACK_DECISION_ICONS } from '@/lib/playbackBadge';
 import {
   PLAYBACK_DECISIONS,
   PLAYBACK_DECISION_LABEL_KEYS,
   type HistoryFilterOptions,
+  type ProfileFilterOption,
 } from '@tracearr/shared';
-
-// Column definitions for visibility toggle
-export const HISTORY_COLUMNS = [
-  { id: 'date', labelKey: 'common:labels.date', defaultVisible: true },
-  { id: 'user', labelKey: 'common:labels.user', defaultVisible: true },
-  { id: 'content', labelKey: 'common:labels.content', defaultVisible: true },
-  { id: 'server', labelKey: 'common:labels.server', defaultVisible: true },
-  { id: 'platform', labelKey: 'common:labels.platform', defaultVisible: true },
-  { id: 'location', labelKey: 'common:labels.location', defaultVisible: true },
-  { id: 'ip', labelKey: 'common:labels.ipAddress', defaultVisible: false },
-  { id: 'quality', labelKey: 'common:labels.quality', defaultVisible: true },
-  { id: 'duration', labelKey: 'pages:history.columns.duration', defaultVisible: true },
-  { id: 'progress', labelKey: 'pages:history.columns.progress', defaultVisible: true },
-] as const;
-
-export type HistoryColumnId = (typeof HISTORY_COLUMNS)[number]['id'];
-export type ColumnVisibility = Record<HistoryColumnId, boolean>;
-
-// Default visibility state
-export const DEFAULT_COLUMN_VISIBILITY: ColumnVisibility = Object.fromEntries(
-  HISTORY_COLUMNS.map((col) => [col.id, col.defaultVisible])
-) as ColumnVisibility;
+import { HISTORY_COLUMNS, type ColumnVisibility, type HistoryColumnId } from './historyColumns';
 
 interface Props {
   filters: HistoryFilters;
@@ -81,10 +64,17 @@ interface Props {
   filterOptions?: HistoryFilterOptions;
   isFetching?: boolean;
   columnVisibility: ColumnVisibility;
-  onColumnVisibilityChange: (visibility: ColumnVisibility) => void;
+  onColumnToggle: (column: HistoryColumnId, shown: boolean) => void;
   isMultiServer?: boolean;
   /** Every row is the member's own, so there is no one to filter by. */
   isMember?: boolean;
+}
+
+function toggleList<T>(current: T[] | undefined, values: T[], checked: boolean): T[] | undefined {
+  const updated = checked
+    ? [...new Set([...(current ?? []), ...values])]
+    : (current ?? []).filter((value) => !values.includes(value));
+  return updated.length > 0 ? updated : undefined;
 }
 
 // Filter chip component
@@ -125,11 +115,12 @@ export function HistoryFiltersBar({
   filterOptions,
   isFetching,
   columnVisibility,
-  onColumnVisibilityChange,
+  onColumnToggle,
   isMultiServer = false,
   isMember = false,
 }: Props) {
   const { t } = useTranslation(['common', 'pages', 'nav']);
+  const profileOptionLabel = useProfileOptionLabel();
   const [searchInput, setSearchInput] = useState(filters.search ?? '');
 
   // Sync search input with filters
@@ -159,6 +150,10 @@ export function HistoryFiltersBar({
       value: string;
       icon?: typeof User;
     }[] = [];
+    const listSummary = (labels: string[]) =>
+      labels.length > 2
+        ? t('pages:history.filters.selected', { count: labels.length })
+        : labels.join(', ');
 
     if (filters.serverUserIds?.length) {
       // Match by any of the person's account ids, not just the representative id,
@@ -173,21 +168,27 @@ export function HistoryFiltersBar({
       active.push({
         key: 'serverUserIds',
         label: t('nav:users'),
-        value:
-          userNames.length > 2
-            ? t('pages:history.filters.selected', { count: userNames.length })
-            : userNames.join(', '),
+        value: listSummary(userNames),
         icon: User,
+      });
+    }
+    if (filters.profileIds?.length) {
+      const profileNames =
+        filterOptions?.profiles
+          .filter((profile) => filters.profileIds?.includes(profile.id))
+          .map(profileOptionLabel) ?? [];
+      active.push({
+        key: 'profileIds',
+        label: t('common:labels.profiles'),
+        value: listSummary(profileNames),
+        icon: UserRound,
       });
     }
     if (filters.platforms?.length) {
       active.push({
         key: 'platforms',
         label: t('pages:activity.platforms'),
-        value:
-          filters.platforms.length > 2
-            ? t('pages:history.filters.selected', { count: filters.platforms.length })
-            : filters.platforms.join(', '),
+        value: listSummary(filters.platforms),
         icon: Monitor,
       });
     }
@@ -195,10 +196,7 @@ export function HistoryFiltersBar({
       active.push({
         key: 'geoCountries',
         label: t('pages:history.filters.countries'),
-        value:
-          filters.geoCountries.length > 2
-            ? t('pages:history.filters.selected', { count: filters.geoCountries.length })
-            : filters.geoCountries.join(', '),
+        value: listSummary(filters.geoCountries),
         icon: Globe,
       });
     }
@@ -224,10 +222,7 @@ export function HistoryFiltersBar({
       active.push({
         key: 'mediaTypes',
         label: t('pages:history.filters.types'),
-        value:
-          typeLabels.length > 2
-            ? t('pages:history.filters.selected', { count: typeLabels.length })
-            : typeLabels.join(', '),
+        value: listSummary(typeLabels),
         icon: Film,
       });
     }
@@ -238,10 +233,7 @@ export function HistoryFiltersBar({
       active.push({
         key: 'transcodeDecisions',
         label: t('common:labels.quality'),
-        value:
-          decisionLabels.length > 2
-            ? t('pages:history.filters.selected', { count: decisionLabels.length })
-            : decisionLabels.join(', '),
+        value: listSummary(decisionLabels),
         icon: filters.transcodeDecisions.includes('transcode') ? Zap : MonitorPlay,
       });
     }
@@ -266,7 +258,14 @@ export function HistoryFiltersBar({
     }
 
     return active;
-  }, [filters, filterOptions?.users, mediaTypeLabels, t]);
+  }, [
+    filters,
+    filterOptions?.users,
+    filterOptions?.profiles,
+    profileOptionLabel,
+    mediaTypeLabels,
+    t,
+  ]);
 
   // Debounced search effect
   useEffect(() => {
@@ -294,20 +293,12 @@ export function HistoryFiltersBar({
     onFiltersChange({});
   }, [onFiltersChange]);
 
-  // Toggle column visibility
-  const toggleColumn = useCallback(
-    (columnId: HistoryColumnId) => {
-      onColumnVisibilityChange({
-        ...columnVisibility,
-        [columnId]: !columnVisibility[columnId],
-      });
-    },
-    [columnVisibility, onColumnVisibilityChange]
-  );
-
   const hasActiveFilters = activeFilters.length > 0 || filters.search;
   const activeFilterCount = activeFilters.length + (filters.search ? 1 : 0);
-  const hiddenColumnCount = Object.values(columnVisibility).filter((v) => !v).length;
+  const menuColumns = HISTORY_COLUMNS.filter(
+    (column) => (column.id !== 'server' || isMultiServer) && (column.id !== 'user' || !isMember)
+  );
+  const shownColumnCount = menuColumns.filter((column) => columnVisibility[column.id]).length;
 
   // Sort users alphabetically (case-insensitive)
   const sortedUsers = useMemo(() => {
@@ -318,6 +309,30 @@ export function HistoryFiltersBar({
       return nameA.localeCompare(nameB);
     });
   }, [filterOptions?.users]);
+
+  const profileGroups = useMemo(() => {
+    const groups = new Map<
+      string,
+      { serverUserId: string; account: string; server: string; profiles: ProfileFilterOption[] }
+    >();
+    for (const profile of filterOptions?.profiles ?? []) {
+      const group = groups.get(profile.serverUserId);
+      if (group) {
+        group.profiles.push(profile);
+      } else {
+        groups.set(profile.serverUserId, {
+          serverUserId: profile.serverUserId,
+          account: profile.accountUsername,
+          server: profile.serverName,
+          profiles: [profile],
+        });
+      }
+    }
+    return [...groups.values()]
+      .filter((group) => showsProfiles(group.profiles))
+      .sort((a, b) => a.account.localeCompare(b.account) || a.server.localeCompare(b.server));
+  }, [filterOptions?.profiles]);
+  const profileServersDiffer = new Set(profileGroups.map((group) => group.server)).size > 1;
 
   return (
     <div className="space-y-3">
@@ -396,16 +411,16 @@ export function HistoryFiltersBar({
                           <DropdownMenuCheckboxItem
                             key={user.id}
                             checked={isSelected}
-                            onCheckedChange={(checked) => {
-                              const current = filters.serverUserIds ?? [];
-                              const updated = checked
-                                ? [...new Set([...current, ...personIds])]
-                                : current.filter((id) => !personIds.includes(id));
+                            onCheckedChange={(checked) =>
                               onFiltersChange({
                                 ...filters,
-                                serverUserIds: updated.length > 0 ? updated : undefined,
-                              });
-                            }}
+                                serverUserIds: toggleList(
+                                  filters.serverUserIds,
+                                  personIds,
+                                  checked
+                                ),
+                              })
+                            }
                             onSelect={(e) => e.preventDefault()}
                           >
                             <Avatar className="mr-2 h-5 w-5">
@@ -418,6 +433,61 @@ export function HistoryFiltersBar({
                           </DropdownMenuCheckboxItem>
                         );
                       })}
+                    </div>
+                  </ScrollArea>
+                </DropdownMenuSubContent>
+              </DropdownMenuSub>
+            )}
+
+            {/* Profile filter - multi-select, for accounts with a profile besides their main one */}
+            {!isMember && profileGroups.length > 0 && (
+              <DropdownMenuSub>
+                <DropdownMenuSubTrigger>
+                  <UserRound className="mr-2 h-4 w-4" />
+                  {t('common:labels.profiles')}
+                  {filters.profileIds?.length ? (
+                    <Badge variant="secondary" className="ml-auto h-5 px-1.5">
+                      {filters.profileIds.length}
+                    </Badge>
+                  ) : null}
+                </DropdownMenuSubTrigger>
+                <DropdownMenuSubContent className="p-0">
+                  <ScrollArea className="[&>[data-slot=scroll-area-viewport]]:max-h-[250px]">
+                    <div className="p-1">
+                      {filters.profileIds?.length ? (
+                        <>
+                          <DropdownMenuItem onClick={() => removeFilter('profileIds')}>
+                            <X />
+                            {t('pages:history.filters.clearProfiles')}
+                          </DropdownMenuItem>
+                          <DropdownMenuSeparator />
+                        </>
+                      ) : null}
+                      {profileGroups.map(({ serverUserId, account, server, profiles }) => (
+                        <DropdownMenuGroup key={serverUserId} aria-label={account}>
+                          {profileGroups.length > 1 && (
+                            <DropdownMenuLabel className="text-muted-foreground flex justify-between gap-2 text-xs">
+                              <span className="truncate">{account}</span>
+                              {profileServersDiffer && <span className="shrink-0">{server}</span>}
+                            </DropdownMenuLabel>
+                          )}
+                          {profiles.map((profile) => (
+                            <DropdownMenuCheckboxItem
+                              key={profile.id}
+                              checked={filters.profileIds?.includes(profile.id) ?? false}
+                              onCheckedChange={(checked) =>
+                                onFiltersChange({
+                                  ...filters,
+                                  profileIds: toggleList(filters.profileIds, [profile.id], checked),
+                                })
+                              }
+                              onSelect={(e) => e.preventDefault()}
+                            >
+                              <span className="truncate">{profileOptionLabel(profile)}</span>
+                            </DropdownMenuCheckboxItem>
+                          ))}
+                        </DropdownMenuGroup>
+                      ))}
                     </div>
                   </ScrollArea>
                 </DropdownMenuSubContent>
@@ -453,16 +523,12 @@ export function HistoryFiltersBar({
                         <DropdownMenuCheckboxItem
                           key={opt.value}
                           checked={isSelected}
-                          onCheckedChange={(checked) => {
-                            const current = filters.platforms ?? [];
-                            const updated = checked
-                              ? [...current, opt.value]
-                              : current.filter((p) => p !== opt.value);
+                          onCheckedChange={(checked) =>
                             onFiltersChange({
                               ...filters,
-                              platforms: updated.length > 0 ? updated : undefined,
-                            });
-                          }}
+                              platforms: toggleList(filters.platforms, [opt.value], checked),
+                            })
+                          }
                           onSelect={(e) => e.preventDefault()}
                         >
                           <Monitor className="text-muted-foreground mr-2 h-4 w-4" />
@@ -507,16 +573,12 @@ export function HistoryFiltersBar({
                         <DropdownMenuCheckboxItem
                           key={opt.value}
                           checked={isSelected}
-                          onCheckedChange={(checked) => {
-                            const current = filters.geoCountries ?? [];
-                            const updated = checked
-                              ? [...current, opt.value]
-                              : current.filter((c) => c !== opt.value);
+                          onCheckedChange={(checked) =>
                             onFiltersChange({
                               ...filters,
-                              geoCountries: updated.length > 0 ? updated : undefined,
-                            });
-                          }}
+                              geoCountries: toggleList(filters.geoCountries, [opt.value], checked),
+                            })
+                          }
                           onSelect={(e) => e.preventDefault()}
                         >
                           <Globe className="text-muted-foreground mr-2 h-4 w-4" />
@@ -549,16 +611,12 @@ export function HistoryFiltersBar({
                 <DropdownMenuCheckboxItem
                   key={value}
                   checked={isSelected}
-                  onCheckedChange={(checked) => {
-                    const current = filters.mediaTypes ?? [];
-                    const updated = checked
-                      ? [...current, value]
-                      : current.filter((type) => type !== value);
+                  onCheckedChange={(checked) =>
                     onFiltersChange({
                       ...filters,
-                      mediaTypes: updated.length > 0 ? updated : undefined,
-                    });
-                  }}
+                      mediaTypes: toggleList(filters.mediaTypes, [value], checked),
+                    })
+                  }
                   onSelect={(e) => e.preventDefault()}
                 >
                   <Icon className="mr-2 h-4 w-4" />
@@ -586,16 +644,12 @@ export function HistoryFiltersBar({
                 <DropdownMenuCheckboxItem
                   key={value}
                   checked={isSelected}
-                  onCheckedChange={(checked) => {
-                    const current = filters.transcodeDecisions ?? [];
-                    const updated = checked
-                      ? [...current, value]
-                      : current.filter((d) => d !== value);
+                  onCheckedChange={(checked) =>
                     onFiltersChange({
                       ...filters,
-                      transcodeDecisions: updated.length > 0 ? updated : undefined,
-                    });
-                  }}
+                      transcodeDecisions: toggleList(filters.transcodeDecisions, [value], checked),
+                    })
+                  }
                   onSelect={(e) => e.preventDefault()}
                 >
                   <Icon className="mr-2 h-4 w-4" />
@@ -654,22 +708,20 @@ export function HistoryFiltersBar({
             <Button variant="outline" size="sm" className="h-8 gap-1.5">
               <Columns3 className="h-4 w-4" />
               {t('pages:history.filters.columns')}
-              {hiddenColumnCount > 0 && (
+              {shownColumnCount < menuColumns.length && (
                 <Badge variant="secondary" className="ml-1 h-5 px-1.5">
-                  {HISTORY_COLUMNS.length - hiddenColumnCount}
+                  {shownColumnCount}
                 </Badge>
               )}
               <ChevronDown className="h-3.5 w-3.5 opacity-50" />
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
-            {HISTORY_COLUMNS.filter(
-              (col) => (col.id !== 'server' || isMultiServer) && (col.id !== 'user' || !isMember)
-            ).map((column) => (
+            {menuColumns.map((column) => (
               <DropdownMenuCheckboxItem
                 key={column.id}
                 checked={columnVisibility[column.id]}
-                onCheckedChange={() => toggleColumn(column.id)}
+                onCheckedChange={(checked) => onColumnToggle(column.id, checked)}
               >
                 {t(column.labelKey)}
               </DropdownMenuCheckboxItem>

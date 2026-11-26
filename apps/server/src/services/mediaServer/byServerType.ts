@@ -29,6 +29,7 @@ export async function readServerFacts(
     case 'plex':
     case 'jellyfin':
     case 'emby':
+    case 'silo':
     case 'dispatcharr':
     case 'channels_dvr':
       return {};
@@ -76,6 +77,7 @@ export function stopRefusal(session: {
     case 'plex':
     case 'jellyfin':
     case 'emby':
+    case 'silo':
       return null;
     // Channels DVR's own refusals (web player, remote device) are checked by termination.ts.
     case 'dispatcharr':
