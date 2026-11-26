@@ -20,8 +20,8 @@ below that came after r2:
 - README rewritten for the fork, and upstream repo files this fork doesn't use removed (#68, #69)
 
 No new migrations, so updating from r2 needs no backup beyond the usual and r2 can be rolled back to
-without one. Not yet seen on a running server: the Dispatcharr card's failed-refresh pill; the
-mobile app was checked on iPhone only. The README's pinned example is
+without one. Everything in it has been seen on a running server; the mobile app was checked on
+iPhone only. The README's pinned example is
 `3.2.1-r3`.
 
 ## November 24, 2026 — Dispatcharr dev images: updates from Docker Hub's dev tag
@@ -203,8 +203,8 @@ Covered by unit tests (parsing, counting, Streaming Now, the client calls, the v
 card and the dashboard layout). Checked on a running server: the connections pills, the version
 pill, Streaming Now with two viewers sharing one channel and connection, Anonymous listed while
 "ignore Anonymous streams" is on, and the shared row beside Channels DVR. The "Channels DVR" chip
-was seen on November 23 (Recording Now entry), and the logos in the card titles by November 26. Not
-yet seen there: a failed-refresh pill.
+was seen on November 23 (Recording Now entry), the logos in the card titles by November 26, and a
+failed-refresh pill on November 26.
 
 ## November 23, 2026 — Dev images skip pushes that don't change the image
 
