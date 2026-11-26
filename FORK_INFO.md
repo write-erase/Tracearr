@@ -1,5 +1,29 @@
 # Tracearr Fork Information
 
+## November 26, 2026 — Release v3.2.1-r3
+
+Still on upstream 3.2.1, plus Connor's `main` up to `6c9da518` (November 22, merged in #66), which
+is before his 3.3.0 betas; Silo support is not in it. It carries every entry from November 21 to 24
+below that came after r2:
+
+- Channels DVR: device names for viewers behind a proxy (#63); live TV shown as paused when it's
+  paused on a Channels app on the local network (#64); clearing a Recently Recorded alert (#74)
+- Dashboard: the Avg chips under the CPU, RAM and bandwidth charts stay inside the card, and the
+  legend text is back to 11px (#65)
+- Upstream `main` through November 22 (#66): the rebuilt logo and icons, better-auth 1.7.25
+- Dispatcharr card on the dashboard beside Channels DVR's (#71), with Recording Now and Coming Up,
+  Stop and Cancel (#72)
+- Dispatcharr dev images get their updates from Docker Hub's dev tag; every server type is checked
+  for updates every six hours (Channels DVR was hourly), and Channels DVR and Dispatcharr every
+  minute while an update waits (#74)
+- The mobile app no longer gets Dispatcharr or Channels DVR servers, so it opens again (#73)
+- README rewritten for the fork, and upstream repo files this fork doesn't use removed (#68, #69)
+
+No new migrations, so updating from r2 needs no backup beyond the usual and r2 can be rolled back to
+without one. Not yet seen on a running server: the Dispatcharr card's failed-refresh pill; the
+mobile app was checked on iPhone only. The README's pinned example is
+`3.2.1-r3`.
+
 ## November 24, 2026 — Dispatcharr dev images: updates from Docker Hub's dev tag
 
 A Dispatcharr dev image showed "Up to date" while a newer dev build was out. Dev images keep the
@@ -179,8 +203,8 @@ Covered by unit tests (parsing, counting, Streaming Now, the client calls, the v
 card and the dashboard layout). Checked on a running server: the connections pills, the version
 pill, Streaming Now with two viewers sharing one channel and connection, Anonymous listed while
 "ignore Anonymous streams" is on, and the shared row beside Channels DVR. The "Channels DVR" chip
-was seen on November 23 (Recording Now entry). Not yet seen there: a failed-refresh pill and the
-logos in the card titles.
+was seen on November 23 (Recording Now entry), and the logos in the card titles by November 26. Not
+yet seen there: a failed-refresh pill.
 
 ## November 23, 2026 — Dev images skip pushes that don't change the image
 

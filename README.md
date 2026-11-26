@@ -82,8 +82,8 @@ All images are on `ghcr.io/write-erase/tracearr`, for AMD64 and ARM64. Release i
 | --------------------- | -------------------------------------------------------- |
 | `latest`              | Latest release (requires external DB/Redis)              |
 | `supervised-latest`   | All-in-one latest release                                |
-| `3.2.1-r2`            | A pinned release (requires external DB/Redis)            |
-| `supervised-3.2.1-r2` | All-in-one pinned release                                |
+| `3.2.1-r3`            | A pinned release (requires external DB/Redis)            |
+| `supervised-3.2.1-r3` | All-in-one pinned release                                |
 | `dev`                 | Built from the `dev` branch (requires external DB/Redis) |
 | `supervised-dev`      | All-in-one, built from the `dev` branch                  |
 
@@ -158,15 +158,15 @@ beforehand if you want to reuse the archive across image builds.
 ```bash
 # Standalone image
 docker build -f docker/Dockerfile -t tracearr \
-  --build-arg APP_VERSION=3.2.1 --build-arg APP_TAG=v3.2.1-r2 \
-  --build-arg APP_UPSTREAM_VERSION=3.2.1 --build-arg APP_FORK_REVISION=2 --build-arg APP_FORK_VERSION=3.2.1-r2 \
+  --build-arg APP_VERSION=3.2.1 --build-arg APP_TAG=v3.2.1-r3 \
+  --build-arg APP_UPSTREAM_VERSION=3.2.1 --build-arg APP_FORK_REVISION=3 --build-arg APP_FORK_VERSION=3.2.1-r3 \
   --build-arg APP_FORK_REPO=write-erase/Tracearr --build-arg APP_IMAGE_REPO=ghcr.io/write-erase/tracearr \
   --build-arg APP_COMMIT="$(git rev-parse --short HEAD)" --build-arg APP_BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)" .
 
 # Supervised image
 docker build -f docker/Dockerfile.supervised -t tracearr-supervised \
-  --build-arg APP_VERSION=3.2.1 --build-arg APP_TAG=supervised-3.2.1-r2 \
-  --build-arg APP_UPSTREAM_VERSION=3.2.1 --build-arg APP_FORK_REVISION=2 --build-arg APP_FORK_VERSION=3.2.1-r2 \
+  --build-arg APP_VERSION=3.2.1 --build-arg APP_TAG=supervised-3.2.1-r3 \
+  --build-arg APP_UPSTREAM_VERSION=3.2.1 --build-arg APP_FORK_REVISION=3 --build-arg APP_FORK_VERSION=3.2.1-r3 \
   --build-arg APP_FORK_REPO=write-erase/Tracearr --build-arg APP_IMAGE_REPO=ghcr.io/write-erase/tracearr \
   --build-arg APP_COMMIT="$(git rev-parse --short HEAD)" --build-arg APP_BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)" .
 ```
