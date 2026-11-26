@@ -9,6 +9,10 @@ import { fetchJson } from '../http.js';
 import {
   SERVER_RELEASE_PAGES,
   channelsTrackFor,
+  dispatcharrBuildStamp,
+  dispatcharrDevLatest,
+  dispatcharrVersion,
+  latestDispatcharrDevBuild,
   isNewerServerVersion,
   latestChannelsVersions,
   latestVersionFor,
@@ -63,6 +67,68 @@ describe('normalizeServerVersion', () => {
   it('takes three and four part versions', () => {
     expect(normalizeServerVersion('emby', '4.9.5')).toBe('4.9.5');
     expect(normalizeServerVersion('emby', '4.9.5.0')).toBe('4.9.5.0');
+  });
+});
+
+describe('normalizeServerVersion for Dispatcharr', () => {
+  it('reads the version the server reports and the v-prefixed release tag alike', () => {
+    expect(normalizeServerVersion('dispatcharr', '0.34.1')).toBe('0.34.1');
+    expect(normalizeServerVersion('dispatcharr', 'v0.34.1')).toBe('0.34.1');
+  });
+
+  it('calls 0.34.1 newer than 0.33.0', () => {
+    expect(isNewerServerVersion('dispatcharr', 'v0.34.1', '0.33.0')).toBe(true);
+    expect(isNewerServerVersion('dispatcharr', 'v0.34.1', '0.34.1')).toBe(false);
+  });
+});
+
+describe('Dispatcharr dev images (fork)', () => {
+  it('stores a dev image as its version plus its build time in UTC', () => {
+    expect(dispatcharrVersion('0.34.1', '20261124013000')).toBe('0.34.1-dev.20261124013000');
+    expect(dispatcharrVersion('0.34.1', '2026-11-24T01:30:00Z')).toBe('0.34.1-dev.20261124013000');
+    expect(dispatcharrVersion('0.34.1', null)).toBe('0.34.1');
+    expect(dispatcharrVersion('0.34.1', 'not a time')).toBe('0.34.1');
+  });
+
+  it('reads build and push times as Dispatcharr does', () => {
+    // No zone reads as UTC; Docker Hub's microseconds and an offset are fine
+    expect(dispatcharrBuildStamp('2026-11-24T01:30:00')).toBe('20261124013000');
+    expect(dispatcharrBuildStamp('2026-11-24T19:05:12.345678Z')).toBe('20261124190512');
+    expect(dispatcharrBuildStamp('2026-11-24T13:05:12-06:00')).toBe('20261124190512');
+    expect(dispatcharrBuildStamp(42)).toBeNull();
+  });
+
+  it('keeps a dev version as it is', () => {
+    expect(normalizeServerVersion('dispatcharr', '0.34.1-dev.20261124013000')).toBe(
+      '0.34.1-dev.20261124013000'
+    );
+  });
+
+  it('calls a push more than 10 minutes after the running build an update', () => {
+    const running = '0.34.1-dev.20261124013000';
+    expect(dispatcharrDevLatest(running, '20261124190000')).toBe('0.34.1-dev.20261124190000');
+    // Within 10 minutes is the same build being pushed: up to date
+    expect(dispatcharrDevLatest(running, '20261124013900')).toBe(running);
+    expect(dispatcharrDevLatest(running, null)).toBeNull();
+    expect(dispatcharrDevLatest('0.34.1', '20261124190000')).toBeNull();
+
+    expect(isNewerServerVersion('dispatcharr', '0.34.1-dev.20261124190000', running)).toBe(true);
+    expect(isNewerServerVersion('dispatcharr', running, running)).toBe(false);
+    // A dev image and a release never compare
+    expect(isNewerServerVersion('dispatcharr', '0.35.0', running)).toBe(false);
+  });
+
+  it("reads when Docker Hub's dev tag was last pushed", async () => {
+    mockFetchJson.mockResolvedValue({ last_updated: '2026-11-24T19:05:12.345678Z' });
+    await expect(latestDispatcharrDevBuild()).resolves.toBe('20261124190512');
+    expect(mockFetchJson).toHaveBeenCalledWith(
+      'https://hub.docker.com/v2/repositories/dispatcharr/dispatcharr/tags/dev',
+      expect.objectContaining({ timeout: 10_000 })
+    );
+
+    mockFetchJson.mockRejectedValue(new Error('down'));
+    await expect(latestDispatcharrDevBuild()).resolves.toBeNull();
+    mockFetchJson.mockReset();
   });
 });
 
@@ -128,6 +194,16 @@ describe('latestVersionFor', () => {
     await expect(latestVersionFor('emby')).resolves.toBe('4.9.5.0');
     expect(mockFetchJson).toHaveBeenCalledWith(
       'https://api.github.com/repos/MediaBrowser/Emby.Releases/releases/latest',
+      expect.objectContaining({ timeout: 10_000, service: 'github' })
+    );
+  });
+
+  it('reads the Dispatcharr release tag without its v', async () => {
+    mockFetchJson.mockResolvedValue({ tag_name: 'v0.34.1' });
+
+    await expect(latestVersionFor('dispatcharr')).resolves.toBe('0.34.1');
+    expect(mockFetchJson).toHaveBeenCalledWith(
+      'https://api.github.com/repos/Dispatcharr/Dispatcharr/releases/latest',
       expect.objectContaining({ timeout: 10_000, service: 'github' })
     );
   });

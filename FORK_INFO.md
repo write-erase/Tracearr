@@ -1,5 +1,347 @@
 # Tracearr Fork Information
 
+## November 26, 2026 — Release v3.2.1-r3
+
+Still on upstream 3.2.1, plus Connor's `main` up to `6c9da518` (November 22, merged in #66), which
+is before his 3.3.0 betas; Silo support is not in it. It carries every entry from November 21 to 24
+below that came after r2:
+
+- Channels DVR: device names for viewers behind a proxy (#63); live TV shown as paused when it's
+  paused on a Channels app on the local network (#64); clearing a Recently Recorded alert (#74)
+- Dashboard: the Avg chips under the CPU, RAM and bandwidth charts stay inside the card, and the
+  legend text is back to 11px (#65)
+- Upstream `main` through November 22 (#66): the rebuilt logo and icons, better-auth 1.7.25
+- Dispatcharr card on the dashboard beside Channels DVR's (#71), with Recording Now and Coming Up,
+  Stop and Cancel (#72)
+- Dispatcharr dev images get their updates from Docker Hub's dev tag; every server type is checked
+  for updates every six hours (Channels DVR was hourly), and Channels DVR and Dispatcharr every
+  minute while an update waits (#74)
+- The mobile app no longer gets Dispatcharr or Channels DVR servers, so it opens again (#73)
+- README rewritten for the fork, and upstream repo files this fork doesn't use removed (#68, #69)
+
+No new migrations, so updating from r2 needs no backup beyond the usual and r2 can be rolled back to
+without one. Not yet seen on a running server: the Dispatcharr card's failed-refresh pill; the
+mobile app was checked on iPhone only. The README's pinned example is
+`3.2.1-r3`.
+
+## November 24, 2026 — Dispatcharr dev images: updates from Docker Hub's dev tag
+
+A Dispatcharr dev image showed "Up to date" while a newer dev build was out. Dev images keep the
+release's version (`version.py` says 0.34.1 on both) and add their build time, which
+`/api/core/version/` reports as `timestamp` (`null` on a release image). Tracearr only compared the
+version with the latest GitHub release, so a dev image always matched.
+
+- A Dispatcharr server that reports a build time is stored as `0.34.1-dev.<build time, UTC>`.
+- Its latest is when the `dev` tag on Docker Hub was last pushed
+  (`hub.docker.com/v2/repositories/dispatcharr/dispatcharr/tags/dev`, `last_updated`), counted as
+  an update only when it's more than 10 minutes after the running build. That is Dispatcharr's
+  own check for dev images (`core/tasks.py` `check_for_version_update`, read from its `dev`
+  branch on November 24), so the two agree.
+- The version pill links to Dispatcharr's Docker Hub tags for a dev image, and to the GitHub
+  releases for a release image as before. The update alert links the same way.
+- A release image is unchanged. A dev image is never compared with GitHub releases, as in
+  Dispatcharr's check.
+- Every server type is now checked every six hours. Channels DVR's separate hourly check is gone,
+  so it matches Settings → General → Update checks, which already said "every six hours".
+  Dispatcharr's own check runs daily.
+- A Dispatcharr server with an update waiting is now asked what it runs every minute, as a Channels
+  DVR server already was, so "Update available" turns to "Up to date" within a minute of pulling
+  the new image (dev or release).
+- The Update checks card lists Dispatcharr among the media servers checked ("Plex, Jellyfin, Emby,
+  tofa, Channels DVR and Dispatcharr"). English only; other languages keep their text.
+
+Covered by unit tests (reading the build time, the 10-minute margin, the six-hourly sweep and the
+minute watch, the pill). Checked on a local build on November 24: a Dispatcharr dev image behind
+the latest push showed "Update available" linking to Docker Hub, and turned to "Up to date" within a
+minute of pulling the new image.
+
+## November 24, 2026 — Clear a Channels DVR recording's alert
+
+On the Channels DVR card, a recording in Recently Recorded that went wrong (interrupted, stopped
+early, started late) kept its badge and its place in "N had problems" for the full 24 hours it's
+listed. An owner or admin can now clear it:
+
+- An X beside a recording's badge clears that recording; "Clear all" beside the count (shown when
+  two or more are flagged) clears every flagged one, including any past the first five shown.
+- Clearing removes the badges and drops the recording from the count. The recording stays in
+  Recently Recorded, with its length ("17 min of 30 min") as before.
+- It's cleared for everyone: `POST /sessions/recordings/clear-issues` (body
+  `{ serverId, fileIds }`, the same permission as stopping a recording) adds the Channels DVR file
+  ids to a Redis set per server, kept two days, past the one-day list. `GET /sessions/recordings`
+  marks those recordings `issuesCleared`. If Redis can't be read the card still loads, with
+  nothing cleared.
+
+Covered by route and card tests. Checked on a local build on November 24: clearing a "Stopped
+early" recording removed its badge and the "had problems" pill, the recording stayed listed, and it
+stayed cleared after a refresh and in another browser.
+
+## November 24, 2026 — Dispatcharr and Channels DVR servers hidden from the mobile app
+
+Tracearr's mobile app (Tracearr/Mobile-App, built on `@tracearr/shared` 3.2.1) looks each
+server's type up in its own tables (`SERVER_PROFILES[type].displayName` for the server picker,
+`SERVER_PROFILES[session.server.type]` on a session) and stops working on a type it doesn't have,
+which is every Dispatcharr and Channels DVR server. Tracearr now leaves those servers out of what
+the app gets; the poll (#67) stays open for the final decision. The web app is unchanged.
+
+A request from the app is told apart by the `x-tracearr-client: mobile/<version>` header the app
+sends on every API call (`apps/server/src/lib/mobileAppServers.ts`). For those requests:
+
+- `GET /servers`, `GET /servers/health` and the `servers` in `GET /sessions/filter-options`
+  leave out every server whose type isn't Plex, Jellyfin, Emby or tofa.
+- The lists and stats the app asks for (Now Playing, history and its totals, filter options,
+  users, alerts and their count, and the dashboard, plays, platforms, quality and concurrent
+  stats) are narrowed to the servers it can show. "All servers" (no filter) becomes every server
+  it can show; a filter naming a hidden server drops it; a filter naming only hidden servers
+  matches nothing. A filter naming only servers it can show is left as it is.
+- Acknowledge-all on alerts acknowledges only alerts on the servers it can show.
+- `GET /sessions/<id>` for a session on a hidden server, and `GET /servers/<id>/...` for a hidden
+  server, answer 404 (the server routes don't run).
+- Pairing answers with the first server the app can show, rather than simply the first server.
+- No push notification goes out for a hidden server: violations, stream started and stopped,
+  server down and up, new device and trust score changes.
+- Socket server down/up alerts for a hidden server skip the app's sockets (every app socket now
+  joins a `mobile-app` room); the web still gets them.
+
+The server types are cached for 30 seconds and the cache is cleared whenever servers change. A
+server missing from the cache is looked up again before a push or a 404 decides on it, so one
+added a moment ago isn't treated as hidden; one that still isn't found (deleted) is. The
+`pushPayloadIdentityFields` integration test caught the first version, which treated a server
+added after the cache was filled as hidden for up to 30 seconds.
+
+Covered by unit tests (the filter on a stand-in app at the real paths, the pushes, the socket
+alerts). Checked with the iPhone app on a running server on November 24, with Dispatcharr and
+Channels DVR servers added: the app opens, the server picker lists only the other servers, Now
+Playing, History, the dashboard and a session's page load, and nothing from the hidden servers
+shows or pushes. The Android app has not been tested.
+
+## November 23, 2026 — Dispatcharr card: Recording Now and Coming Up, with Stop and Cancel
+
+The Dispatcharr card gets the DVR half of the Channels DVR card, below Streaming Now. Read from
+Dispatcharr's own code (0.34.1):
+
+- Recording Now: recordings in progress from `GET /api/channels/recordings/` (status `recording`,
+  or no status yet with its start passed: series rules leave it unset until it starts), each with
+  its picture, programme title, season and episode, channel, times, a progress bar and minutes
+  left. When idle it says what the Channels DVR card does, "Nothing, absolutely nothing." The
+  list also holds every finished recording; anything completed, interrupted, failed or stopped is
+  dropped.
+- Coming Up: recordings starting in the next 24 hours, soonest first, five shown then "+N more".
+  Hidden when there are none, as on the Channels DVR card.
+- Channel name, number and logo come from `GET /api/channels/channels/<id>/` for each recording
+  shown (the recording list carries only the channel's id), with its overrides (`effective_*`).
+  A manual recording with no programme is titled with its channel's name.
+- The picture, in the same box as the Channels DVR card's, is the programme art Dispatcharr
+  picked for the recording (`custom_properties.poster_logo_id`, from the guide, VOD, TMDB and so
+  on; Dispatcharr fills it for upcoming recordings too), served as
+  `/api/channels/logos/<id>/cache/`, which is what Dispatcharr's own DVR page shows. Without one,
+  the channel's logo; without that, an icon. On a running server, a KOCO recording where
+  Dispatcharr found no art (and saved the channel's logo as the poster) showed the channel logo,
+  and on November 24 a recording with programme art showed that art.
+- Stop (in progress): `POST /api/channels/recordings/<id>/stop/`; Dispatcharr keeps what was
+  recorded. Cancel (coming up): `DELETE /api/channels/recordings/<id>/`, which is what
+  Dispatcharr's own Cancel does. Dispatcharr has no per-episode skip like a Channels DVR series
+  pass. Both are owner/admin buttons with a confirmation, behind the same permission as stopping a
+  stream, through `POST /sessions/dispatcharr-recordings/stop` and `/cancel`.
+- In Streaming Now, an Anonymous viewer whose user agent is `Dispatcharr-DVR` (Dispatcharr's DVR
+  recording the channel) shows as "Dispatcharr DVR", as `channels-dvr` already shows as "Channels
+  DVR".
+- The gap between the Channels DVR and Dispatcharr cards is the dashboard's usual one between
+  cards side by side (`gap-4`, as Now Playing and Server Resources use), not `gap-6`.
+- Live TV pause for Channels DVR (November 22 entry) is now checked on a running server.
+
+Covered by unit tests (splitting the list, channel lookups, the client calls, the card and both
+buttons). Checked on a running server on November 23: Stop keeps the partial recording, Cancel
+removes the scheduled one, and the "Dispatcharr DVR" and "Channels DVR" names show in Streaming
+Now. Programme art was seen on November 24 (above).
+
+## November 23, 2026 — Dispatcharr card on the dashboard, beside Channels DVR's
+
+A Dispatcharr card joins the dashboard whenever a Dispatcharr server is selected. When a Channels
+DVR server is selected too, the two cards share the row half and half on wide screens and stack on
+narrow ones; either alone takes the full width, so a setup without Dispatcharr looks as before.
+In the shared row the Channels DVR card shows at most two recordings side by side instead of three.
+Read from Dispatcharr's own code (0.34.1, November 17):
+
+- Pills throughout, like the Channels DVR card. In the header, one per active M3U account with its
+  provider connections, "Primary: 1 of 5 connections", amber once every one is taken, like the
+  Channels DVR tuner pill. The limit is the sum of the account's active profiles' `max_streams`; a
+  0 there is unlimited ("no limit"). Dispatcharr keeps the live count in Redis
+  (`profile_connections:<profile id>`) with no endpoint for it, so Tracearr counts it from the
+  streams Dispatcharr reports: one per live channel (`/proxy/ts/status`, `m3u_profile_id`), one per
+  VOD client (`/proxy/vod/stats/`), one per catch-up stream (`/proxy/stats/`). Without the live
+  streams the count shows as unknown rather than low.
+- Below the header, only failed refreshes: a red pill per active M3U account
+  (`GET /api/m3u/accounts/`) or guide source (`GET /api/epg/sources/`) whose last refresh failed,
+  "M3U Primary: refresh failed" or "EPG XMLTV: refresh failed", with Dispatcharr's message on hover.
+  Guide sources are their own list in Dispatcharr (provider EPG, XMLTV, Schedules Direct), not tied
+  to any M3U account. With none failing, no refresh pills show. Custom dummy guides are left out,
+  and so is Dispatcharr's locked built-in "custom" M3U account (streams added by hand), which its
+  own M3U page hides as well.
+- Streaming Now: one row per provider connection, the same ones the pills count. A live channel
+  is one row however many share it, with a chip per viewer ("ESPN · Primary · 3 viewers · 1 h 5
+  min", Joe, Mom, Channels DVR): Dispatcharr serves later viewers of a channel from the stream it
+  already has open. VOD is one row per viewer, catch-up one per stream. Viewers are Dispatcharr
+  user names (`/api/accounts/users/`), Anonymous for a client without a user, or the IP address
+  for a user Dispatcharr no longer lists. An Anonymous client whose user agent names Channels DVR
+  (`channels-dvr`, `Channels DVR`) shows as "Channels DVR". Anonymous viewers show here whatever the server's
+  "ignore Anonymous streams" setting: they share the provider connection all the same, and the
+  setting only keeps them out of Now Playing and history. Channel names and logos come from `POST /api/channels/channels/by-uuids/`, the logo as
+  `/api/channels/logos/<id>/cache/` through the image proxy. "Nothing streaming." when idle.
+- Version: `DispatcharrClient.getSoftwareVersion()` reads `GET /api/core/version/` (no login), and
+  the update checker reads the newest release from Dispatcharr's GitHub (`v0.34.1` tags, compared
+  without the `v`). Owners and admins see "Update available" or "Up to date", linking to the
+  releases page. As with every other server type, a newer release also fires the server update
+  trigger, so a "Server update" automation now covers Dispatcharr.
+- Both card titles show the server's own logo (`MediaServerIcon`, as in the server list) instead of
+  a line icon; the Channels DVR card's record dot is gone.
+- The data comes from a new `GET /sessions/dispatcharr-overview` beside `/sessions/recordings`,
+  polled every 30 seconds while a Dispatcharr server is selected. A server that doesn't answer is
+  left out; with none answering, the card says so.
+- Recordings (Dispatcharr's DVR) are left for later.
+
+Covered by unit tests (parsing, counting, Streaming Now, the client calls, the version feed, the
+card and the dashboard layout). Checked on a running server: the connections pills, the version
+pill, Streaming Now with two viewers sharing one channel and connection, Anonymous listed while
+"ignore Anonymous streams" is on, and the shared row beside Channels DVR. The "Channels DVR" chip
+was seen on November 23 (Recording Now entry), and the logos in the card titles by November 26. Not
+yet seen there: a failed-refresh pill.
+
+## November 23, 2026 — Dev images skip pushes that don't change the image
+
+`fork-ghcr-branch.yml` built the `dev` and `supervised-dev` images on every push to `dev`, including
+README and FORK_INFO edits. It now has `paths-ignore`, so a push that only touches files the image
+never contains doesn't build: Markdown, `docs/`, `LICENSE`, issue and discussion templates,
+`renovate.json`, the `ci` and `release-ghcr` workflows, editor and service config (`.vscode/`,
+`.editorconfig`, `.coderabbit.yaml`, `codecov.yml`, `crowdin.yml`), and tests (`apps/e2e/`,
+`apps/server/test/`, `__tests__/`, `*.test.ts(x)`), which `.dockerignore` already leaves out.
+
+- A push that touches any other file still builds, and Run workflow still builds by hand.
+- `release-notes/*.json` still builds: the web app bundles it for What's New.
+- Seen on GitHub on November 24: a docs-only push to `dev` started no image build.
+
+## November 23, 2026 — Removed upstream repo files this fork doesn't use
+
+Files that described upstream's repository or served upstream's own processes. Nothing left in this
+fork references them.
+
+- `.github/FUNDING.yml`: the repo's Sponsor button pointed at upstream's GitHub Sponsors and Ko-fi.
+- `SECURITY.md`: upstream's security policy, written for reports that reach upstream's maintainer.
+  Reports through this fork's Security tab come to this fork.
+- `.github/ISSUE_TEMPLATE/mobile-bug-report.yml`: a bug form for the mobile app, which is upstream's
+  and which this fork can't change. The README's Mobile App section covers the known problem.
+- `.github/CODEOWNERS`: assigned every file to upstream's maintainer.
+- `.github/pr-unvouched-message`, `.github/DISCUSSION_TEMPLATE/vouch-requests.yml` and
+  `.github/advanced-issue-labeler.yml`: used only by upstream's Vouch and issue-labeler workflows,
+  which this fork removed earlier.
+- `.github/workflows/cut-release.yml` and `.github/scripts/render-release-notes.mjs`: upstream's
+  release process (helm chart bump, tag, Discord and Reddit announcement), which needs a
+  `RELEASE_PAT` secret and pushes to `main`. This fork releases by publishing a GitHub release, which
+  runs `release-ghcr.yml`; neither used them.
+- `docker/helm/`: upstream's Kubernetes chart, pointing at upstream's image. Upstream merges already
+  skipped its changes, and the README doesn't offer it.
+- `channels-dvr.patch`: the diff from the first Channels DVR commit (November 1), left at the repo
+  root. Its changes are in the code.
+
+`release-notes/` stays: upstream adds a file per release, and keeping it avoids conflicts.
+
+If upstream edits any of these, an upstream merge shows a modify/delete conflict; keep them deleted.
+
+## November 23, 2026 — README rewritten for this fork
+
+The README was d4rk-4lchemy's fork notes followed by a full copy of upstream's README, so half of it
+described upstream's images (`supervised`, `next`), issue tracker, contribution process and a Proxmox
+LXC install this fork doesn't have. It now describes this fork only:
+
+- Intro: an unofficial fork of Tracearr by Connor Gallopo, with Dispatcharr support from
+  d4rk-4lchemy's fork credited; problems go to this fork's issues. The warning keeps "back up first"
+  in plain wording.
+- What Tracearr Does: a short summary (Plex, Jellyfin, Emby and tofa, the server types upstream supports since 3.2.0) linking to upstream's README, tracearr.com and
+  docs.tracearr.com instead of the copied feature tour, comparison table, stack, roadmap, badges and
+  star history.
+- Dispatcharr and Channels DVR sections: the existing feature lists, connection notes and limitations,
+  unchanged in wording.
+- Mobile App: the iPhone app stops working on open while a Dispatcharr or Channels DVR server is added
+  and works again once they are removed (seen on an iPhone; Android untested), with a link to
+  a Discussions poll (#67) to vote on hiding those servers from the app or showing them as a type it knows.
+- Installing: this fork's tags (`latest`, `supervised-latest`, `3.2.1-r2`, `supervised-3.2.1-r2`,
+  `dev`, `supervised-dev`), a Quick Start that downloads this fork's compose file and swaps in
+  `ghcr.io/write-erase/tracearr:latest` with `sed`, switching back to the official image (the purge
+  scripts) and viewing logs.
+- Building and Development: the build example now uses 3.2.1-r2 instead of 3.1.7-r2.
+- Reporting Problems and License (AGPL-3.0, MaxMind GeoLite2 attribution).
+
+The Docker Compose examples still name upstream's image, as the README says. The README now passes
+Prettier.
+
+## November 23, 2026 — Upstream main after 3.2.1 (through 6c9da518c)
+
+Merges connor's `main` from the 3.2.1 helm sync (`a0037ccf6`) through `6c9da518c`. Upstream is
+still on 3.2.1; nothing here touches Dispatcharr, Channels DVR or the dashboard charts.
+
+- Taken: the rebuilt logo, favicon and app icons (`apps/web/public/`, `assets/logo.png`) and the
+  better-auth bump from 1.7.20 to 1.7.25 (`better-auth` and `@better-auth/core` in the server and
+  web `package.json`, with upstream's lockfile refreshes). The fork never changed those icon files,
+  so they merged without conflict.
+- Not taken: the helm chart change (`docker/helm/tracearr/Chart.yaml`) and the GitHub Actions
+  version bumps in the `renovate` and `vouch-*` workflows, which this fork removed.
+
+Checked on a local deploy: signing in with Plex works. The log's repeated `Cookie cache payload failed
+schema validation` warnings are not from this bump: r2 on 1.7.20 logs them too. better-auth's cookie
+cache requires a user `name` and `email`, which Tracearr's `users` table allows to be empty, so the
+cache is skipped and the session is read from the database.
+
+## November 22, 2026 — Dashboard resource charts: chips stay inside the card, legend wraps again
+
+With enough servers, the "● Avg N%" chips under the CPU, RAM and Bandwidth charts wrap to a second
+row, which landed below the card's bottom edge. The chart's container was styled `height: 100%`; in
+the dashboard's grid row the cards are stretched to one height, and that 100% resolved against the
+card's whole content area, chips included, so the chart box grew by the chips' height and pushed them
+out. Upstream has the same setting.
+
+- The chart container keeps `width: 100%` and drops the height (`ServerResourceCharts.tsx`,
+  `BandwidthChart.tsx`). The charts set their own 180px height, so they draw the same and the card
+  grows to fit the chips.
+- Legend text is back to 11px, and 10px on narrow screens, as it was before 3.2.1. Upstream's Tofa
+  Alpha (#1457) raised it to 12px and dropped the narrow-screen size. At 12px the CPU legend's names
+  (servers without process CPU carry "(System)") needed a third row, and Highcharts pages a top
+  legend ("1/3" with arrows) once it passes about half the chart's height. Axis labels and tooltips
+  stay at upstream's 12px. With enough servers the legend can still reach a third row and page.
+
+## November 22, 2026 — Channels DVR: pause for live TV on local devices
+
+Pause detection asked the Channels app on local devices (`GET http://<device>:57000/api/status`) only
+for recordings; live TV was always shown playing, since the activity line has no position for it.
+For a live channel the app reports the channel it is tuned to and whether it is paused, e.g.
+`{"status":"paused","channel":{"number":"49","name":"CMT"},…}` from an Apple TV, but no
+`playback_time`.
+
+- Live sessions on local devices are asked too. The answer is used only when the device's
+  `channel.number` matches the session's channel, and only its playing/paused state is taken: the
+  session keeps its airing-based position.
+- The recording path is not changed (matched by what is playing, with the device's position); its
+  existing tests still pass, plus one showing a recording is not matched by channel.
+- Web player and remote sessions are still skipped before any request. Other local live sessions are
+  now asked: a device that doesn't answer (the Channels Mac app, which resets port 57000; a proxy's
+  Docker gateway) gets no state, so it should stay playing, and is not asked again for 60 s.
+- Covered by unit tests built from an Apple TV's real answer. Checked on a running server on
+  November 23: live TV pause shows as paused.
+
+## November 21, 2026 — Channels DVR: device names for viewers behind a proxy
+
+Each Channels DVR session is matched to a device in `/dvr/clients/info` for its name, device id,
+platform and app version: by address first, then by the name in the activity line. Behind a proxy
+into a bridged container (Tailscale Services in Docker bridge mode) every remote device arrives from
+the Docker gateway (`172.17.0.1`), so an onn Android TV was shown as whichever device at that address
+sorted first (an iPhone), with that device's id and platform. Based on a patch by justinglock40.
+
+- When a session's address is a Docker gateway (`172.17.0.1`–`172.31.0.1`), the activity's device name
+  is matched first; same-named devices prefer the connected one, then the one at that address. The
+  address alone is used only when the activity names no device.
+- Every other address (LAN, host network mode) is matched exactly as before: address first, then
+  name, including addresses several registered devices share.
+- Sessions recorded under the wrong device while this happened may sit under that device's user;
+  merge the two users if so.
+
 ## November 21, 2026 — Release v3.2.1-r2
 
 Still on upstream 3.2.1. It carries every entry from November 20 to 21 below that came after r1:

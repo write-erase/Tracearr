@@ -14,6 +14,9 @@ vi.mock('../../lib/auth.js', () => ({
 vi.mock('../../lib/scope.js', () => ({ clearScope: vi.fn(), ACCESS_CACHE_TTL_MS: 30_000 }));
 vi.mock('../../services/cache.js', () => ({ getPubSubService: vi.fn(() => null) }));
 vi.mock('../../services/mediaServer/index.js', () => ({ JellyfinClient: {}, EmbyClient: {} }));
+vi.mock('../../lib/mobileAppServers.js', () => ({
+  isHiddenFromMobileApp: async (serverId: string) => serverId === 'srv-dvr',
+}));
 
 import { db } from '../../db/client.js';
 import { resolveBetterAuthSession } from '../../lib/sessionResolver.js';
@@ -21,6 +24,7 @@ import { revokeSessionsForUsers } from '../../lib/revoke.js';
 import { getPubSubService } from '../../services/cache.js';
 import { queryChain } from '../../test/helpers.js';
 import {
+  broadcastServerHealth,
   broadcastSessionEvent,
   broadcastSessionStopped,
   disconnectMobileDevice,
@@ -32,6 +36,14 @@ import {
 
 const USERS: Record<string, AuthUser> = {
   owner: { userId: 'u-owner', username: 'owner', role: 'owner', serverIds: ['srv-1'] },
+  ownerPhone: {
+    userId: 'u-owner',
+    username: 'owner',
+    role: 'owner',
+    serverIds: ['srv-1'],
+    mobile: true,
+    deviceId: 'device-9',
+  },
   admin: { userId: 'u-admin', username: 'admin', role: 'admin', serverIds: ['srv-1'] },
   alice: { userId: 'u-alice', username: 'alice', role: 'member', serverIds: [] },
   bob: { userId: 'u-bob', username: 'bob', role: 'member', serverIds: [] },
@@ -221,5 +233,30 @@ describe('revocation', () => {
 
     expect(publish).toHaveBeenCalledExactlyOnceWith(WS_EVENTS.MOBILE_DEVICE_REVOKED, 'device-1');
     expect(() => dropMobileDeviceSockets('device-1')).not.toThrow();
+  });
+});
+
+describe('server alerts and the mobile app (fork)', () => {
+  it('puts every mobile app socket in one room', async () => {
+    const phone = await connectAs('ownerPhone');
+    expect(roomsOf(phone)).toEqual(
+      expect.arrayContaining(['mobile-app', 'mobile:device-9', 'sessions'])
+    );
+  });
+
+  it("leaves the app out of a server it can't show, and only that one", async () => {
+    const owner = await connectAs('owner');
+    const phone = await connectAs('ownerPhone');
+    const ownerSeen = received(owner, 'server:down');
+    const phoneSeen = received(phone, 'server:down');
+
+    await broadcastServerHealth('server:down', { serverId: 'srv-dvr', serverName: 'DVR' });
+    await broadcastServerHealth('server:down', { serverId: 'srv-1', serverName: 'Plex' });
+
+    expect(await ownerSeen).toEqual([
+      { serverId: 'srv-dvr', serverName: 'DVR' },
+      { serverId: 'srv-1', serverName: 'Plex' },
+    ]);
+    expect(await phoneSeen).toEqual([{ serverId: 'srv-1', serverName: 'Plex' }]);
   });
 });

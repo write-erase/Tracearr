@@ -29,6 +29,24 @@ import {
   type DispatcharrVodStatsResponse,
   type NormalizedDispatcharrChannel,
 } from './parser.js';
+import type {
+  DispatcharrEpgSource,
+  DispatcharrProviderUsage,
+  DispatcharrRecordingEntry,
+  DispatcharrStreamEntry,
+} from '@tracearr/shared';
+import {
+  buildStreams,
+  countProfileConnections,
+  dispatcharrLogoPath,
+  parseEpgSources,
+  parseProviders,
+  parseRecordingChannel,
+  providerNamesByProfile,
+  splitRecordings,
+  withChannel,
+} from './overview.js';
+import { dispatcharrVersion } from '../../../utils/serverVersions.js';
 
 export type DispatcharrTokenMode = 'jwt' | 'api-key' | 'credentials' | 'none';
 
@@ -413,6 +431,16 @@ export class DispatcharrClient implements IMediaServerClient {
     return users;
   }
 
+  /** Every Dispatcharr user by id, Anonymous included whatever this server's setting (fork). */
+  private async getAllUsersById(): Promise<Map<string, MediaUser>> {
+    const unfiltered = new DispatcharrClient({
+      url: this.baseUrl,
+      token: this.token,
+      ignoreAnonymousStreams: false,
+    });
+    return unfiltered.getUserMap();
+  }
+
   async getUserMap(): Promise<Map<string, MediaUser>> {
     const users = await this.getUsers();
     return new Map(users.map((user) => [user.id, user]));
@@ -511,13 +539,188 @@ export class DispatcharrClient implements IMediaServerClient {
   }
 
   // Dispatcharr has no media library (supportsMediaLibrary is false), so the library sync never
-  // calls these; they answer empty. It reports no stable server identity or version either.
+  // calls these; they answer empty. It reports no stable server identity either.
   async getServerIdentity(): Promise<string | null> {
     return null;
   }
 
+  /**
+   * The installed version ("0.34.1") from `GET /api/core/version/`, which needs no login (fork).
+   * Null when it can't be read.
+   */
   async getSoftwareVersion(): Promise<string | null> {
-    return null;
+    try {
+      const data = await fetchJson<unknown>(`${this.baseUrl}/api/core/version/`, {
+        headers: { Accept: 'application/json' },
+        service: 'dispatcharr',
+        timeout: 10000,
+      });
+      const { version, timestamp } = (data ?? {}) as { version?: unknown; timestamp?: unknown };
+      // A dev image also reports its build time (fork): stored as 0.34.1-dev.<build time>
+      return typeof version === 'string' && version.trim()
+        ? dispatcharrVersion(version.trim(), timestamp)
+        : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * The dashboard card (fork): active M3U accounts with their refresh state and provider
+   * connections in use, active guide sources, and Streaming Now. Throws when the accounts can't
+   * be read.
+   * Guide sources fall back to none; VOD and catch-up streams to none counted; without the
+   * live streams the connections in use are unknown.
+   */
+  async getOverview(): Promise<{
+    providers: DispatcharrProviderUsage[];
+    epgSources: DispatcharrEpgSource[];
+    streams: DispatcharrStreamEntry[];
+    recordings: DispatcharrRecordingEntry[];
+    upcoming: DispatcharrRecordingEntry[];
+  }> {
+    const read = async (path: string) =>
+      fetchJson<unknown>(`${this.baseUrl}${path}`, {
+        headers: await this.buildHeaders(),
+        service: 'dispatcharr',
+        timeout: 10000,
+      });
+    const [accounts, sources, live, vod, catchup, users, dvr] = await Promise.allSettled([
+      read('/api/m3u/accounts/'),
+      read('/api/epg/sources/'),
+      this.getStatusSnapshot(),
+      this.getVodStatsSnapshot(),
+      this.getCatchupStatsSnapshot(),
+      // Every user, Anonymous included: the card lists who shares each connection, whatever
+      // the "ignore Anonymous streams" setting (that one is for Now Playing and history).
+      this.getAllUsersById(),
+      read('/api/channels/recordings/'),
+    ]);
+    if (accounts.status === 'rejected') throw accounts.reason;
+    // Without the live streams the count would read low, so it's left unknown instead.
+    const connections =
+      live.status === 'fulfilled'
+        ? countProfileConnections(
+            live.value,
+            vod.status === 'fulfilled' ? vod.value : undefined,
+            catchup.status === 'fulfilled' ? catchup.value : undefined
+          )
+        : null;
+    const liveChannels = live.status === 'fulfilled' ? live.value : [];
+    const vodStats = vod.status === 'fulfilled' ? vod.value : undefined;
+    const catchupStats = catchup.status === 'fulfilled' ? catchup.value : undefined;
+    const schedule =
+      dvr.status === 'fulfilled'
+        ? splitRecordings(dvr.value, Date.now())
+        : { recording: [], upcoming: [] };
+    const [channels, recordingChannels] = await Promise.all([
+      this.getChannelInfoByUuid(liveChannels.map((channel) => String(channel.channel_id ?? ''))),
+      this.getRecordingChannels(
+        [...schedule.recording, ...schedule.upcoming].map((r) => r.channelId)
+      ),
+    ]);
+    return {
+      providers: parseProviders(accounts.value, connections),
+      epgSources: sources.status === 'fulfilled' ? parseEpgSources(sources.value) : [],
+      streams: buildStreams(liveChannels, vodStats, catchupStats, {
+        providerNames: providerNamesByProfile(accounts.value),
+        userById: users.status === 'fulfilled' ? users.value : new Map<string, MediaUser>(),
+        channels,
+      }),
+      recordings: schedule.recording.map((r) => withChannel(r, recordingChannels.get(r.channelId))),
+      upcoming: schedule.upcoming.map((r) => withChannel(r, recordingChannels.get(r.channelId))),
+    };
+  }
+
+  /**
+   * Name, number and logo of each channel a shown recording is on (fork), one
+   * `GET /api/channels/channels/<id>/` each: the recording list carries only the channel's id.
+   * A channel that can't be read is left out and its recording shows without it.
+   */
+  private async getRecordingChannels(
+    ids: (number | undefined)[]
+  ): Promise<Map<number | undefined, ReturnType<typeof parseRecordingChannel>>> {
+    const unique = [...new Set(ids.filter((id): id is number => id !== undefined))].slice(0, 30);
+    const found = new Map<number | undefined, ReturnType<typeof parseRecordingChannel>>();
+    await Promise.all(
+      unique.map(async (id) => {
+        try {
+          const data = await fetchJson<unknown>(`${this.baseUrl}/api/channels/channels/${id}/`, {
+            headers: await this.buildHeaders(),
+            service: 'dispatcharr',
+            timeout: 10000,
+          });
+          found.set(id, parseRecordingChannel(data));
+        } catch {
+          // The row still shows, without its channel
+        }
+      })
+    );
+    return found;
+  }
+
+  /**
+   * Stop a DVR recording in progress (fork): `POST /api/channels/recordings/<id>/stop/`.
+   * Dispatcharr keeps what was recorded so far.
+   */
+  async stopRecording(recordingId: number): Promise<void> {
+    const response = await fetch(`${this.baseUrl}/api/channels/recordings/${recordingId}/stop/`, {
+      method: 'POST',
+      headers: { ...(await this.buildHeaders()), 'Content-Type': 'application/json' },
+      body: '{}',
+      signal: AbortSignal.timeout(15000),
+    });
+    if (response.status === 409) throw new Error('The recording has already finished');
+    if (!response.ok) {
+      throw new Error(`Dispatcharr refused to stop the recording (HTTP ${response.status})`);
+    }
+  }
+
+  /**
+   * Cancel a scheduled DVR recording (fork): `DELETE /api/channels/recordings/<id>/`, as
+   * Dispatcharr's own Cancel does.
+   */
+  async cancelRecording(recordingId: number): Promise<void> {
+    const response = await fetch(`${this.baseUrl}/api/channels/recordings/${recordingId}/`, {
+      method: 'DELETE',
+      headers: await this.buildHeaders(),
+      signal: AbortSignal.timeout(15000),
+    });
+    if (!response.ok) {
+      throw new Error(`Dispatcharr refused to cancel the recording (HTTP ${response.status})`);
+    }
+  }
+
+  /**
+   * Names and logos of live channels by uuid (fork), for Streaming Now; the status list may
+   * carry only the uuid. Logos come back as server-relative paths the image proxy accepts.
+   * Empty on any failure: the rows fall back to what the status list says.
+   */
+  private async getChannelInfoByUuid(
+    uuids: string[]
+  ): Promise<Map<string, { name?: string; logoPath?: string }>> {
+    const ids = [...new Set(uuids.map((id) => id.trim()).filter(Boolean))];
+    const info = new Map<string, { name?: string; logoPath?: string }>();
+    if (ids.length === 0) return info;
+    try {
+      const data = await fetchJson<unknown>(`${this.baseUrl}/api/channels/channels/by-uuids/`, {
+        method: 'POST',
+        headers: { ...(await this.buildHeaders()), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ uuids: ids }),
+        service: 'dispatcharr',
+        timeout: 10000,
+      });
+      for (const record of this.extractRecords(data)) {
+        const uuid = this.getRecordString(record, ['uuid', 'channel_id']);
+        if (!uuid) continue;
+        const name = this.getOptionalString(record.name);
+        const logoPath = dispatcharrLogoPath(record.logo_id) ?? undefined;
+        info.set(uuid, { ...(name ? { name } : {}), ...(logoPath ? { logoPath } : {}) });
+      }
+    } catch {
+      // Names and logos are extras; the rows still show
+    }
+    return info;
   }
 
   /** Downloads are Plex, Jellyfin and Emby only, so there is nothing to describe. */

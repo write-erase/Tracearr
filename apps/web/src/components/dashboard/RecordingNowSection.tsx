@@ -23,6 +23,7 @@ import type {
   ChannelsDvrUpcomingEntry,
   Server,
 } from '@tracearr/shared';
+import { MediaServerIcon } from '@/components/icons/MediaServerIcon';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
@@ -35,7 +36,12 @@ import {
 } from '@/components/ui/dialog';
 import { Progress } from '@/components/ui/progress';
 import { useAuth } from '@/hooks/useAuth';
-import { useCancelRecording, useSkipRecording, useStopRecording } from '@/hooks/queries';
+import {
+  useCancelRecording,
+  useClearRecordingIssues,
+  useSkipRecording,
+  useStopRecording,
+} from '@/hooks/queries';
 import { imageProxyUrl } from '@/lib/api';
 import { formatBytes } from '@/lib/formatters';
 import { cn } from '@/lib/utils';
@@ -59,14 +65,16 @@ interface RecordingNowSectionProps {
   linkBases?: Record<string, string>;
   /** Show which server each recording is on */
   showServer?: boolean;
+  /** Sharing the row with the Dispatcharr card: at most two recordings side by side (fork) */
+  halfWidth?: boolean;
 }
 
-function formatClock(iso: string): string {
+export function formatClock(iso: string): string {
   return new Date(iso).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
 }
 
 /** Re-render every 10 s so time left and progress stay current between refetches. */
-function useNow(intervalMs = 10_000): number {
+export function useNow(intervalMs = 10_000): number {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), intervalMs);
@@ -235,7 +243,7 @@ function isSameDay(a: Date, b: Date): boolean {
 }
 
 /** "2:00 PM" today, "Tomorrow 7:00 AM" otherwise (the list only looks a day ahead). */
-function StartTime({ iso, now }: { iso: string; now: number }) {
+export function StartTime({ iso, now }: { iso: string; now: number }) {
   const { t } = useTranslation('pages');
   const time = formatClock(iso);
   if (isSameDay(new Date(iso), new Date(now))) return <>{time}</>;
@@ -251,7 +259,7 @@ function EndTime({ iso, now }: { iso: string; now: number }) {
 }
 
 /** "45 min", "1 h 5 min"; under a minute reads as "1 min". */
-function useFormatMinutes(): (seconds: number) => string {
+export function useFormatMinutes(): (seconds: number) => string {
   const { t } = useTranslation('pages');
   return (seconds) => {
     const minutes = Math.max(1, Math.round(seconds / 60));
@@ -317,16 +325,26 @@ export interface ChannelsDvrVersion {
   updateAvailable: boolean;
 }
 
-/** Both versions are three or four dotted numbers; a missing part reads as zero. */
+/** A Dispatcharr dev image's version: the release, then its build time (fork). */
+const DEV_VERSION = /^(.+)-dev\.(\d{14})$/;
+
+/**
+ * Both versions are three or four dotted numbers; a missing part reads as zero. A Dispatcharr dev
+ * image (`0.34.1-dev.<build time>`, fork) compares by release, then by build time; the server
+ * already stores the running build as latest when no newer dev push is waiting.
+ */
 function isNewerVersion(latest: string, installed: string): boolean {
-  const a = latest.split('.').map(Number);
-  const b = installed.split('.').map(Number);
+  const devLatest = DEV_VERSION.exec(latest);
+  const devInstalled = DEV_VERSION.exec(installed);
+  const a = (devLatest?.[1] ?? latest).split('.').map(Number);
+  const b = (devInstalled?.[1] ?? installed).split('.').map(Number);
   for (let i = 0; i < 4; i++) {
     const na = a[i] ?? 0;
     const nb = b[i] ?? 0;
+    if (Number.isNaN(na) || Number.isNaN(nb)) return false;
     if (na !== nb) return na > nb;
   }
-  return false;
+  return !!devLatest?.[2] && !!devInstalled?.[2] && devLatest[2] > devInstalled[2];
 }
 
 /**
@@ -335,8 +353,13 @@ function isNewerVersion(latest: string, installed: string): boolean {
  * A server missing either version (unreachable so far, or update checks turned off) is left out.
  */
 export function channelsVersionsFor(servers: Server[]): ChannelsDvrVersion[] {
+  return serverVersionsFor(servers, 'channels_dvr');
+}
+
+/** The same for any server type the update checker reads both versions for (fork). */
+export function serverVersionsFor(servers: Server[], type: Server['type']): ChannelsDvrVersion[] {
   return servers.flatMap((server) =>
-    server.type === 'channels_dvr' && server.version && server.latestVersion
+    server.type === type && server.version && server.latestVersion
       ? [
           {
             serverId: server.id,
@@ -352,9 +375,10 @@ export function channelsVersionsFor(servers: Server[]): ChannelsDvrVersion[] {
 
 /**
  * "Update available" while a newer release is waiting, otherwise a green "Up to date". Either
- * opens the Channels DVR web UI, where updates are installed.
+ * opens `linkBase`: the Channels DVR web UI, where updates are installed, or for Dispatcharr
+ * its releases page (fork).
  */
-function VersionPill({
+export function VersionPill({
   version,
   showServer,
   linkBase,
@@ -727,6 +751,65 @@ function IssueBadge({ issue }: { issue: ChannelsDvrRecordingIssue }) {
   );
 }
 
+/** Whether a recent recording still shows its issues: it has some and nobody cleared them. */
+function isFlagged(file: ChannelsDvrRecentEntry): boolean {
+  return file.issues.length > 0 && !file.issuesCleared;
+}
+
+/**
+ * Clears recent recordings' issue badges for everyone (fork): an X on one recording, or "Clear
+ * all" beside the count. Owner and admin only, like the other recording buttons.
+ */
+function ClearIssuesButton({
+  files,
+  all = false,
+}: {
+  files: ChannelsDvrRecentEntry[];
+  all?: boolean;
+}) {
+  const { t } = useTranslation('pages');
+  const { user } = useAuth();
+  const clear = useClearRecordingIssues();
+  if (user?.role !== 'admin' && user?.role !== 'owner') return null;
+
+  const onClick = () =>
+    clear.mutate(files.map((file) => ({ serverId: file.serverId, fileId: file.fileId })));
+
+  if (all) {
+    return (
+      <Button
+        variant="ghost"
+        size="sm"
+        className="text-muted-foreground h-6 shrink-0 px-2 text-xs font-normal"
+        title={t('dashboard.recording.clearAllIssuesHint', {
+          defaultValue: 'Stop flagging these recordings. They stay in the list.',
+        })}
+        disabled={clear.isPending}
+        onClick={onClick}
+        data-testid="recent-clear-all"
+      >
+        {t('dashboard.recording.clearAllIssues', { defaultValue: 'Clear all' })}
+      </Button>
+    );
+  }
+  return (
+    <Button
+      variant="ghost"
+      size="icon"
+      className="text-muted-foreground h-6 w-6 shrink-0"
+      title={t('dashboard.recording.clearIssuesHint', {
+        defaultValue: 'Clear this alert. The recording stays in the list.',
+      })}
+      aria-label={t('dashboard.recording.clearIssues', { defaultValue: 'Clear alert' })}
+      disabled={clear.isPending}
+      onClick={onClick}
+      data-testid="recent-clear"
+    >
+      <X className="h-3.5 w-3.5" />
+    </Button>
+  );
+}
+
 /** A recording that finished in the last day: when, what, how long, and how it went. */
 function RecentRow({
   file,
@@ -817,11 +900,12 @@ function RecentRow({
             .join(' · ')}
         </p>
       </div>
-      {file.issues.length > 0 && (
-        <div className="flex shrink-0 flex-wrap justify-end gap-1">
+      {isFlagged(file) && (
+        <div className="flex shrink-0 flex-wrap items-center justify-end gap-1">
           {file.issues.map((issue) => (
             <IssueBadge key={issue} issue={issue} />
           ))}
+          <ClearIssuesButton files={[file]} />
         </div>
       )}
     </li>
@@ -844,6 +928,7 @@ export function RecordingNowSection({
   versions = [],
   linkBases = {},
   showServer = false,
+  halfWidth = false,
 }: RecordingNowSectionProps) {
   const { t } = useTranslation('pages');
   const now = useNow();
@@ -853,14 +938,15 @@ export function RecordingNowSection({
   const more = upcoming.length - shown.length;
   const recentShown = recent.slice(0, RECENT_SHOWN);
   const recentMore = recent.length - recentShown.length;
-  const recentIssues = recent.filter((file) => file.issues.length > 0).length;
+  const flaggedRecent = recent.filter(isFlagged);
+  const recentIssues = flaggedRecent.length;
 
   return (
     <section>
       <Card>
         <CardHeader>
           <CardTitle className="flex flex-wrap items-center gap-2 text-sm font-medium">
-            <CircleDot className="h-4 w-4" aria-hidden="true" />
+            <MediaServerIcon type="channels_dvr" className="h-4 w-4 rounded-sm" alt="" />
             {title ?? t('dashboard.recording.panelTitle', { defaultValue: 'Channels DVR' })}
             {tuners.map((usage) => (
               <TunerPill key={usage.serverId} usage={usage} showServer={showServer} />
@@ -896,7 +982,7 @@ export function RecordingNowSection({
             )}
           </h4>
           {recordings.length > 0 ? (
-            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+            <div className={cn('grid gap-4 sm:grid-cols-2', !halfWidth && 'xl:grid-cols-3')}>
               {recordings.map((recording) => (
                 <RecordingCard
                   key={`${recording.serverId}:${recording.key}`}
@@ -962,6 +1048,7 @@ export function RecordingNowSection({
                     })}
                   </span>
                 )}
+                {recentIssues > 1 && <ClearIssuesButton files={flaggedRecent} all />}
               </h4>
               <ul className="divide-y rounded-xl border">
                 {recentShown.map((file) => (

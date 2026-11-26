@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import type {
   ChannelsDvrRecentEntry,
   ChannelsDvrTunerUsage,
@@ -19,9 +19,11 @@ vi.mock('@/hooks/queries', () => ({
   useStopRecording: () => ({ mutate: vi.fn(), isPending: false }),
   useCancelRecording: () => ({ mutate: vi.fn(), isPending: false }),
   useSkipRecording: () => ({ mutate: skipMutate, isPending: false }),
+  useClearRecordingIssues: () => ({ mutate: clearMutate, isPending: false }),
 }));
 
 const skipMutate = vi.fn();
+const clearMutate = vi.fn();
 
 const NOW = new Date(2026, 10, 11, 12, 30);
 
@@ -61,6 +63,12 @@ describe('RecordingNowSection', () => {
   it('renders nothing until the schedule has loaded (or with no Channels DVR server)', () => {
     const { container } = render(<RecordingNowSection recordings={undefined} />);
     expect(container).toBeEmptyDOMElement();
+  });
+
+  it("shows Channels DVR's own logo before the title", () => {
+    const { container } = render(<RecordingNowSection recordings={[]} />);
+    const logo = container.querySelector('[data-slot="card-title"] img');
+    expect(logo?.getAttribute('src')).toContain('images/servers/channels-dvr.svg');
   });
 
   it('shows the panel even when the DVR is idle', () => {
@@ -231,6 +239,7 @@ describe('Recently Recorded', () => {
     scheduledSec: 1800,
     thumbPath: null,
     issues: [],
+    issuesCleared: false,
     ...overrides,
   });
 
@@ -273,6 +282,50 @@ describe('Recently Recorded', () => {
     expect(screen.getAllByTestId('recent-recording')[1]?.textContent).toContain(
       'dashboard.recording.recordedOf'
     );
+  });
+
+  it('stops flagging a recording whose alert was cleared, and leaves it listed (fork)', () => {
+    render(
+      <RecordingNowSection
+        recordings={[]}
+        recent={[
+          recent({ issues: ['stoppedEarly'], issuesCleared: true }),
+          recent({ fileId: '2', issues: ['interrupted'] }),
+        ]}
+      />
+    );
+    expect(screen.getAllByTestId('recent-recording')).toHaveLength(2);
+    expect(screen.getAllByTestId('recording-issue')).toHaveLength(1);
+    expect(screen.getByTestId('recent-issue-count').textContent).toContain('"count":1');
+    // One left: its own X clears it, so there is no Clear all
+    expect(screen.queryByTestId('recent-clear-all')).toBeNull();
+  });
+
+  it("clears one recording's alert from its row (fork)", () => {
+    clearMutate.mockClear();
+    render(<RecordingNowSection recordings={[]} recent={[recent({ issues: ['stoppedEarly'] })]} />);
+    fireEvent.click(screen.getByTestId('recent-clear'));
+    expect(clearMutate).toHaveBeenCalledWith([{ serverId: 'cdvr', fileId: '1353' }]);
+  });
+
+  it('clears every flagged recording at once, the ones past the first five too (fork)', () => {
+    clearMutate.mockClear();
+    render(
+      <RecordingNowSection
+        recordings={[]}
+        recent={[
+          ...Array.from({ length: 6 }, (_, i) => recent({ fileId: String(i) })),
+          recent({ fileId: 'a', issues: ['stoppedEarly'] }),
+          recent({ fileId: 'b', issues: ['startedLate'], issuesCleared: true }),
+          recent({ fileId: 'c', issues: ['interrupted'] }),
+        ]}
+      />
+    );
+    fireEvent.click(screen.getByTestId('recent-clear-all'));
+    expect(clearMutate).toHaveBeenCalledWith([
+      { serverId: 'cdvr', fileId: 'a' },
+      { serverId: 'cdvr', fileId: 'c' },
+    ]);
   });
 
   it('shows five and says how many more', () => {

@@ -1,5 +1,6 @@
 import type {
   ChannelsDvrScheduleResponse,
+  DispatcharrOverviewResponse,
   ImportWaitingForLibrarySync,
   Server,
   ServerUpdateTrack,
@@ -1239,11 +1240,26 @@ class ApiClient {
       ),
     /** Channels DVR recordings in progress and coming up, and tuner usage (not viewing sessions) */
     recordings: () => this.request<ChannelsDvrScheduleResponse>('/sessions/recordings'),
+    /** Dispatcharr M3U accounts and guide sources, for the dashboard card (fork) */
+    dispatcharrOverview: () =>
+      this.request<DispatcharrOverviewResponse>('/sessions/dispatcharr-overview'),
+    /** Stop a Dispatcharr DVR recording in progress, or cancel a scheduled one (fork) */
+    dispatcharrRecording: (action: 'stop' | 'cancel', serverId: string, recordingId: number) =>
+      this.request<{ success: boolean }>(`/sessions/dispatcharr-recordings/${action}`, {
+        method: 'POST',
+        body: JSON.stringify({ serverId, recordingId }),
+      }),
     /** Stop a Channels DVR recording in progress; the partial recording is kept */
     stopRecording: (serverId: string, jobId: string) =>
       this.request<{ success: boolean }>('/sessions/recordings/stop', {
         method: 'POST',
         body: JSON.stringify({ serverId, jobId }),
+      }),
+    /** Stop flagging recent Channels DVR recordings' issues, for everyone (fork) */
+    clearRecordingIssues: (serverId: string, fileIds: string[]) =>
+      this.request<{ success: boolean }>('/sessions/recordings/clear-issues', {
+        method: 'POST',
+        body: JSON.stringify({ serverId, fileIds }),
       }),
     /** Skip one airing a Channels DVR series pass scheduled, or undo that */
     setRecordingSkipped: (serverId: string, jobId: string, skipped: boolean) =>

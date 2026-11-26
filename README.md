@@ -28,6 +28,7 @@ For the full feature tour, see [upstream's README](https://github.com/connorgall
 - Live TV card is aligned to Dispatcharr needs, showing speed threshold, watchtime,
 - Stream details for Live TV shows bitrate, codecs and video resolution,
 - Support for Catch-Up (Timeshift) sessions, with small badge and custom card.
+- A Dispatcharr card on the dashboard: connections in use per M3U account, an "Update available" pill, and what's streaming now with who's watching each channel (Anonymous viewers included, even when Anonymous streams are ignored for Now Playing). With a Channels DVR server selected too, the two cards share the row.
 
 > [!NOTE]
 > If you want to have "Server Resources" charts populated for Dispatcharr in Tracearr, you need to install this Dispatcharr plugin and align your Docker Compose file according to its README: [Tracearr SSE Metrics](https://github.com/d4rk-4lchemy/Tracearr-SSE-Metrics)
@@ -66,15 +67,10 @@ Channels DVR does not provide individual user accounts, so Tracearr identifies v
 
 ## Mobile App
 
-> [!WARNING]
-> **The Tracearr iPhone app stops working as soon as it opens while a Dispatcharr or Channels DVR server is added.** Removing those servers makes it work again. The Android app has not been tested.
+> [!NOTE]
+> **Dispatcharr and Channels DVR servers don't appear in the Tracearr mobile app.** The app doesn't know these server types and stopped working when it got one, so Tracearr leaves them out of everything it sends the app: the server list, Now Playing, history, stats, users, alerts and push notifications. Your other servers work as usual. The Android app has not been tested.
 
-The app is upstream's, so this fork can't change it, only what Tracearr sends to it. There are two ways to go:
-
-- **Hide them:** Dispatcharr and Channels DVR servers are left out of what the app gets. The app loads and works for your other servers, but these don't appear in it.
-- **Show them as a type the app knows** (such as Plex or Jellyfin): not tried yet, and some details may look wrong or not work.
-
-**[Vote in the poll (#67)](https://github.com/write-erase/Tracearr/discussions/67)** on which you'd prefer.
+The app is upstream's, so this fork can't change it, only what Tracearr sends to it. Cast your vote for the final decision in the [poll (#67)](https://github.com/write-erase/Tracearr/discussions/67).
 
 ## Installing
 
@@ -86,8 +82,8 @@ All images are on `ghcr.io/write-erase/tracearr`, for AMD64 and ARM64. Release i
 | --------------------- | -------------------------------------------------------- |
 | `latest`              | Latest release (requires external DB/Redis)              |
 | `supervised-latest`   | All-in-one latest release                                |
-| `3.2.1-r2`            | A pinned release (requires external DB/Redis)            |
-| `supervised-3.2.1-r2` | All-in-one pinned release                                |
+| `3.2.1-r3`            | A pinned release (requires external DB/Redis)            |
+| `supervised-3.2.1-r3` | All-in-one pinned release                                |
 | `dev`                 | Built from the `dev` branch (requires external DB/Redis) |
 | `supervised-dev`      | All-in-one, built from the `dev` branch                  |
 
@@ -162,15 +158,15 @@ beforehand if you want to reuse the archive across image builds.
 ```bash
 # Standalone image
 docker build -f docker/Dockerfile -t tracearr \
-  --build-arg APP_VERSION=3.2.1 --build-arg APP_TAG=v3.2.1-r2 \
-  --build-arg APP_UPSTREAM_VERSION=3.2.1 --build-arg APP_FORK_REVISION=2 --build-arg APP_FORK_VERSION=3.2.1-r2 \
+  --build-arg APP_VERSION=3.2.1 --build-arg APP_TAG=v3.2.1-r3 \
+  --build-arg APP_UPSTREAM_VERSION=3.2.1 --build-arg APP_FORK_REVISION=3 --build-arg APP_FORK_VERSION=3.2.1-r3 \
   --build-arg APP_FORK_REPO=write-erase/Tracearr --build-arg APP_IMAGE_REPO=ghcr.io/write-erase/tracearr \
   --build-arg APP_COMMIT="$(git rev-parse --short HEAD)" --build-arg APP_BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)" .
 
 # Supervised image
 docker build -f docker/Dockerfile.supervised -t tracearr-supervised \
-  --build-arg APP_VERSION=3.2.1 --build-arg APP_TAG=supervised-3.2.1-r2 \
-  --build-arg APP_UPSTREAM_VERSION=3.2.1 --build-arg APP_FORK_REVISION=2 --build-arg APP_FORK_VERSION=3.2.1-r2 \
+  --build-arg APP_VERSION=3.2.1 --build-arg APP_TAG=supervised-3.2.1-r3 \
+  --build-arg APP_UPSTREAM_VERSION=3.2.1 --build-arg APP_FORK_REVISION=3 --build-arg APP_FORK_VERSION=3.2.1-r3 \
   --build-arg APP_FORK_REPO=write-erase/Tracearr --build-arg APP_IMAGE_REPO=ghcr.io/write-erase/tracearr \
   --build-arg APP_COMMIT="$(git rev-parse --short HEAD)" --build-arg APP_BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)" .
 ```

@@ -137,6 +137,109 @@ describe('Channels DVR session artwork', () => {
     expect(fetchJson).toHaveBeenCalledTimes(3);
   });
 
+  describe('matching a session to a registered device', () => {
+    const ONN_LIVE =
+      'Watching ch1009 from onn. Full HD Streaming Device (Remux Starting: 13m15s @ 1.01x (60.53fps)): buf=0% drop=0%';
+
+    it('names a proxied device by its own name, not another client at the same address', async () => {
+      // Remote devices reaching the DVR through Tailscale Services into its Docker container all
+      // arrive from the bridge gateway, so the address alone matches several clients.
+      vi.mocked(fetchJson)
+        .mockResolvedValueOnce({
+          activity: { '7-ch1009-dM3U-Alabama-ip172.17.0.1': ONN_LIVE },
+        } as never)
+        .mockResolvedValueOnce([
+          { id: 'iphone', hostname: 'iPhone', remote_ip: '172.17.0.1', connected: true },
+          {
+            id: 'onn',
+            hostname: 'onn. Full HD Streaming Device',
+            remote_ip: '172.17.0.1',
+            connected: true,
+          },
+        ] as never)
+        .mockResolvedValue([] as never);
+
+      const [session] = await client().getSessions();
+
+      expect(session?.player.name).toBe('onn. Full HD Streaming Device');
+      expect(session?.player.deviceId).toBe('onn');
+      expect(session?.live?.channelIdentifier).toBe('1009');
+    });
+
+    it('does not borrow a name from a shared address when the device is not registered', async () => {
+      vi.mocked(fetchJson)
+        .mockResolvedValueOnce({
+          activity: {
+            '7-ch1009-dM3U-Alabama-ip172.17.0.1':
+              'Watching ch1009 from Kitchen TV (Remux Starting: 5s @ 1.0x (60fps)): buf=0% drop=0%',
+          },
+        } as never)
+        .mockResolvedValue([
+          { id: 'iphone', hostname: 'iPhone', remote_ip: '172.17.0.1', connected: true },
+          { id: 'onn', hostname: 'onn. Full HD Streaming Device', remote_ip: '172.17.0.1' },
+        ] as never);
+
+      const [session] = await client().getSessions();
+
+      expect(session?.player.name).toBe('Kitchen TV');
+    });
+
+    it('does not borrow a name from the Docker gateway even when only one device is registered there', async () => {
+      vi.mocked(fetchJson)
+        .mockResolvedValueOnce({
+          activity: {
+            '7-ch1009-dM3U-Alabama-ip172.17.0.1':
+              'Watching ch1009 from Kitchen TV (Remux Starting: 5s @ 1.0x (60fps)): buf=0% drop=0%',
+          },
+        } as never)
+        .mockResolvedValueOnce([
+          { id: 'iphone', hostname: 'iPhone', remote_ip: '172.17.0.1', connected: true },
+        ] as never)
+        .mockResolvedValue([] as never);
+
+      const [session] = await client().getSessions();
+
+      expect(session?.player.name).toBe('Kitchen TV');
+      expect(session?.player.deviceId).not.toBe('iphone');
+    });
+
+    it('still matches a LAN device by its own address first (host network mode)', async () => {
+      vi.mocked(fetchJson)
+        .mockResolvedValueOnce({
+          activity: {
+            '7-ch1009-dM3U-Alabama-ip192.168.30.9':
+              'Watching ch1009 from Living Room (Remux Starting: 5s @ 1.0x (60fps)): buf=0% drop=0%',
+          },
+        } as never)
+        .mockResolvedValueOnce([
+          { id: 'atv', hostname: 'Apple TV', local_ip: '192.168.30.9', connected: true },
+          { id: 'other', hostname: 'Living Room', local_ip: '192.168.30.50', connected: true },
+        ] as never)
+        .mockResolvedValue([] as never);
+
+      const [session] = await client().getSessions();
+
+      expect(session?.player.deviceId).toBe('atv');
+    });
+
+    it('keeps the address match when several devices share a LAN address (host mode unchanged)', async () => {
+      vi.mocked(fetchJson)
+        .mockResolvedValueOnce({
+          activity: { '7-ch1009-dM3U-Alabama-ip192.168.30.9': ONN_LIVE },
+        } as never)
+        .mockResolvedValueOnce([
+          { id: 'iphone', hostname: 'iPhone', local_ip: '192.168.30.9', connected: true },
+          { id: 'onn', hostname: 'onn. Full HD Streaming Device', local_ip: '192.168.30.9' },
+        ] as never)
+        .mockResolvedValue([] as never);
+
+      const [session] = await client().getSessions();
+
+      // As before this change: the connected device at the address wins.
+      expect(session?.player.deviceId).toBe('iphone');
+    });
+  });
+
   it('uses the parent show poster for episode playback', async () => {
     vi.mocked(fetchJson)
       .mockResolvedValueOnce({

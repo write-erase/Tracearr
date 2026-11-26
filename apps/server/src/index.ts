@@ -146,6 +146,7 @@ import { startLeaderLease, stopLeaderLease } from './services/leaderLease.js';
 import {
   initializeWebSocket,
   broadcastToSessions,
+  broadcastServerHealth,
   broadcastSessionEvent,
   broadcastSessionStopped,
   disconnectAllSockets,
@@ -269,6 +270,7 @@ import { registerService, unregisterService } from './services/serviceTracker.js
 import { backfillMissingServerIdentifiers } from './services/serverIdentity.js';
 import { supportsMediaLibrary } from '@tracearr/shared';
 import { liveServers } from './services/liveServers.js';
+import { registerMobileAppServerFilter } from './lib/mobileAppServers.js';
 import {
   getServerMode,
   setServerMode,
@@ -478,6 +480,9 @@ async function buildApp() {
 
   // Utility plugins
   await app.register(sensible);
+
+  // Dispatcharr and Channels DVR servers stay out of what the mobile app gets (fork)
+  registerMobileAppServerFilter(app);
 
   // The SPA fallback below claims the not-found slot in production, and Fastify
   // throws on a second handler for the same scope - so hand off the 404 half
@@ -1477,13 +1482,20 @@ async function initializePostListen(app: FastifyInstance) {
           broadcastToSessions('notification:toast', data as NotificationToast);
           break;
         case WS_EVENTS.SERVER_DOWN:
-          broadcastToSessions(
+          broadcastServerHealth(
             'server:down',
             data as Parameters<ServerToClientEvents['server:down']>[0]
-          );
+          ).catch((err: unknown) => {
+            app.log.error({ err }, 'Failed to broadcast server down');
+          });
           break;
         case WS_EVENTS.SERVER_UP:
-          broadcastToSessions('server:up', data as { serverId: string; serverName: string });
+          broadcastServerHealth(
+            'server:up',
+            data as { serverId: string; serverName: string }
+          ).catch((err: unknown) => {
+            app.log.error({ err }, 'Failed to broadcast server up');
+          });
           break;
         default:
           // Unknown event, ignore

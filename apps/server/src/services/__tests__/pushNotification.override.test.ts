@@ -47,6 +47,7 @@ vi.mock('../../db/client.js', () => {
   return { db: chain };
 });
 
+vi.mock('../../lib/mobileAppServers.js', () => ({ isHiddenFromMobileApp: async () => false }));
 vi.mock('../pushRateLimiter.js', () => ({ getPushRateLimiter: () => null }));
 vi.mock('../quietHours.js', () => ({
   quietHoursService: { shouldSend: () => true, shouldSendEvent: () => true },

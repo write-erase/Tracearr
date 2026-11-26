@@ -23,6 +23,7 @@ import {
   type HistorySessionResponse,
   type HistoryAggregates,
   type ChannelsDvrScheduleResponse,
+  type DispatcharrOverviewResponse,
   DEFAULT_DISK_ALERT_PERCENT,
 } from '@tracearr/shared';
 import { db } from '../../db/client.js';
@@ -38,6 +39,7 @@ import { hasServerAccess, resolveServerIds } from '../../utils/serverFiltering.j
 import { terminateSession } from '../../services/termination.js';
 import { getCacheService } from '../../services/cache.js';
 import { ChannelsDvrClient } from '../../services/mediaServer/channelsDvr/client.js';
+import { DispatcharrClient } from '../../services/mediaServer/dispatcharr/client.js';
 import { getActiveAutomations } from '../../jobs/poller/database.js';
 import {
   assertInScope,
@@ -57,6 +59,9 @@ import {
   parseHistoryCursor,
 } from './history.js';
 import { mapHistoryRow } from './historyRow.js';
+
+/** How long cleared recording issues are kept: past the day Recently Recorded covers (fork). */
+const CLEARED_ISSUES_TTL_SECONDS = 2 * 24 * 60 * 60;
 
 export const sessionRoutes: FastifyPluginAsync = async (app) => {
   const readSessions = { preHandler: [app.requirePermission('sessions', 'read')] };
@@ -347,11 +352,21 @@ export const sessionRoutes: FastifyPluginAsync = async (app) => {
           const client = new ChannelsDvrClient({ url: server.url, token: '' });
           const schedule = await client.getSchedule();
           const tag = { serverId: server.id, serverName: server.name };
+          // Recordings whose issues an owner or admin cleared (fork); Redis down clears none
+          const cleared = new Set(
+            await app.redis
+              .smembers(REDIS_KEYS.CHANNELS_DVR_CLEARED_ISSUES(server.id))
+              .catch(() => [] as string[])
+          );
           return {
             recordings: schedule.recordings.map((recording) => ({ ...recording, ...tag })),
             upcoming: schedule.upcoming.map((job) => ({ ...job, ...tag })),
             tuners: schedule.tuners ? [{ ...schedule.tuners, ...tag }] : [],
-            recent: schedule.recent.map((file) => ({ ...file, ...tag })),
+            recent: schedule.recent.map((file) => ({
+              ...file,
+              ...tag,
+              issuesCleared: cleared.has(file.fileId),
+            })),
             disks: schedule.disk
               ? [{ ...schedule.disk, ...tag, warnPercent: warnPercentFor(server.id) }]
               : [],
@@ -372,6 +387,93 @@ export const sessionRoutes: FastifyPluginAsync = async (app) => {
       recent: perServer.flatMap((s) => s.recent).sort((a, b) => b.endedAt.localeCompare(a.endedAt)),
     };
   });
+
+  /**
+   * GET /sessions/dispatcharr-overview - the Dispatcharr dashboard card (fork): each M3U
+   * account's refresh state and provider connections in use, each guide source's refresh
+   * state, and what's streaming now with who is watching, read live from every Dispatcharr server the user can see. A server that cannot be
+   * reached is left out. Its version comes with the server list, like Channels DVR's.
+   */
+  app.get(
+    '/dispatcharr-overview',
+    readSessions,
+    async (request): Promise<DispatcharrOverviewResponse> => {
+      const authUser = request.user;
+      const dispatcharrServers = await db
+        .select({
+          id: servers.id,
+          name: servers.name,
+          url: servers.url,
+          token: servers.token,
+        })
+        .from(servers)
+        .where(and(eq(servers.type, 'dispatcharr'), isNull(servers.historicalAt)));
+
+      const visible = dispatcharrServers.filter((server) => hasServerAccess(authUser, server.id));
+      const perServer = await Promise.all(
+        visible.map(async (server) => {
+          try {
+            const client = new DispatcharrClient({ url: server.url, token: server.token });
+            const overview = await client.getOverview();
+            return [{ serverId: server.id, serverName: server.name, ...overview }];
+          } catch (err) {
+            app.log.debug({ serverId: server.id, err }, 'Dispatcharr overview unavailable');
+            return [];
+          }
+        })
+      );
+      return { data: perServer.flat() };
+    }
+  );
+
+  /**
+   * POST /sessions/dispatcharr-recordings/stop and /cancel (fork) - stop a Dispatcharr DVR
+   * recording in progress (what was recorded is kept) or cancel a scheduled one, as Dispatcharr's
+   * own buttons do. Body: { serverId, recordingId }. Same permission as terminating a stream.
+   */
+  for (const action of ['stop', 'cancel'] as const) {
+    app.post(`/dispatcharr-recordings/${action}`, terminateSessions, async (request, reply) => {
+      const body = request.body as { serverId?: unknown; recordingId?: unknown } | undefined;
+      const serverId = typeof body?.serverId === 'string' ? body.serverId : '';
+      const recordingId = typeof body?.recordingId === 'number' ? body.recordingId : NaN;
+      if (!serverId || !Number.isInteger(recordingId) || recordingId <= 0) {
+        return reply.badRequest('serverId and a Dispatcharr recordingId are required');
+      }
+      if (!hasServerAccess(request.user, serverId)) {
+        return reply.forbidden('You do not have access to this server');
+      }
+      const [server] = await db
+        .select({
+          url: servers.url,
+          token: servers.token,
+          type: servers.type,
+          historicalAt: servers.historicalAt,
+        })
+        .from(servers)
+        .where(eq(servers.id, serverId))
+        .limit(1);
+      if (!server || server.type !== 'dispatcharr' || server.historicalAt) {
+        return reply.notFound('Dispatcharr server not found');
+      }
+      try {
+        const client = new DispatcharrClient({ url: server.url, token: server.token });
+        await (action === 'stop'
+          ? client.stopRecording(recordingId)
+          : client.cancelRecording(recordingId));
+      } catch (err) {
+        app.log.warn({ serverId, recordingId, err }, `Failed to ${action} Dispatcharr recording`);
+        return reply.code(502).send({
+          success: false,
+          error: err instanceof Error ? err.message : `Failed to ${action} the recording`,
+        });
+      }
+      app.log.info(
+        { serverId, recordingId, userId: request.user.userId },
+        action === 'stop' ? 'Stopped Dispatcharr recording' : 'Cancelled Dispatcharr recording'
+      );
+      return { success: true };
+    });
+  }
 
   /**
    * POST /sessions/recordings/stop - stop a Channels DVR recording in progress
@@ -408,6 +510,47 @@ export const sessionRoutes: FastifyPluginAsync = async (app) => {
     app.log.info(
       { serverId, jobId, userId: request.user.userId },
       'Stopped Channels DVR recording'
+    );
+    return { success: true };
+  });
+
+  /**
+   * POST /sessions/recordings/clear-issues - stop flagging recent recordings' issues (fork)
+   * Body: { serverId, fileIds }. The recordings stay in Recently Recorded without their badges,
+   * for everyone. Same permission as stopping a recording. Kept two days, past the one-day list.
+   */
+  app.post('/recordings/clear-issues', terminateSessions, async (request, reply) => {
+    const body = request.body as { serverId?: unknown; fileIds?: unknown } | undefined;
+    const serverId = typeof body?.serverId === 'string' ? body.serverId : '';
+    const fileIds = Array.isArray(body?.fileIds) ? body.fileIds : [];
+    if (
+      !serverId ||
+      fileIds.length === 0 ||
+      fileIds.length > 100 ||
+      !fileIds.every((id) => typeof id === 'string' && /^[\w.-]{1,64}$/.test(id))
+    ) {
+      return reply.badRequest('serverId and 1 to 100 Channels DVR file ids are required');
+    }
+    if (!hasServerAccess(request.user, serverId)) {
+      return reply.forbidden('You do not have access to this server');
+    }
+    const [server] = await db
+      .select({ type: servers.type, historicalAt: servers.historicalAt })
+      .from(servers)
+      .where(eq(servers.id, serverId))
+      .limit(1);
+    if (!server || server.type !== 'channels_dvr' || server.historicalAt) {
+      return reply.notFound('Channels DVR server not found');
+    }
+    const key = REDIS_KEYS.CHANNELS_DVR_CLEARED_ISSUES(serverId);
+    await app.redis
+      .multi()
+      .sadd(key, ...(fileIds as string[]))
+      .expire(key, CLEARED_ISSUES_TTL_SECONDS)
+      .exec();
+    app.log.info(
+      { serverId, fileIds, userId: request.user.userId },
+      'Cleared Channels DVR recording issues'
     );
     return { success: true };
   });

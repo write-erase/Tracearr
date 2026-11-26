@@ -57,6 +57,50 @@ export function useChannelsRecordings(enabled: boolean) {
   });
 }
 
+/** The Dispatcharr dashboard card (fork): only asked for while a Dispatcharr server is selected. */
+export function useDispatcharrOverview(enabled: boolean) {
+  return useQuery({
+    queryKey: ['sessions', 'dispatcharr-overview'],
+    queryFn: () => api.sessions.dispatcharrOverview(),
+    enabled,
+    staleTime: 1000 * 10,
+    refetchInterval: 1000 * 30,
+  });
+}
+
+/**
+ * Stop a Dispatcharr DVR recording in progress or cancel a scheduled one (fork); refreshes the
+ * Dispatcharr card.
+ */
+export function useDispatcharrRecordingAction(action: 'stop' | 'cancel') {
+  const { t } = useTranslation('pages');
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ serverId, recordingId }: { serverId: string; recordingId: number }) =>
+      api.sessions.dispatcharrRecording(action, serverId, recordingId),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['sessions', 'dispatcharr-overview'] });
+      toast.success(
+        action === 'stop'
+          ? t('dashboard.dispatcharr.stopped', {
+              defaultValue: 'Recording stopped. What was recorded is kept in Dispatcharr.',
+            })
+          : t('dashboard.recording.cancelled', { defaultValue: 'Recording cancelled.' })
+      );
+    },
+    onError: (error: Error) => {
+      toast.error(
+        action === 'stop'
+          ? t('dashboard.recording.stopFailed', { defaultValue: 'Could not stop the recording' })
+          : t('dashboard.recording.cancelFailed', {
+              defaultValue: 'Could not cancel the recording',
+            }),
+        { description: error.message }
+      );
+    },
+  });
+}
+
 /** Stop a Channels DVR recording; refreshes the Recording Now panel. */
 export function useStopRecording() {
   const { t } = useTranslation('pages');
@@ -110,6 +154,34 @@ export function useCancelRecording() {
  * Skip one airing a Channels DVR series pass scheduled, or undo that. The pass keeps going, and
  * a skipped airing stays in Coming Up so it can be unskipped.
  */
+/** Clear the issues of recent Channels DVR recordings, one request per server (fork). */
+export function useClearRecordingIssues() {
+  const { t } = useTranslation('pages');
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (files: { serverId: string; fileId: string }[]) => {
+      const byServer = new Map<string, string[]>();
+      for (const { serverId, fileId } of files) {
+        byServer.set(serverId, [...(byServer.get(serverId) ?? []), fileId]);
+      }
+      await Promise.all(
+        [...byServer].map(([serverId, fileIds]) =>
+          api.sessions.clearRecordingIssues(serverId, fileIds)
+        )
+      );
+    },
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: ['sessions', 'recordings'] });
+    },
+    onError: (error: Error) => {
+      toast.error(
+        t('dashboard.recording.clearIssuesFailed', { defaultValue: 'Could not clear the alert' }),
+        { description: error.message }
+      );
+    },
+  });
+}
+
 export function useSkipRecording() {
   const { t } = useTranslation('pages');
   const queryClient = useQueryClient();

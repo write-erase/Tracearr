@@ -47,8 +47,14 @@ export function applyPauseState(
   }
 
   const result = sessions.map((session) => {
-    // Live TV has no position to watch, so it is always playing.
-    if (session.media.type === 'live') return session;
+    // Live TV has no position to watch. A local device that answered for this channel says whether
+    // it is paused (fork); otherwise it is playing. Its position stays as it is.
+    if (session.media.type === 'live') {
+      const status = deviceStatuses?.get(session.sessionKey);
+      return status
+        ? { ...session, playback: { ...session.playback, state: status.state } }
+        : session;
+    }
 
     // A file stream that has lost its position (the web player sitting on its end screen
     // drops "at …" but stays listed) is not playing: hold the last position, paused.

@@ -1,8 +1,9 @@
 /**
- * What each media server runs and what its vendor ships, every six hours on the leader
- * (Channels DVR every hour). Both versions land on the server row; a newer release nudges
- * once per version. A Channels DVR server with an update waiting is also asked its version
- * every minute, so the dashboard shows the update installed within a minute of it finishing.
+ * What each media server runs and what its vendor ships, every six hours on the leader, every
+ * server type alike (fork: Channels DVR used to be checked hourly). Both versions land on the
+ * server row; a newer release nudges once per version. A Channels DVR or Dispatcharr server with an update waiting is
+ * also asked its version every minute, so the dashboard shows the update installed within a
+ * minute of it finishing.
  */
 
 import { eq } from 'drizzle-orm';
@@ -18,8 +19,12 @@ import { createLogger } from '../utils/logger.js';
 import { startPeriodic, type PeriodicTimers } from '../utils/periodic.js';
 import {
   CHANNELS_PRERELEASE_NOTES,
+  DISPATCHARR_DEV_TAGS,
   SERVER_RELEASE_PAGES,
   channelsTrackFor,
+  dispatcharrDevLatest,
+  isDispatcharrDevVersion,
+  latestDispatcharrDevBuild,
   isNewerServerVersion,
   latestChannelsVersions,
   latestVersionFor,
@@ -31,15 +36,10 @@ import {
 const logger = createLogger('ServerUpdate');
 
 const CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
-// Channels DVR ships pre-releases often, sometimes several a day: its servers are checked hourly.
-const CHANNELS_CHECK_INTERVAL_MS = 60 * 60 * 1000;
 const INITIAL_DELAY_MS = 15_000;
 // Only servers with an update waiting are asked, one /status read each.
 const CHANNELS_WATCH_INTERVAL_MS = 60_000;
 const CHANNELS_WATCH_INITIAL_DELAY_MS = 45_000;
-
-/** Which servers a run covers: the 6-hourly sweep skips Channels DVR, which has its own hourly one. */
-type CheckScope = 'all' | 'channels' | 'others';
 
 export interface CheckedServer {
   id: string;
@@ -55,7 +55,6 @@ export interface CheckedServer {
 }
 
 let timers: PeriodicTimers | null = null;
-let channelsTimers: PeriodicTimers | null = null;
 let channelsWatchTimers: PeriodicTimers | null = null;
 // A minute's watch still running (a slow server) isn't started a second time.
 let watchRunning = false;
@@ -190,46 +189,90 @@ async function announceVersionChange(): Promise<void> {
   }
 }
 
-export async function runServerUpdateCheck(scope: CheckScope = 'all'): Promise<void> {
+/** The vendor feeds one run reads, each at most once however many servers share it. */
+interface FeedCache {
+  feeds: Map<FeedServerType, Promise<string | null>>;
+  channels: Promise<ChannelsLatestVersions> | null;
+  dispatcharrDev: Promise<string | null> | null;
+}
+
+function newFeedCache(): FeedCache {
+  return { feeds: new Map(), channels: null, dispatcharrDev: null };
+}
+
+/**
+ * The newest release for one server, from the run's feeds. A Dispatcharr server is asked what it
+ * runs first (fork): a dev image follows Docker Hub's dev tag, as Dispatcharr's own check does,
+ * and a release image the GitHub releases. `known` is a version the caller has just read.
+ */
+async function latestForServer(
+  server: CheckedServer,
+  cache: FeedCache,
+  known?: string
+): Promise<{ latestFor: LatestFor; installed?: string }> {
+  switch (server.type) {
+    case 'channels_dvr':
+      cache.channels ??= latestChannelsVersions();
+      return { latestFor: channelsLatestFor(server, await cache.channels), installed: known };
+    case 'tofa':
+      return {
+        latestFor: sameForAll(server.type, await tofaUpdateVersion(server)),
+        installed: known,
+      };
+    case 'dispatcharr': {
+      const installed = known ?? (await installedVersionOf(server)) ?? undefined;
+      if (installed && isDispatcharrDevVersion(installed)) {
+        cache.dispatcharrDev ??= latestDispatcharrDevBuild();
+        const pushed = await cache.dispatcharrDev;
+        return {
+          latestFor: () => ({
+            version: dispatcharrDevLatest(installed, pushed),
+            releaseUrl: DISPATCHARR_DEV_TAGS,
+          }),
+          installed,
+        };
+      }
+      return {
+        latestFor: sameForAll(
+          server.type,
+          await cache.feeds.getOrInsertComputed(server.type, latestVersionFor)
+        ),
+        installed,
+      };
+    }
+    case 'plex':
+    case 'jellyfin':
+    case 'emby':
+      return {
+        latestFor: sameForAll(
+          server.type,
+          await cache.feeds.getOrInsertComputed(server.type, latestVersionFor)
+        ),
+        installed: known,
+      };
+    default:
+      return assertNever(server.type);
+  }
+}
+
+/**
+ * Server types watched every minute while an update waits, so installing it shows within a
+ * minute: Channels DVR, and Dispatcharr (fork).
+ */
+const WATCHED_TYPES: ReadonlySet<ServerType> = new Set<ServerType>(['channels_dvr', 'dispatcharr']);
+
+export async function runServerUpdateCheck(): Promise<void> {
   try {
     const settings = await getSettings(['serverUpdateCheckEnabled']);
     if (!settings.serverUpdateCheckEnabled) return;
 
-    const rows = (await liveServers()).filter((server) =>
-      scope === 'all'
-        ? true
-        : scope === 'channels'
-          ? server.type === 'channels_dvr'
-          : server.type !== 'channels_dvr'
-    );
+    const rows = await liveServers();
 
-    // A vendor feed is per type, not per server: read it once however many servers share it.
-    const feeds = new Map<FeedServerType, Promise<string | null>>();
-    let channels: Promise<ChannelsLatestVersions> | null = null;
+    const cache = newFeedCache();
     let changed = false;
     for (const server of rows) {
-      let latestFor: LatestFor;
-      switch (server.type) {
-        case 'channels_dvr':
-          channels ??= latestChannelsVersions();
-          latestFor = channelsLatestFor(server, await channels);
-          break;
-        case 'tofa':
-          latestFor = sameForAll(server.type, await tofaUpdateVersion(server));
-          break;
-        case 'plex':
-        case 'jellyfin':
-        case 'emby':
-        case 'dispatcharr':
-          latestFor = sameForAll(
-            server.type,
-            await feeds.getOrInsertComputed(server.type, latestVersionFor)
-          );
-          break;
-        default:
-          return assertNever(server.type);
-      }
-      if (await checkServer(server, latestFor)) changed = true;
+      const { latestFor, installed } = await latestForServer(server, cache);
+      if (await checkServer(server, latestFor, installed)) changed = true;
     }
     if (changed) await announceVersionChange();
   } catch (error) {
@@ -237,20 +280,20 @@ export async function runServerUpdateCheck(scope: CheckScope = 'all'): Promise<v
   }
 }
 
-/** The row says a newer release is waiting for this Channels DVR server. */
+/** The row says a newer release is waiting for this Channels DVR or Dispatcharr server. */
 function hasUpdateWaiting(server: CheckedServer): boolean {
   return (
-    server.type === 'channels_dvr' &&
+    WATCHED_TYPES.has(server.type) &&
     !!server.version &&
     !!server.latestVersion &&
-    isNewerServerVersion('channels_dvr', server.latestVersion, server.version)
+    isNewerServerVersion(server.type, server.latestVersion, server.version)
   );
 }
 
 /**
- * Between the hourly checks, asks each Channels DVR server with an update waiting what it
- * runs now. Once that changes (the update was installed), the server gets a full check, so
- * the dashboard's "Update available" turns to "Up to date" within a minute instead of an hour.
+ * Between the six-hourly checks, asks each Channels DVR or Dispatcharr server with an update waiting
+ * what it runs now. Once that changes (the update was installed), the server gets a full check,
+ * so the dashboard's "Update available" turns to "Up to date" within a minute instead of hours.
  * A server that's restarting mid-update just answers nothing and is asked again next minute.
  */
 export async function runChannelsUpdateWatch(): Promise<void> {
@@ -263,17 +306,15 @@ export async function runChannelsUpdateWatch(): Promise<void> {
     const waiting = (await liveServers()).filter(hasUpdateWaiting);
     if (waiting.length === 0) return;
 
-    let channels: Promise<ChannelsLatestVersions> | null = null;
+    const cache = newFeedCache();
     let changed = false;
     for (const server of waiting) {
       const installed = await installedVersionOf(server);
       if (!installed || installed === server.version) continue;
-      // The track can follow the installed version, so the latest is worked out again for it.
-      channels ??= latestChannelsVersions();
-      const versions = await channels;
-      if (await checkServer(server, channelsLatestFor(server, versions), installed)) {
-        changed = true;
-      }
+      // The latest can follow the installed version (a Channels track, a Dispatcharr dev image),
+      // so it's worked out again for it.
+      const { latestFor } = await latestForServer(server, cache, installed);
+      if (await checkServer(server, latestFor, installed)) changed = true;
     }
     if (changed) await announceVersionChange();
   } catch (error) {
@@ -285,25 +326,20 @@ export async function runChannelsUpdateWatch(): Promise<void> {
 
 export function startServerUpdateChecker(): void {
   if (timers) return;
-  timers = startPeriodic(INITIAL_DELAY_MS, CHECK_INTERVAL_MS, () => runServerUpdateCheck('others'));
-  channelsTimers = startPeriodic(INITIAL_DELAY_MS, CHANNELS_CHECK_INTERVAL_MS, () =>
-    runServerUpdateCheck('channels')
-  );
+  timers = startPeriodic(INITIAL_DELAY_MS, CHECK_INTERVAL_MS, () => runServerUpdateCheck());
   channelsWatchTimers = startPeriodic(
     CHANNELS_WATCH_INITIAL_DELAY_MS,
     CHANNELS_WATCH_INTERVAL_MS,
     runChannelsUpdateWatch
   );
   logger.info(
-    'Checker started (every 6h; Channels DVR every hour, and every minute while an update waits)'
+    'Checker started (every 6h, and every minute for a Channels DVR or Dispatcharr server while an update waits)'
   );
 }
 
 export function stopServerUpdateChecker(): void {
   timers?.stop();
   timers = null;
-  channelsTimers?.stop();
-  channelsTimers = null;
   channelsWatchTimers?.stop();
   channelsWatchTimers = null;
 }
