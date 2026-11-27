@@ -41,6 +41,7 @@ import { getCacheService } from '../../services/cache.js';
 import { ChannelsDvrClient } from '../../services/mediaServer/channelsDvr/client.js';
 import { DispatcharrClient } from '../../services/mediaServer/dispatcharr/client.js';
 import { getActiveAutomations } from '../../jobs/poller/database.js';
+import { readCurrentProfiles, serversHaveProfiles } from '../../services/profiles.js';
 import {
   assertInScope,
   memberCacheSegment,
@@ -58,7 +59,7 @@ import {
   fetchSessionPage,
   parseHistoryCursor,
 } from './history.js';
-import { mapHistoryRow } from './historyRow.js';
+import { mapHistoryRows } from './historyRow.js';
 
 /** How long cleared recording issues are kept: past the day Recently Recorded covers (fork). */
 const CLEARED_ISSUES_TTL_SECONDS = 2 * 24 * 60 * 60;
@@ -103,9 +104,17 @@ export const sessionRoutes: FastifyPluginAsync = async (app) => {
     if (state) conditions.push(sql`s.state = ${state}`);
     conditions.push(mediaType ? sql`s.media_type = ${mediaType}` : historyMediaTypeDefault());
 
-    const sessionData = (
-      await fetchSessionPage(conditions, { startDate, endDate, pageSize, offset })
-    ).map(mapHistoryRow);
+    const sessionData = await mapHistoryRows(
+      await fetchSessionPage(conditions, {
+        startDate,
+        endDate,
+        pageSize,
+        offset,
+        hasProfiles: await serversHaveProfiles(
+          resolveServerIds(authUser, serverId, undefined, { strict: false })
+        ),
+      })
+    );
 
     const total = await countPlays(conditions);
 
@@ -158,6 +167,9 @@ export const sessionRoutes: FastifyPluginAsync = async (app) => {
       cursor: pageCursor,
       startDate: query.data.startDate,
       endDate: query.data.endDate,
+      hasProfiles: await serversHaveProfiles(
+        resolveServerIds(authUser, query.data.serverId, query.data.serverIds, { strict: false })
+      ),
     });
 
     const firstRow = rows[0];
@@ -167,7 +179,7 @@ export const sessionRoutes: FastifyPluginAsync = async (app) => {
       return { data: [], hasMore: false } satisfies HistorySessionResponse;
     }
 
-    const sessionData = rows.map(mapHistoryRow);
+    const sessionData = await mapHistoryRows(rows);
 
     // Generate next cursor
     const lastSession = sessionData[sessionData.length - 1];
@@ -680,7 +692,7 @@ export const sessionRoutes: FastifyPluginAsync = async (app) => {
       return reply.forbidden('You do not have access to this session');
     }
 
-    return mapSessionDetail(row);
+    return mapSessionDetail(row, await readCurrentProfiles(db, [row.profileId]));
   });
 
   /**

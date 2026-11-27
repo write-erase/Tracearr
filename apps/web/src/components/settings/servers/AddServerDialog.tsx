@@ -28,6 +28,7 @@ const DESCRIPTIONS = {
   jellyfin: 'servers.addServerDialogDescOther',
   emby: 'servers.addServerDialogDescOther',
   tofa: 'servers.addServerDialogDescOther',
+  silo: 'servers.addServerDialogDescSilo',
   dispatcharr: 'servers.addServerDialogDescDispatcharr',
   channels_dvr: 'servers.addServerDialogDescChannelsDvr',
 } as const satisfies Record<ServerType, string>;

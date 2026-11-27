@@ -43,6 +43,7 @@ import { playbackBadge } from '@/lib/playbackBadge';
 import { formatDate, formatDuration } from '@/lib/dateFormat';
 import { getAvatarUrl } from '@/components/users/utils';
 import { LocalBadge } from '@/components/sessions/LocalBadge';
+import { AvatarWithProfile } from '@/components/sessions/AvatarWithProfile';
 import { TIER_COLORS } from '@/components/charts/EngagementChart';
 import {
   PLAYBACK_DECISION_LABEL_KEYS,
@@ -52,7 +53,12 @@ import {
   type MediaType,
   type EngagementTier,
 } from '@tracearr/shared';
-import type { ColumnVisibility } from './HistoryFilters';
+import {
+  COLUMN_WIDTHS,
+  getTableMinWidth,
+  getVisibleColumns,
+  type ColumnVisibility,
+} from './historyColumns';
 import { ServerColumnCell } from '@/components/server';
 import { CatchupIcon } from '@/components/sessions/CatchupIcon';
 import { useServerColorMap } from '@/hooks/useServerColorMap';
@@ -130,6 +136,8 @@ interface Props {
   sortDir?: SortDirection;
   onSortChange?: (column: SortableColumn) => void;
   isMultiServer?: boolean;
+  /** The names a Profile column shows, by profile id; the column shows only when given */
+  profileNames?: ReadonlyMap<string, string>;
 }
 
 const STATE_ICON_CONFIG = {
@@ -148,7 +156,7 @@ function StateIcon({ state }: { state: SessionState }) {
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <Icon className={cn('h-4 w-4', color)} />
+        <Icon className={cn('size-4 shrink-0', color)} />
       </TooltipTrigger>
       <TooltipContent>{label}</TooltipContent>
     </Tooltip>
@@ -180,11 +188,16 @@ function MediaTypeIcon({ type }: { type: MediaType }) {
   );
 }
 
+function NoValue() {
+  return <span className="text-muted-foreground">—</span>;
+}
+
 interface HistoryTableRowProps {
   session: SessionWithDetails;
   onClick?: () => void;
   columnVisibility: ColumnVisibility;
   isMultiServer?: boolean;
+  profileNames?: ReadonlyMap<string, string>;
   style?: React.CSSProperties;
   'data-index'?: number;
 }
@@ -193,7 +206,15 @@ interface HistoryTableRowProps {
 export const HistoryTableRow = memo(
   forwardRef<HTMLTableRowElement, HistoryTableRowProps>(
     (
-      { session, onClick, columnVisibility, isMultiServer = false, style, 'data-index': dataIndex },
+      {
+        session,
+        onClick,
+        columnVisibility,
+        isMultiServer = false,
+        profileNames,
+        style,
+        'data-index': dataIndex,
+      },
       ref
     ) => {
       const { title: primary, subtitle: secondary } = getMediaDisplay({
@@ -205,6 +226,10 @@ export const HistoryTableRow = memo(
       const playedAt = new Date(session.lastStartedAt ?? session.startedAt);
       const colorMap = useServerColorMap();
       const { t } = useTranslation(['common', 'pages']);
+      // A play whose profile has no row keeps the name it stored
+      const profileName = session.profileId
+        ? profileNames?.get(session.profileId)
+        : session.profileName;
       const verbKeys = verbKeysFor(session.mediaType);
       const verbs = { watched: t(verbKeys.watched), watchTime: t(verbKeys.watchTime) };
       const serverColor = isMultiServer ? (colorMap.get(session.serverId) ?? null) : null;
@@ -226,7 +251,7 @@ export const HistoryTableRow = memo(
         >
           {/* Date/Time with State */}
           {columnVisibility.date && (
-            <TableCell style={getColumnStyle('date')}>
+            <TableCell style={{ width: COLUMN_WIDTHS.date }}>
               <div className="flex min-w-0 items-center gap-2">
                 <StateIcon state={session.state} />
                 <div>
@@ -259,21 +284,23 @@ export const HistoryTableRow = memo(
 
           {/* User */}
           {columnVisibility.user && (
-            <TableCell style={getColumnStyle('user')}>
+            <TableCell style={{ width: COLUMN_WIDTHS.user }}>
               <Link
                 to={`/users/${session.serverUserId}`}
                 onClick={(e) => e.stopPropagation()}
                 className="flex items-center gap-2 hover:underline"
               >
-                <Avatar className="h-6 w-6">
-                  <AvatarImage
-                    src={getAvatarUrl(session.serverId, session.user.thumbUrl, 24) ?? undefined}
-                  />
-                  <AvatarFallback className="text-xs">
-                    {(session.user.identityName ?? session.user.username)?.[0]?.toUpperCase() ??
-                      '?'}
-                  </AvatarFallback>
-                </Avatar>
+                <AvatarWithProfile serverId={session.serverId} profile={session.nonMainProfile}>
+                  <Avatar className="h-6 w-6">
+                    <AvatarImage
+                      src={getAvatarUrl(session.serverId, session.user.thumbUrl, 24) ?? undefined}
+                    />
+                    <AvatarFallback className="text-xs">
+                      {(session.user.identityName ?? session.user.username)?.[0]?.toUpperCase() ??
+                        '?'}
+                    </AvatarFallback>
+                  </Avatar>
+                </AvatarWithProfile>
                 <div className="min-w-0 flex-1">
                   <span className="block truncate text-sm">
                     {session.user.identityName ?? session.user.username}
@@ -283,9 +310,19 @@ export const HistoryTableRow = memo(
             </TableCell>
           )}
 
+          {profileNames && (
+            <TableCell style={{ width: COLUMN_WIDTHS.profile }}>
+              {profileName ? (
+                <span className="block truncate text-sm">{profileName}</span>
+              ) : (
+                <NoValue />
+              )}
+            </TableCell>
+          )}
+
           {/* Content */}
           {columnVisibility.content && (
-            <TableCell style={getColumnStyle('content')} className="overflow-hidden">
+            <TableCell style={{ width: COLUMN_WIDTHS.content }} className="overflow-hidden">
               <div className="flex min-w-0 items-center gap-2">
                 <MediaTypeIcon type={session.mediaType} />
                 <div className="min-w-0 flex-1">
@@ -320,14 +357,14 @@ export const HistoryTableRow = memo(
 
           {/* Server - only rendered in multi-server mode */}
           {isMultiServer && columnVisibility.server && (
-            <TableCell style={getColumnStyle('server')}>
+            <TableCell style={{ width: COLUMN_WIDTHS.server }}>
               <ServerColumnCell server={session.server} />
             </TableCell>
           )}
 
           {/* Platform/Device */}
           {columnVisibility.platform && (
-            <TableCell style={getColumnStyle('platform')}>
+            <TableCell style={{ width: COLUMN_WIDTHS.platform }}>
               <Tooltip>
                 <TooltipTrigger asChild>
                   <div>
@@ -369,7 +406,7 @@ export const HistoryTableRow = memo(
 
           {/* Location */}
           {columnVisibility.location && (
-            <TableCell style={getColumnStyle('location')}>
+            <TableCell style={{ width: COLUMN_WIDTHS.location }}>
               {session.geoCity || session.geoCountry ? (
                 <Tooltip>
                   <TooltipTrigger asChild>
@@ -412,14 +449,14 @@ export const HistoryTableRow = memo(
                   </TooltipContent>
                 </Tooltip>
               ) : (
-                <span className="text-muted-foreground">—</span>
+                <NoValue />
               )}
             </TableCell>
           )}
 
           {/* IP Address */}
           {columnVisibility.ip && (
-            <TableCell style={getColumnStyle('ip')}>
+            <TableCell style={{ width: COLUMN_WIDTHS.ip }}>
               <span className="text-muted-foreground font-mono text-xs">
                 {session.ipAddress || '—'}
               </span>
@@ -428,7 +465,7 @@ export const HistoryTableRow = memo(
 
           {/* Quality */}
           {columnVisibility.quality && (
-            <TableCell style={getColumnStyle('quality')}>
+            <TableCell style={{ width: COLUMN_WIDTHS.quality }}>
               {(() => {
                 const { decision, Icon, variant, isBurnIn } = playbackBadge(session);
                 return (
@@ -459,7 +496,7 @@ export const HistoryTableRow = memo(
 
           {/* Duration */}
           {columnVisibility.duration && (
-            <TableCell style={getColumnStyle('duration')}>
+            <TableCell style={{ width: COLUMN_WIDTHS.duration }}>
               <Tooltip>
                 <TooltipTrigger asChild>
                   <div className="flex items-center gap-1.5">
@@ -497,7 +534,7 @@ export const HistoryTableRow = memo(
 
           {/* Progress */}
           {columnVisibility.progress && (
-            <TableCell style={getColumnStyle('progress')}>
+            <TableCell style={{ width: COLUMN_WIDTHS.progress }}>
               {progress !== null && (
                 <Tooltip>
                   <TooltipTrigger asChild>
@@ -525,14 +562,16 @@ HistoryTableRow.displayName = 'HistoryTableRow';
 function SkeletonRow({
   columnVisibility,
   isMultiServer = false,
+  showProfile = false,
 }: {
   columnVisibility: ColumnVisibility;
   isMultiServer?: boolean;
+  showProfile?: boolean;
 }) {
   return (
     <TableRow style={{ display: 'table', width: '100%', tableLayout: 'fixed' }}>
       {columnVisibility.date && (
-        <TableCell style={getColumnStyle('date')}>
+        <TableCell>
           <div className="flex items-center gap-2">
             <Skeleton className="h-4 w-4 rounded-full" />
             <div className="space-y-1">
@@ -543,15 +582,20 @@ function SkeletonRow({
         </TableCell>
       )}
       {columnVisibility.user && (
-        <TableCell style={getColumnStyle('user')}>
+        <TableCell>
           <div className="flex items-center gap-2">
             <Skeleton className="h-6 w-6 rounded-full" />
             <Skeleton className="h-4 w-20" />
           </div>
         </TableCell>
       )}
+      {showProfile && (
+        <TableCell>
+          <Skeleton className="h-4 w-16" />
+        </TableCell>
+      )}
       {columnVisibility.content && (
-        <TableCell style={getColumnStyle('content')}>
+        <TableCell>
           <div className="space-y-1">
             <Skeleton className="h-4 w-36" />
             <Skeleton className="h-3 w-24" />
@@ -559,12 +603,12 @@ function SkeletonRow({
         </TableCell>
       )}
       {isMultiServer && columnVisibility.server && (
-        <TableCell style={getColumnStyle('server')}>
+        <TableCell>
           <Skeleton className="h-5 w-24 rounded-full" />
         </TableCell>
       )}
       {columnVisibility.platform && (
-        <TableCell style={getColumnStyle('platform')}>
+        <TableCell>
           <div className="space-y-1">
             <Skeleton className="h-4 w-16" />
             <Skeleton className="h-3 w-20" />
@@ -572,27 +616,27 @@ function SkeletonRow({
         </TableCell>
       )}
       {columnVisibility.location && (
-        <TableCell style={getColumnStyle('location')}>
+        <TableCell>
           <Skeleton className="h-4 w-20" />
         </TableCell>
       )}
       {columnVisibility.ip && (
-        <TableCell style={getColumnStyle('ip')}>
+        <TableCell>
           <Skeleton className="h-4 w-24" />
         </TableCell>
       )}
       {columnVisibility.quality && (
-        <TableCell style={getColumnStyle('quality')}>
+        <TableCell>
           <Skeleton className="h-5 w-20 rounded-full" />
         </TableCell>
       )}
       {columnVisibility.duration && (
-        <TableCell style={getColumnStyle('duration')}>
+        <TableCell>
           <Skeleton className="h-4 w-14" />
         </TableCell>
       )}
       {columnVisibility.progress && (
-        <TableCell style={getColumnStyle('progress')}>
+        <TableCell>
           <div className="flex items-center gap-2">
             <Skeleton className="h-1.5 w-12" />
             <Skeleton className="h-3 w-8" />
@@ -603,48 +647,15 @@ function SkeletonRow({
   );
 }
 
-// Fixed widths let the outer scroll container preserve readable columns on mobile.
-const COLUMN_WIDTHS: Record<keyof ColumnVisibility, number> = {
-  date: 140,
-  user: 150,
-  content: 300,
-  server: 150,
-  platform: 130,
-  location: 170,
-  ip: 130,
-  quality: 140,
-  duration: 100,
-  progress: 110,
-};
-
-function getColumnStyle(column: keyof ColumnVisibility): React.CSSProperties {
-  const width = COLUMN_WIDTHS[column];
-  return { width, minWidth: width, maxWidth: width };
-}
-
-// Count visible columns for empty state colspan
-function getVisibleColumnCount(columnVisibility: ColumnVisibility, isMultiServer: boolean): number {
-  return Object.entries(columnVisibility).filter(
-    ([key, visible]) => visible && (key !== 'server' || isMultiServer)
-  ).length;
-}
-
-function getMinTableWidth(columnVisibility: ColumnVisibility, isMultiServer: boolean): number {
-  const visibleWidth = (Object.keys(columnVisibility) as Array<keyof ColumnVisibility>)
-    .filter((column) => columnVisibility[column] && (column !== 'server' || isMultiServer))
-    .reduce((sum, column) => sum + COLUMN_WIDTHS[column], 0);
-
-  return visibleWidth + 24;
-}
-
-// Sortable header component
 function HistoryTableHeader({
   columnVisibility,
   isMultiServer,
+  showProfile,
   sort,
 }: {
   columnVisibility: ColumnVisibility;
   isMultiServer: boolean;
+  showProfile: boolean;
   /** The loaded table sorts by date, content and duration; loading and empty states do not. */
   sort?: Pick<Props, 'sortBy' | 'sortDir' | 'onSortChange'>;
 }) {
@@ -652,7 +663,7 @@ function HistoryTableHeader({
   const head = (column: keyof typeof COLUMN_WIDTHS, label: string, field?: SortableColumn) =>
     sort && field ? (
       <SortableTableHead
-        style={getColumnStyle(column)}
+        style={{ width: COLUMN_WIDTHS[column] }}
         field={field}
         sortBy={sort.sortBy}
         sortOrder={sort.sortDir}
@@ -661,7 +672,7 @@ function HistoryTableHeader({
         {label}
       </SortableTableHead>
     ) : (
-      <TableHead style={getColumnStyle(column)}>{label}</TableHead>
+      <TableHead style={{ width: COLUMN_WIDTHS[column] }}>{label}</TableHead>
     );
 
   return (
@@ -672,6 +683,7 @@ function HistoryTableHeader({
       <tr>
         {columnVisibility.date && head('date', t('labels.date'), 'startedAt')}
         {columnVisibility.user && head('user', t('labels.user'))}
+        {showProfile && head('profile', t('labels.profile'))}
         {columnVisibility.content && head('content', t('labels.content'), 'mediaTitle')}
         {isMultiServer && columnVisibility.server && head('server', t('labels.server'))}
         {columnVisibility.platform && head('platform', t('labels.platform'))}
@@ -699,10 +711,12 @@ export function HistoryTable({
   sortDir,
   onSortChange,
   isMultiServer = false,
+  profileNames,
 }: Props) {
   const { t } = useTranslation(['common', 'pages']);
-  const visibleColumnCount = getVisibleColumnCount(columnVisibility, isMultiServer);
-  const minTableWidth = getMinTableWidth(columnVisibility, isMultiServer);
+  const showProfile = profileNames !== undefined;
+  const visibleColumns = getVisibleColumns(columnVisibility, isMultiServer, showProfile);
+  const tableStyle = { minWidth: getTableMinWidth(visibleColumns) };
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
   const rowVirtualizer = useVirtualizer({
@@ -736,14 +750,19 @@ export function HistoryTable({
         className="relative scrollbar-thin overflow-auto"
         style={{ maxHeight: DATA_TABLE_VIEWPORT_MAX_HEIGHT }}
       >
-        <table className="w-full caption-bottom text-sm" style={{ minWidth: minTableWidth }}>
-          <HistoryTableHeader columnVisibility={columnVisibility} isMultiServer={isMultiServer} />
+        <table className="w-full caption-bottom text-sm" style={tableStyle}>
+          <HistoryTableHeader
+            columnVisibility={columnVisibility}
+            isMultiServer={isMultiServer}
+            showProfile={showProfile}
+          />
           <tbody>
             {Array.from({ length: 10 }).map((_, i) => (
               <SkeletonRow
                 key={i}
                 columnVisibility={columnVisibility}
                 isMultiServer={isMultiServer}
+                showProfile={showProfile}
               />
             ))}
           </tbody>
@@ -759,11 +778,15 @@ export function HistoryTable({
         className="relative scrollbar-thin overflow-auto"
         style={{ maxHeight: DATA_TABLE_VIEWPORT_MAX_HEIGHT }}
       >
-        <table className="w-full caption-bottom text-sm" style={{ minWidth: minTableWidth }}>
-          <HistoryTableHeader columnVisibility={columnVisibility} isMultiServer={isMultiServer} />
+        <table className="w-full caption-bottom text-sm" style={tableStyle}>
+          <HistoryTableHeader
+            columnVisibility={columnVisibility}
+            isMultiServer={isMultiServer}
+            showProfile={showProfile}
+          />
           <tbody>
             <tr>
-              <td colSpan={visibleColumnCount} className="h-32 text-center">
+              <td colSpan={visibleColumns.length} className="h-32 text-center">
                 <div className="text-muted-foreground flex flex-col items-center gap-2">
                   <Clock className="h-8 w-8" />
                   <p>{t('empty.noSessionsFound')}</p>
@@ -786,10 +809,11 @@ export function HistoryTable({
       )}
       style={{ maxHeight: DATA_TABLE_VIEWPORT_MAX_HEIGHT }}
     >
-      <table className="w-full caption-bottom text-sm" style={{ minWidth: minTableWidth }}>
+      <table className="w-full caption-bottom text-sm" style={tableStyle}>
         <HistoryTableHeader
           columnVisibility={columnVisibility}
           isMultiServer={isMultiServer}
+          showProfile={showProfile}
           sort={{ sortBy, sortDir, onSortChange }}
         />
         <tbody
@@ -820,6 +844,7 @@ export function HistoryTable({
                 onClick={onSessionClick ? () => onSessionClick(session) : undefined}
                 columnVisibility={columnVisibility}
                 isMultiServer={isMultiServer}
+                profileNames={profileNames}
               />
             );
           })}
@@ -830,7 +855,7 @@ export function HistoryTable({
       {isFetchingNextPage && (
         <table
           className="w-full caption-bottom text-sm"
-          style={{ tableLayout: 'fixed', minWidth: minTableWidth }}
+          style={{ ...tableStyle, tableLayout: 'fixed' }}
         >
           <tbody>
             {Array.from({ length: 5 }).map((_, i) => (
@@ -838,6 +863,7 @@ export function HistoryTable({
                 key={`loading-${i}`}
                 columnVisibility={columnVisibility}
                 isMultiServer={isMultiServer}
+                showProfile={showProfile}
               />
             ))}
           </tbody>

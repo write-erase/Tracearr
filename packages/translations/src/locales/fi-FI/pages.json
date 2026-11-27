@@ -48,6 +48,7 @@
       "codeExpired": "",
       "newCode": "",
       "refused": "",
+      "signInUnavailable": "",
       "notPermitted": ""
     }
   },
@@ -315,6 +316,7 @@
     "overallTrust": "Yleinen luottamus",
     "serverScope": "Palvelin",
     "allServers": "Kaikki palvelimet",
+    "allProfiles": "",
     "title": "Käyttäjän tiedot",
     "editIdentity": "Muokkaa nimeä ja yhteyssähköpostia",
     "editIdentityDescription": "Molemmat koskevat tätä henkilöä kaikkialla. Jätä nimi tyhjäksi näyttääksesi @{{username}}.",
@@ -421,6 +423,7 @@
       "clearUsers": "",
       "clearPlatforms": "",
       "clearCountries": "",
+      "clearProfiles": "",
       "clearFilters": "",
       "selected_one": "",
       "selected_other": ""
@@ -922,7 +925,8 @@
         "sourceVideoCodec": "Lähteen videokoodekki",
         "seasonNumber": "Kauden numero",
         "episodeNumber": "Jakson numero",
-        "name": "Sarja ja jakso, tai nimike"
+        "name": "Sarja ja jakso, tai nimike",
+        "profile": ""
       },
       "server": {
         "name": "Palvelimen nimi",

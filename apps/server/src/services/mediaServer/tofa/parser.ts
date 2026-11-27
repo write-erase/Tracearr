@@ -17,20 +17,18 @@ import {
   type StreamDecisions,
 } from '../../../utils/transcodeNormalizer.js';
 import { calculateProgress } from '../shared/parserUtils.js';
-import {
-  computeVersionsFingerprint,
-  pickBestVersion,
-  sumVersionSizes,
-} from '../shared/versionUtils.js';
+import { rollupVersions } from '../shared/versionUtils.js';
 import type {
   DownloadSourceDescription,
   DownloadSourceRequest,
   MediaItemVersion,
   MediaLibrary,
   MediaLibraryItem,
+  MediaProfile,
   MediaSession,
   MediaUser,
 } from '../types.js';
+import type { ProfileNaming } from '../../profiles.js';
 import type {
   TofaApiKey,
   TofaAccountLink,
@@ -90,6 +88,16 @@ function profilePicture(profile: TofaProfile): string | null {
   if (profile.avatar_image_url) return profile.avatar_image_url;
   const preset = profile.avatar_ref?.match(/^preset:([\w-]+)$/)?.[1];
   return preset ? `${PRESET_AVATAR_PATH}${preset}.png` : null;
+}
+
+export function parseProfiles(profiles: TofaProfile[]): MediaProfile[] {
+  return profiles.map((profile) => ({
+    id: profile.id,
+    name: profile.name,
+    thumb: profilePicture(profile),
+    isPrimary: profile.is_primary ?? null,
+    isChild: profile.is_kids ?? null,
+  }));
 }
 
 /** Whether a picture is one profilePicture could have given */
@@ -214,6 +222,19 @@ function addedDate(
   return new Date(times.length > 0 ? Math.min(...times) : fallback ? Date.parse(fallback) : 0);
 }
 
+/** The account and profile a history or download row names */
+export function parseProfileNaming(row: {
+  user_id: string;
+  profile_id?: string | null;
+  profile_name?: string | null;
+}): ProfileNaming {
+  return {
+    accountExternalId: row.user_id,
+    profileExternalId: row.profile_id,
+    profileName: row.profile_name,
+  };
+}
+
 /** Artwork goes through the image proxy, which reads it from the server with the API key */
 export function tofaPosterPath(mediaId: string): string {
   return `/api/v1/artwork/${mediaId}/poster`;
@@ -244,20 +265,7 @@ function fileVersion(file: TofaMediaFile): MediaItemVersion {
 
 /** The quality columns an item rolls up from its files */
 function fileRollup(files: TofaMediaFile[]): Partial<MediaLibraryItem> {
-  const versions = files.map(fileVersion);
-  const best = pickBestVersion(versions);
-  return {
-    videoResolution: best?.videoResolution,
-    videoCodec: best?.videoCodec,
-    videoDynamicRange: best?.videoDynamicRange,
-    audioCodec: best?.audioCodec,
-    audioChannels: best?.audioChannels,
-    fileSize: sumVersionSizes(versions),
-    container: best?.container,
-    versions,
-    versionsFingerprint: computeVersionsFingerprint(versions),
-    filePath: best?.filePath,
-  };
+  return rollupVersions(files.map(fileVersion));
 }
 
 /** Season and episode posters live in tofa's image cache, which the image proxy reads with the key */
@@ -532,6 +540,7 @@ export function parseTofaSession(
       id: row.user_id,
       username: row.username ?? '',
       profileName: row.profile_name ?? undefined,
+      profileId: row.profile_id ?? undefined,
     },
     ...describePlay(row, nowPlaying, media, viewer),
     playback: {
@@ -595,6 +604,7 @@ export function parseTofaLiveSession(live: TofaLiveNowPlayingSession): MediaSess
       id: viewer.user_id,
       username: viewer.user_name ?? '',
       profileName: viewer.profile_name ?? undefined,
+      profileId: viewer.profile_id ?? undefined,
     },
     media: {
       title: viewer.programme_title ?? viewer.channel_name,

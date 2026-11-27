@@ -1,9 +1,10 @@
 import { beforeAll, describe, it, expect, vi } from 'vitest';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { cleanup, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { initI18n } from '@tracearr/translations';
-import type { HistoryFilterOptions } from '@tracearr/shared';
-import { HistoryFiltersBar, DEFAULT_COLUMN_VISIBILITY } from './HistoryFilters';
+import type { HistoryFilterOptions, ProfileFilterOption } from '@tracearr/shared';
+import { HistoryFiltersBar } from './HistoryFilters';
+import { DEFAULT_COLUMN_VISIBILITY } from './historyColumns';
 import type { HistoryFilters } from '@/hooks/queries/useHistory';
 
 beforeAll(async () => {
@@ -35,12 +36,41 @@ const filterOptions: HistoryFilterOptions = {
   countries: [],
   cities: [],
   users: [mergedPerson, soloPerson],
+  profiles: [],
+};
+
+const alicesMain: ProfileFilterOption = {
+  id: 'p-morgan',
+  name: 'Morgan',
+  serverUserId: 'su-secondary',
+  accountUsername: 'alice_tofa',
+  serverName: 'Den',
+  main: true,
+  removed: false,
+};
+
+const bobsMain: ProfileFilterOption = {
+  ...alicesMain,
+  id: 'p-casey',
+  name: 'Casey',
+  serverUserId: 'su-solo',
+  accountUsername: 'bob_tofa',
+};
+
+const withProfiles: HistoryFilterOptions = {
+  ...filterOptions,
+  profiles: [
+    bobsMain,
+    alicesMain,
+    { ...alicesMain, id: 'p-robin', name: 'Robin', main: false },
+    { ...alicesMain, id: 'p-sam', name: 'Sam', main: false, removed: true },
+  ],
 };
 
 function renderBar(
   filters: HistoryFilters,
   overrides: Partial<HistoryFilters> = {},
-  isFetching?: boolean
+  bar: { isFetching?: boolean; options?: HistoryFilterOptions } = {}
 ) {
   const onFiltersChange = vi.fn();
   const view = render(
@@ -49,10 +79,10 @@ function renderBar(
       onFiltersChange={onFiltersChange}
       timeRange={{ period: 'month' }}
       onTimeRangeChange={vi.fn()}
-      filterOptions={filterOptions}
+      filterOptions={bar.options ?? filterOptions}
       columnVisibility={DEFAULT_COLUMN_VISIBILITY}
-      onColumnVisibilityChange={vi.fn()}
-      isFetching={isFetching}
+      onColumnToggle={vi.fn()}
+      isFetching={bar.isFetching}
     />
   );
   return { onFiltersChange, container: view.container };
@@ -102,13 +132,13 @@ describe('HistoryFiltersBar', () => {
   });
 
   it('shows the refresh indicator while a background fetch is in flight', () => {
-    const { container } = renderBar({}, {}, true);
+    const { container } = renderBar({}, {}, { isFetching: true });
 
     expect(container.querySelector('.animate-spin')).toBeInTheDocument();
   });
 
   it('hides the refresh indicator once no fetch is in flight', () => {
-    const { container } = renderBar({}, {}, false);
+    const { container } = renderBar({}, {}, { isFetching: false });
 
     expect(container.querySelector('.animate-spin')).not.toBeInTheDocument();
   });
@@ -147,27 +177,91 @@ describe('HistoryFiltersBar', () => {
     );
   });
 
-  const renderMemberBar = () =>
+  it('lists an account with a non-main profile, its main one as the account, and filters to the one picked', async () => {
+    const { onFiltersChange } = renderBar({}, {}, { options: withProfiles });
+
+    await userEvent.click(screen.getByRole('button', { name: /filters/i }));
+    await userEvent.click(await screen.findByText('Profiles'));
+    const account = await screen.findByRole('group', { name: 'alice_tofa' });
+    expect(within(account).getByRole('menuitemcheckbox', { name: 'alice_tofa' })).toBeVisible();
+    expect(within(account).getByRole('menuitemcheckbox', { name: 'Sam (removed)' })).toBeVisible();
+    expect(screen.queryByRole('group', { name: 'bob_tofa' })).not.toBeInTheDocument();
+    await userEvent.click(within(account).getByRole('menuitemcheckbox', { name: 'Robin' }));
+
+    expect(onFiltersChange).toHaveBeenLastCalledWith(
+      expect.objectContaining({ profileIds: ['p-robin'] })
+    );
+  });
+
+  it('heads the profiles by account only when more than one account is listed', async () => {
+    const openProfiles = async () => {
+      await userEvent.click(screen.getByRole('button', { name: /filters/i }));
+      await userEvent.click(await screen.findByText('Profiles'));
+      return screen.findByRole('group', { name: 'alice_tofa' });
+    };
+
+    renderBar({}, {}, { options: withProfiles });
+    expect(within(await openProfiles()).getAllByText('alice_tofa')).toHaveLength(1);
+    cleanup();
+
+    const bobsKids = { ...bobsMain, id: 'p-kids', name: 'Kids', main: false };
+    renderBar(
+      {},
+      {},
+      { options: { ...withProfiles, profiles: [...withProfiles.profiles, bobsKids] } }
+    );
+    expect(within(await openProfiles()).getAllByText('alice_tofa')).toHaveLength(2);
+  });
+
+  it('has no Profiles filter when every account has only its main profile', async () => {
+    renderBar({}, {}, { options: { ...filterOptions, profiles: [alicesMain, bobsMain] } });
+
+    await userEvent.click(screen.getByRole('button', { name: /filters/i }));
+
+    expect(await screen.findByText('Users')).toBeInTheDocument();
+    expect(screen.queryByText('Profiles')).not.toBeInTheDocument();
+  });
+
+  const renderMemberBar = (columnVisibility = DEFAULT_COLUMN_VISIBILITY) =>
     render(
       <HistoryFiltersBar
         filters={{}}
         onFiltersChange={vi.fn()}
         timeRange={{ period: 'month' }}
         onTimeRangeChange={vi.fn()}
-        filterOptions={filterOptions}
-        columnVisibility={DEFAULT_COLUMN_VISIBILITY}
-        onColumnVisibilityChange={vi.fn()}
+        filterOptions={withProfiles}
+        columnVisibility={columnVisibility}
+        onColumnToggle={vi.fn()}
         isMember
       />
     );
 
-  it('has no Users filter for a member', async () => {
+  it('has no Users or Profiles filter for a member', async () => {
     renderMemberBar();
 
     await userEvent.click(screen.getByRole('button', { name: /Filters/ }));
 
     expect(screen.queryByText('Users')).not.toBeInTheDocument();
+    expect(screen.queryByText('Profiles')).not.toBeInTheDocument();
     expect(screen.getByText('Platforms')).toBeInTheDocument();
+  });
+
+  it('counts the checked columns the menu lists on the Columns badge, leaving out Server on one server', async () => {
+    renderBar({});
+    const columns = screen.getByRole('button', { name: /Columns/ });
+
+    await userEvent.click(columns);
+    const items = screen.getAllByRole('menuitemcheckbox');
+    const checked = items.filter((item) => item.getAttribute('aria-checked') === 'true');
+
+    expect(items.map((item) => item.textContent)).not.toContain('Server');
+    expect(columns).toHaveTextContent(new RegExp(`Columns${checked.length}$`));
+  });
+
+  it('shows no Columns badge for a member with every listed column on', () => {
+    renderMemberBar({ ...DEFAULT_COLUMN_VISIBILITY, ip: true, user: false });
+
+    expect(screen.getByRole('button', { name: /Columns/ })).toHaveTextContent(/^Columns$/);
   });
 
   it('has no User column toggle for a member', async () => {

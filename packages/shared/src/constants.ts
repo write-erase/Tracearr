@@ -8,6 +8,7 @@ import {
   resolutionDisplayName,
   type ResolutionLabel,
 } from './resolution.js';
+import type { ServerType } from './serverTypes.js';
 
 export { IDENTITY_AWARE_CONDITION_FIELDS } from './automations/conditions.js';
 
@@ -48,7 +49,7 @@ export const WS_EVENTS = {
   IMPORT_PROGRESS: 'import:progress',
   IMPORT_JELLYSTAT_PROGRESS: 'import:jellystat:progress',
   IMPORT_PLAYBACK_REPORTING_PROGRESS: 'import:playbackreporting:progress',
-  IMPORT_TOFA_PROGRESS: 'import:tofa:progress',
+  IMPORT_SERVER_HISTORY_PROGRESS: 'import:server-history:progress',
   MAINTENANCE_PROGRESS: 'maintenance:progress',
   /** Library sync progress updates */
   LIBRARY_SYNC_PROGRESS: 'library:sync:progress',
@@ -148,6 +149,9 @@ export const REDIS_KEYS = {
     `${_redisPrefix}tracearr:servers:${serverId}:channels-dvr:cleared-issues`,
   DOWNLOAD_CURSOR: (serverId: string) =>
     `${_redisPrefix}tracearr:servers:${serverId}:downloads:cursor`,
+  // The newest ended_at a server's last clean history import read; the next one reads from an hour before it
+  SERVER_HISTORY_CURSOR: (serverId: string) =>
+    `${_redisPrefix}tracearr:servers:${serverId}:history:cursor`,
   SYNC_CURSOR: (serverId: string) =>
     `${_redisPrefix}tracearr:servers:${serverId}:downloads:sync-cursor`,
   SYNC_RECORDED: (serverId: string) =>
@@ -336,6 +340,7 @@ export const REDIS_KEYS = {
   TOFA_DEVICE: (handle: string) => `${_redisPrefix}tracearr:tofa_device:${handle}`,
   TOFA_TEMP: (token: string) => `${_redisPrefix}tracearr:tofa_temp:${token}`,
   QUICK_CONNECT: (handle: string) => `${_redisPrefix}tracearr:quick_connect:${handle}`,
+  SILO_PAIRING: (handle: string) => `${_redisPrefix}tracearr:silo_pairing:${handle}`,
   LOGIN_FAILURES: (serverId: string, username: string) =>
     `${_redisPrefix}tracearr:login_failures:${serverId}:${username}`,
   MOBILE_REFRESH_TOKEN: (hash: string) => `${_redisPrefix}tracearr:mobile_refresh:${hash}`,
@@ -377,7 +382,7 @@ export const REDIS_KEYS = {
   },
   // Filter options caching
   FILTER_OPTIONS: (userId: string, scopeHash: string) =>
-    `${_redisPrefix}tracearr:filter-options:v2:${userId}:${scopeHash}`,
+    `${_redisPrefix}tracearr:filter-options:v3:${userId}:${scopeHash}`,
   // History totals for one filter set
   HISTORY_AGGREGATES: (scopeHash: string) =>
     `${_redisPrefix}tracearr:history-aggregates:v2:${scopeHash}`,
@@ -914,27 +919,34 @@ export function formatAudioChannels(channels: number | null | undefined): string
 
 // Server color palette (40-60% HSL lightness, visible on both dark and light backgrounds)
 export const SERVER_COLOR_PALETTE = [
-  { hex: '#F4A825', label: 'Gold' }, // Plex brand
-  { hex: '#895FDD', label: 'Purple' }, // Jellyfin brand
-  { hex: '#39C668', label: 'Green' }, // Emby brand
+  { hex: '#D89012', label: 'Gold' }, // Plex brand
+  { hex: '#9D60C4', label: 'Purple' }, // Jellyfin brand
+  { hex: '#19B361', label: 'Green' }, // Emby brand
   { hex: '#3B82F6', label: 'Blue' },
   { hex: '#EF4444', label: 'Red' },
-  { hex: '#14B8A6', label: 'Teal' }, // tofa brand
+  { hex: '#1ACEB7', label: 'Teal' }, // tofa brand
+  { hex: '#0331EA', label: 'Indigo' }, // Silo brand
 ] as const;
 
-export const SERVER_TYPE_BRAND_COLORS: Record<string, string> = {
-  plex: '#F4A825',
-  jellyfin: '#895FDD',
-  emby: '#39C668',
+// The dominant color of each server's logo; Emby's green is lifted to 40% lightness to fit the palette.
+// Dispatcharr and Channels DVR keep the colors this fork gave them (fork).
+export const SERVER_TYPE_BRAND_COLORS: Record<ServerType, string> = {
+  plex: '#D89012',
+  jellyfin: '#9D60C4',
+  emby: '#19B361',
+  tofa: '#1ACEB7',
+  silo: '#0331EA',
   dispatcharr: '#14B8A6',
   channels_dvr: '#0EA5E9',
-  tofa: '#14B8A6',
 };
 
 /** Pick best color for a server given its type and colors already used by other servers */
-export function pickServerColor(type: string, usedColors: (string | null | undefined)[]): string {
-  const used = new Set(usedColors.filter(Boolean).map((c) => c!.toLowerCase()));
-  const brand = SERVER_TYPE_BRAND_COLORS[type] ?? '#3B82F6';
+export function pickServerColor(
+  type: ServerType,
+  usedColors: (string | null | undefined)[]
+): string {
+  const used = new Set(usedColors.flatMap((c) => (c ? [c.toLowerCase()] : [])));
+  const brand = SERVER_TYPE_BRAND_COLORS[type];
   if (!used.has(brand.toLowerCase())) return brand;
   for (const preset of SERVER_COLOR_PALETTE) {
     if (!used.has(preset.hex.toLowerCase())) return preset.hex;

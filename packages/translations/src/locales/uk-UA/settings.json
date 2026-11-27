@@ -162,6 +162,7 @@
     "allServersConnectedDesc": "Всі сервери з цього облікового запису вже підключені.",
     "serverUrlPlaceholder": "",
     "serverUrlPlaceholderTofa": "",
+    "serverUrlPlaceholderSilo": "",
     "serverNamePlaceholder": "Мій медіа-сервер",
     "apiKeyPlaceholder": "Введіть ваш ключ API",
     "connectServer": "Під'єднати сервер",
@@ -175,20 +176,41 @@
     "allFieldsRequired": "Всі поля є обов'язковими",
     "addServerDialogDescPlex": "Виберіть Plex сервер з вашого пов'язаного акаунту.",
     "addServerDialogDescOther": "Під'єднайте Jellyfin або Emby сервер.",
+    "addServerDialogDescSilo": "",
     "discoveringServers": "Виявлення доступних серверів Plex...",
     "discoveringConnections": "Виявлення підключень...",
     "plexAccount": "Обліковий запис Plex",
     "serverUrlHelpJellyfin": "Посилання, де доступний сервер Jellyfin",
     "serverUrlHelpEmby": "URL-адреса доступного сервера Emby",
     "serverUrlHelpTofa": "",
+    "serverUrlHelpSilo": "",
     "publicUrl": "",
     "publicUrlHint": "",
     "apiKeyHelpJellyfin": "Знайти це у налаштуваннях Jellyfin → Ключі API",
     "apiKeyHelpEmby": "Знайти це в Емби Сервері → Ключі API",
     "apiKeyHelpTofa": "",
+    "apiKeyHelpSilo": "",
     "cannotStopStreams": "",
     "noSignIn": "",
     "apiKeyKeepCurrent": "",
+    "pairing": {
+      "getCode": "",
+      "getNewKey": "",
+      "useApiKey": "",
+      "useCode": "",
+      "openSilo": "",
+      "enterAt": "",
+      "opened": "",
+      "newCode": "",
+      "notAdmin": "",
+      "pinLabel": "",
+      "pinNeeded": "",
+      "wrongPin": "",
+      "pinLocked": "",
+      "rekeyed": "",
+      "oldKeyLeft": "",
+      "revokeOnRemove": ""
+    },
     "plexServerPlaceholder": "Мій Plex сервер",
     "plexServerUrlPlaceholder": "",
     "updateHint": "Або натисніть кнопку Оновити нижче, щоб зберегти лише зміну імені.",
@@ -294,6 +316,9 @@
         "submit": ""
       },
       "tofaDialog": {
+        "description": ""
+      },
+      "siloDialog": {
         "description": ""
       },
       "confirmUnlink": {
@@ -404,7 +429,8 @@
     "deletesData": "",
     "deletesDataDesc": "",
     "automatic": "",
-    "startJob": "Почати роботу"
+    "startJob": "Почати роботу",
+    "repairHeld": ""
   },
   "memberLogin": {
     "serverActivity": "",
@@ -491,6 +517,12 @@
     "importTofaHistory": "",
     "skipUserNotFoundTofa": "",
     "skipDuplicateTofa": "",
+    "silo": "",
+    "siloHistory": "",
+    "siloHistoryDesc": "",
+    "selectSiloServer": "",
+    "importSiloHistory": "",
+    "skipUserNotFoundSilo": "",
     "skipActiveTofa": "",
     "apiKeyPlaceholder": "Ваш ключ API Tautulli",
     "skipUserNotFoundPlex": "Користувача не знайдено — Користувач Plex в Tracearr. Спочатку синхронізуйте свій сервер, щоб додати усіх користувачів.",

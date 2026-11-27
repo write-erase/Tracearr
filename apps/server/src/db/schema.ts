@@ -102,7 +102,9 @@ export const servers = pgTable(
     url: text('url').notNull(),
     // The address members open a Jellyfin or Emby server at; always null for Plex, which links through app.plex.tv.
     publicUrl: text('public_url'),
-    token: text('token').notNull(), // Encrypted
+    token: text('token').notNull(), // Plain text; utils/crypto.ts migrates old encrypted tokens
+    // The server's own id for the key in token, set only when Tracearr made the key and can delete it
+    apiKeyId: text('api_key_id'),
     machineIdentifier: varchar('machine_identifier', { length: 100 }), // The media server's own id: Plex clientIdentifier (also used for dedup), Jellyfin/Emby System/Info Id
     // For Plex servers: which linked Plex account this server was added from (nullable for Jellyfin/Emby and legacy)
     plexAccountId: uuid('plex_account_id'),
@@ -426,6 +428,37 @@ export const serverUserExternalAliases = pgTable(
   ]
 );
 
+/**
+ * The profiles one server account plays under (tofa and Silo). Plays count toward the account and
+ * carry the profile that played. A profile the server stops listing keeps its row, with
+ * its removal time set, so its plays keep their link.
+ */
+export const serverProfiles = pgTable(
+  'server_profiles',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    serverId: uuid('server_id')
+      .notNull()
+      .references(() => servers.id, { onDelete: 'cascade' }),
+    serverUserId: uuid('server_user_id')
+      .notNull()
+      .references(() => serverUsers.id, { onDelete: 'cascade' }),
+    externalId: text('external_id').notNull(),
+    name: text('name').notNull(),
+    thumbUrl: text('thumb_url'),
+    // Null where the server does not say
+    isPrimary: boolean('is_primary'),
+    isChild: boolean('is_child'),
+    removedAt: timestamp('removed_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex('server_profiles_server_external_unique').on(table.serverId, table.externalId),
+    index('server_profiles_server_user_idx').on(table.serverUserId),
+  ]
+);
+
 // Session history (will be converted to hypertable)
 export const sessions = pgTable(
   'sessions',
@@ -493,7 +526,12 @@ export const sessions = pgTable(
     geoAsnOrganization: varchar('geo_asn_organization', { length: 255 }),
     // From the IP at insert; null on rows the location sync has not classified yet
     isLocal: boolean('is_local'),
-    // tofa only: the profile that played, where one account holds several. Null for every other server.
+    // The profile that played, where one account holds several (tofa and Silo). Null for every
+    // other server.
+    // No foreign key: a profile is deleted only with its stored account or server, and reads fall
+    // back to the stored name, so a key would cost every insert without protecting a read.
+    profileId: uuid('profile_id'),
+    // The profile's name at play time, shown only when profileId is null
     profileName: text('profile_name'),
     playerName: varchar('player_name', { length: 255 }), // Player title/friendly name
     deviceId: varchar('device_id', { length: 255 }), // Machine identifier (unique device UUID)
@@ -574,6 +612,33 @@ export const sessions = pgTable(
     index('sessions_media_idx').on(table.mediaId, table.startedAt),
     index('sessions_show_media_idx').on(table.showMediaId, table.startedAt),
     index('sessions_server_grandparent_idx').on(table.serverId, table.grandparentRatingKey),
+  ]
+);
+
+// The values a link repair cleared from an imported session, enough to put them back.
+// No foreign keys: the log outlives a session or server deleted later.
+export const sessionLinkRepairs = pgTable(
+  'session_link_repairs',
+  {
+    sessionId: uuid('session_id').notNull(),
+    startedAt: timestamp('started_at', { withTimezone: true }).notNull(),
+    repairVersion: integer('repair_version').notNull(),
+    serverId: uuid('server_id').notNull(),
+    clause: text('clause').notNull().$type<'numbers' | 'titles' | 'movie' | 'fold'>(),
+    grandparentTitle: text('grandparent_title'),
+    mediaId: uuid('media_id'),
+    showMediaId: uuid('show_media_id'),
+    imdbId: varchar('imdb_id', { length: 20 }),
+    tmdbId: integer('tmdb_id'),
+    tvdbId: integer('tvdb_id'),
+    parentRatingKey: text('parent_rating_key'),
+    grandparentRatingKey: text('grandparent_rating_key'),
+    relinkedAt: timestamp('relinked_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.sessionId, table.startedAt, table.repairVersion] }),
+    index('session_link_repairs_version_relinked_idx').on(table.repairVersion, table.relinkedAt),
   ]
 );
 
@@ -978,6 +1043,9 @@ export const mediaRequests = pgTable(
     serverUserId: uuid('server_user_id').references(() => serverUsers.id, {
       onDelete: 'set null',
     }),
+    // A profile on the request's own server; only Silo requests name one, tofa and Seerr requests
+    // name none
+    profileId: uuid('profile_id').references(() => serverProfiles.id, { onDelete: 'set null' }),
     remoteUserId: text('remote_user_id').notNull(),
     remoteUsername: text('remote_username').notNull(),
     remotePlexId: varchar('remote_plex_id', { length: 64 }),
@@ -1185,6 +1253,7 @@ export const mediaDownloads = pgTable(
       .notNull()
       .references(() => servers.id, { onDelete: 'cascade' }),
     serverUserId: uuid('server_user_id').references(() => serverUsers.id, { onDelete: 'cascade' }),
+    profileId: uuid('profile_id').references(() => serverProfiles.id),
     libraryItemId: uuid('library_item_id').references(() => libraryItems.id, {
       onDelete: 'set null',
     }),

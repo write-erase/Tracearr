@@ -2,7 +2,11 @@
  * Tautulli API integration and import service
  */
 
-import type { TautulliImportProgress, TautulliImportResult } from '@tracearr/shared';
+import {
+  SERVER_PROFILES,
+  type TautulliImportProgress,
+  type TautulliImportResult,
+} from '@tracearr/shared';
 import { UnrecoverableError } from 'bullmq';
 import { and, eq, isNotNull, isNull, sql } from 'drizzle-orm';
 import { z } from 'zod';
@@ -10,7 +14,11 @@ import { db } from '../db/client.js';
 import { servers, serverUsers, sessions, users } from '../db/schema.js';
 import {
   checkAggregateNeedsRebuild,
+  getCompressedSessionChunkRanges,
+  MAX_POINT_UPDATES_PER_PASS,
+  rangeReachesChunk,
   refreshAggregates,
+  sessionRowPoint,
   uncapDecompressionForTx,
 } from '../db/timescale.js';
 import { deleteSessionsRepointingChildren, importForm } from '../jobs/importDuplicateCleanup.js';
@@ -18,11 +26,8 @@ import {
   enqueueMaintenanceJob,
   enqueueServerLocationSyncIfBehind,
 } from '../jobs/maintenanceQueue.js';
-import { importIdentityByKey } from './import/libraryKeyMatch.js';
-import {
-  batchGetLibraryItemIdentity,
-  batchResolveMediaByPlexGuid,
-} from '../jobs/poller/database.js';
+import { importIdentityByKey, parseHistoryGuid, type KeyedPlay } from './import/libraryKeyMatch.js';
+import { batchGetImportKeyIdentity, batchResolveMediaByPlexGuid } from '../jobs/poller/database.js';
 import { ts } from '../jobs/sessionWalk.js';
 import { sanitizeCodec } from '../utils/codecNormalizer.js';
 import { extractIpFromEndpoint } from '../utils/parsing.js';
@@ -142,24 +147,6 @@ async function readErrorBody(response: Response): Promise<string> {
   }
 }
 
-// Resolve external IDs from Plex legacy agent guids; new-style plex:// guids carry no external ID.
-export function parseHistoryGuid(guid: string | null): {
-  imdbId?: string;
-  tmdbId?: number;
-  tvdbId?: number;
-} {
-  if (!guid) return {};
-  const legacy = guid.match(/^com\.plexapp\.agents\.(thetvdb|themoviedb|imdb):\/\/([^/?]+)/);
-  if (!legacy) return {};
-  const [, agent, rawId] = legacy;
-  if (agent === 'imdb' && rawId!.startsWith('tt')) return { imdbId: rawId! };
-  const numeric = parseInt(rawId!, 10);
-  if (Number.isNaN(numeric)) return {};
-  if (agent === 'thetvdb') return { tvdbId: numeric };
-  if (agent === 'themoviedb') return { tmdbId: numeric };
-  return {};
-}
-
 // Live content reports its actual type in media_type too, so the live flag wins.
 function mapTautulliMediaType(record: {
   live: number | null;
@@ -169,6 +156,18 @@ function mapTautulliMediaType(record: {
   if (record.media_type === 'episode') return 'episode';
   if (record.media_type === 'track') return 'track';
   return 'movie';
+}
+
+function keyedPlay(record: TautulliHistoryRecord): KeyedPlay {
+  return {
+    mediaType: mapTautulliMediaType(record),
+    title: record.title,
+    year: record.year || null,
+    grandparentTitle: record.grandparent_title || null,
+    seasonNumber: typeof record.parent_media_index === 'number' ? record.parent_media_index : null,
+    episodeNumber: typeof record.media_index === 'number' ? record.media_index : null,
+    guid: record.guid,
+  };
 }
 
 // Helper for fields that can be number or empty string (Tautulli API inconsistency)
@@ -732,13 +731,8 @@ export class TautulliService {
    */
   private static async monitorsServer(
     tautulli: TautulliService,
-    serverId: string
+    machineIdentifier: string | null
   ): Promise<boolean> {
-    const [server] = await db
-      .select({ machineIdentifier: servers.machineIdentifier })
-      .from(servers)
-      .where(eq(servers.id, serverId))
-      .limit(1);
     let pmsIdentifier: string | null = null;
     try {
       pmsIdentifier = await tautulli.getPmsIdentifier();
@@ -748,9 +742,7 @@ export class TautulliService {
       );
     }
     const matches =
-      pmsIdentifier !== null &&
-      !!server?.machineIdentifier &&
-      pmsIdentifier === server.machineIdentifier;
+      pmsIdentifier !== null && !!machineIdentifier && pmsIdentifier === machineIdentifier;
     if (!matches) {
       console.log(
         '[Import] Tautulli reports a different or unknown Plex server; skipping the Plex guid fallback'
@@ -824,7 +816,16 @@ export class TautulliService {
       throw new UnrecoverableError('Server not found; cannot determine import cutoff.');
     }
 
-    const guidFallback = await TautulliService.monitorsServer(tautulli, serverId);
+    const [server] = await db
+      .select({ type: servers.type, machineIdentifier: servers.machineIdentifier })
+      .from(servers)
+      .where(eq(servers.id, serverId))
+      .limit(1);
+    if (!server) {
+      throw new UnrecoverableError(`Server not found: ${serverId}`);
+    }
+    const guidFallback = await TautulliService.monitorsServer(tautulli, server.machineIdentifier);
+    const { reusesItemKeys } = SERVER_PROFILES[server.type];
 
     // Initialize progress with detailed tracking
     const progress: TautulliImportProgress = {
@@ -1048,7 +1049,13 @@ export class TautulliService {
       const pageRatingKeys = validRecords
         .map((r) => (typeof r.rating_key === 'number' ? String(r.rating_key) : null))
         .filter((k): k is string => k !== null);
-      const identityByRatingKey = await batchGetLibraryItemIdentity(serverId, pageRatingKeys);
+      const identityByRatingKey = await batchGetImportKeyIdentity(serverId, pageRatingKeys);
+      const keyIdentity = (record: TautulliHistoryRecord, ratingKey: string | null) =>
+        importIdentityByKey(
+          ratingKey ? identityByRatingKey.get(ratingKey) : undefined,
+          keyedPlay(record),
+          reusesItemKeys
+        );
 
       // Records whose rating key resolved no library_items row at all get a second
       // chance by guid: it survives a Plex re-key that leaves the rating key
@@ -1062,11 +1069,7 @@ export class TautulliService {
           const ratingKeyStr =
             typeof record.rating_key === 'number' ? String(record.rating_key) : null;
           const mappedType = mapTautulliMediaType(record);
-          const identity = importIdentityByKey(
-            ratingKeyStr ? identityByRatingKey.get(ratingKeyStr) : undefined,
-            { mediaType: mappedType, title: record.title, year: record.year || null }
-          );
-          if (identity !== undefined) continue;
+          if (keyIdentity(record, ratingKeyStr) !== undefined) continue;
 
           if (mappedType !== 'movie' && mappedType !== 'episode') continue;
 
@@ -1276,10 +1279,7 @@ export class TautulliService {
           // Track this insert to prevent duplicates within this import run
           insertedThisRun.add(referenceIdStr);
 
-          const identity = importIdentityByKey(
-            ratingKeyStr ? identityByRatingKey.get(ratingKeyStr) : undefined,
-            { mediaType, title: record.title, year: record.year || null }
-          );
+          const identity = keyIdentity(record, ratingKeyStr);
           const normalizedGuid = identity !== undefined ? null : normalizePlexGuid(record.guid);
           const guidIdentity =
             normalizedGuid && normalizedGuid.mediaType === mediaType
@@ -1592,11 +1592,13 @@ export class TautulliService {
     const maxStop = new Date(Math.max(...groups.map((g) => g.stopped.getTime())));
     const imported = sql`s.server_id = ${serverId}::uuid AND s.started_at >= ${ts(minStart)} AND ${importForm('s', 'plex')}`;
 
-    return db.transaction(async (tx) => {
-      await uncapDecompressionForTx(tx);
-      const found = await tx.execute(sql`
+    // Imports outside the queue run without compression paused, so every call reads the chunks;
+    // alongside the candidates, so the read costs no round trip of its own.
+    const [found, compressed] = await Promise.all([
+      db.execute(sql`
         SELECT DISTINCT ON (s.id) s.id, s.started_at, s.server_user_id,
-          r.id AS r_id, r.started_at AS r_started, r.reference_id AS r_ref
+          r.id AS r_id, r.started_at AS r_started, r.server_user_id AS r_server_user_id,
+          r.reference_id AS r_ref
         FROM unnest(
           ${sql.param(plays.map((p) => p.externalId))}::text[],
           ${sql.param(plays.map((p) => p.g.rootExternalId))}::text[],
@@ -1614,28 +1616,53 @@ export class TautulliService {
           AND r.server_user_id = g.server_user_id AND r.started_at = g.started
           AND r.external_session_id = g.root_external_id
         ORDER BY s.id, r.id
-      `);
-      const rows = found.rows as Array<{
-        id: string;
-        started_at: string;
-        server_user_id: string;
-        r_id: string;
-        r_started: string;
-        r_ref: string | null;
-      }>;
-      if (rows.length === 0) return [];
+      `),
+      getCompressedSessionChunkRanges(),
+    ]);
+    const rows = found.rows as Array<{
+      id: string;
+      started_at: string;
+      server_user_id: string;
+      r_id: string;
+      r_started: string;
+      r_server_user_id: string;
+      r_ref: string | null;
+    }>;
+    if (rows.length === 0) return [];
+    // The writes are bounded below by minStart only, so they reach every compressed batch of the
+    // server from there on; a point write on the row's constant key and segment reaches only the
+    // batch holding the row.
+    const pointWrites =
+      rows.length <= MAX_POINT_UPDATES_PER_PASS &&
+      rangeReachesChunk(compressed, { start: minStart });
 
+    return db.transaction(async (tx) => {
+      await uncapDecompressionForTx(tx);
       const doomedIds = new Set(rows.map((r) => r.id));
       // The removed group_ids link pass could point a root at a play it absorbed.
       // That root starts before the play, below the children lookup's bound.
       const detached = rows.filter((r) => r.r_ref !== null && doomedIds.has(r.r_ref));
-      if (detached.length > 0) {
+      const detachGuard = sql`r.server_id = ${serverId}::uuid AND r.started_at >= ${ts(minStart)}
+        AND r.reference_id = ANY(${sql.param([...doomedIds])}::uuid[])`;
+      if (pointWrites) {
+        for (const d of detached) {
+          await tx.execute(sql`
+            UPDATE sessions r SET reference_id = NULL
+            WHERE ${sessionRowPoint('r', {
+              id: d.r_id,
+              started_at: d.r_started,
+              server_user_id: d.r_server_user_id,
+              server_id: serverId,
+            })}
+              AND ${detachGuard}
+          `);
+        }
+      } else if (detached.length > 0) {
         await tx.execute(sql`
           UPDATE sessions r SET reference_id = NULL
           FROM unnest(${sql.param(detached.map((d) => d.r_id))}::uuid[], ${sql.param(detached.map((d) => d.r_started))}::timestamptz[]) AS d(id, started_at)
           WHERE r.id = d.id AND r.started_at = d.started_at
-            AND r.server_id = ${serverId}::uuid AND r.started_at >= ${ts(minStart)}
-            AND r.reference_id = ANY(${sql.param([...doomedIds])}::uuid[])
+            AND ${detachGuard}
         `);
       }
 
@@ -1648,7 +1675,8 @@ export class TautulliService {
           server_user_id: r.server_user_id,
           root_id: r.r_ref !== null && !doomedIds.has(r.r_ref) ? r.r_ref : r.r_id,
         })),
-        imported
+        imported,
+        pointWrites
       );
     });
   }

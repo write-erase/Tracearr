@@ -5,11 +5,15 @@ import { randomUUID } from 'node:crypto';
 import type { SQL } from 'drizzle-orm';
 import type { AuthUser } from '@tracearr/shared';
 import type * as QueriesModule from '../queries/index.js';
-import { queryChain, renderSql } from '../../../test/helpers.js';
+import { PROFILE_TEST_SERVERS, queryChain, renderCall, renderSql } from '../../../test/helpers.js';
 
 vi.mock('../../../db/client.js', () => ({
   db: { select: vi.fn(), execute: vi.fn() },
 }));
+
+vi.mock('../../../jobs/poller/database.js', async (importOriginal) =>
+  (await import('../../../test/helpers.js')).withProfileTestServerTypes(importOriginal)
+);
 
 vi.mock('../queries/index.js', async (importActual) => ({
   ...(await importActual<typeof QueriesModule>()),
@@ -20,6 +24,8 @@ import { db } from '../../../db/client.js';
 import { resolveIdentityScopedServerUserIds } from '../queries/index.js';
 import { sessionsRoutes } from '../sessions.js';
 import { permissionGuard } from '../../../lib/scope.js';
+
+const { plex: PLEX_SERVER, tofa: TOFA_SERVER } = PROFILE_TEST_SERVERS;
 
 async function buildTestApp(): Promise<FastifyInstance> {
   const authUser: AuthUser = {
@@ -53,6 +59,7 @@ describe('GET /users/:id/sessions', () => {
 
     vi.mocked(resolveIdentityScopedServerUserIds).mockResolvedValue({
       ids: [serverUserId],
+      serverIds: [PLEX_SERVER],
     } as never);
     vi.mocked(db.select).mockReturnValue(queryChain(vi.fn, [{ count: 1 }]));
     vi.mocked(db.execute).mockResolvedValue({
@@ -81,11 +88,38 @@ describe('GET /users/:id/sessions', () => {
     expect(query).toContain('s.dispatcharr_user_agent');
   });
 
+  it("counts and pages only the profiles' plays, on their accounts", async () => {
+    const serverUserId = randomUUID();
+    const profileId = randomUUID();
+    app = await buildTestApp();
+    vi.mocked(resolveIdentityScopedServerUserIds).mockResolvedValue({
+      serverUser: { id: serverUserId, serverId: TOFA_SERVER, userId: randomUUID() },
+      ids: [serverUserId],
+      serverIds: [TOFA_SERVER],
+    });
+    const totals = queryChain(vi.fn, [{ totalSessions: 0, totalWatchTime: 0 }]);
+    vi.mocked(db.select).mockReturnValue(totals);
+    vi.mocked(db.execute).mockResolvedValue({ rows: [] } as never);
+
+    await app.inject({
+      method: 'GET',
+      url: `/users/${serverUserId}/sessions?profileIds=${profileId}`,
+    });
+
+    const page = renderSql(vi.mocked(db.execute).mock.calls[0]?.[0] as SQL);
+    const pair = (alias: string) =>
+      `${alias}.profile_id = ANY($#::uuid[]) AND ${alias}.server_user_id IN (SELECT server_user_id FROM server_profiles WHERE id = ANY($#::uuid[]))`;
+    expect(renderCall(totals).text.replace(/\$\d+/g, '$#')).toContain(pair('sessions'));
+    expect(page.sql.replace(/\$\d+/g, '$#')).toContain(pair('s'));
+    expect(page.params).toContainEqual([profileId]);
+  });
+
   it('bounds the join back to sessions by the page window', async () => {
     const serverUserId = randomUUID();
     app = await buildTestApp();
     vi.mocked(resolveIdentityScopedServerUserIds).mockResolvedValue({
       ids: [serverUserId],
+      serverIds: [PLEX_SERVER],
     } as never);
     vi.mocked(db.select).mockReturnValue(queryChain(vi.fn, [{ count: 0 }]));
     vi.mocked(db.execute).mockResolvedValue({ rows: [] } as never);
@@ -98,5 +132,27 @@ describe('GET /users/:id/sessions', () => {
       .match(/JOIN sessions s ON s\.id = gs\.first_session_id.*?JOIN servers/)?.[0];
     expect(join).toMatch(/s\.started_at >= \$\d+/);
     expect(join).toMatch(/s\.started_at <= \$\d+/);
+  });
+
+  it('reads the profile columns only for accounts on a server with profiles', async () => {
+    const serverUserId = randomUUID();
+    app = await buildTestApp();
+    vi.mocked(db.select).mockReturnValue(queryChain(vi.fn, [{ count: 0 }]));
+    vi.mocked(db.execute).mockResolvedValue({ rows: [] } as never);
+    const pageFor = async (serverId: string) => {
+      vi.mocked(resolveIdentityScopedServerUserIds).mockResolvedValue({
+        serverUser: { id: serverUserId, serverId, userId: randomUUID() },
+        ids: [serverUserId],
+        serverIds: [serverId],
+      });
+      await app.inject({ method: 'GET', url: `/users/${serverUserId}/sessions` });
+      return renderSql(vi.mocked(db.execute).mock.calls.at(-1)?.[0] as SQL).sql;
+    };
+
+    const plex = await pageFor(PLEX_SERVER);
+    expect(plex).toContain('NULL::uuid AS profile_id, NULL::text AS profile_name');
+    expect(plex).not.toContain('s.profile_id');
+
+    expect(await pageFor(TOFA_SERVER)).toContain('s.profile_id, s.profile_name');
   });
 });

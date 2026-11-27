@@ -235,6 +235,19 @@ export abstract class BaseMediaServerClient
     return this.parsers.parseUsersResponse(data);
   }
 
+  // Accounts hold no profiles; each person signs in with an account of their own
+  async getAccountProfiles(): Promise<NotNeeded> {
+    return NOT_NEEDED;
+  }
+
+  async getRequests(): Promise<NotNeeded> {
+    return NOT_NEEDED;
+  }
+
+  async getRequestPosterPath(): Promise<NotNeeded> {
+    return NOT_NEEDED;
+  }
+
   /**
    * Get all libraries on this server
    */

@@ -369,6 +369,7 @@ function RealtimeStatus({
         </StatusBadge>
       );
     case 'tofaSocket':
+    case 'siloSocket':
       if (!connectionStatus) return checking;
       return connectionStatus.mode === 'realtime'
         ? realtime()

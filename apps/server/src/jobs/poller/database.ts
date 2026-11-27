@@ -70,11 +70,63 @@ export interface SessionIdentity {
   itemYear?: number | null;
 }
 
+/** What an import reads from the keyed item, beyond the session identity, to test a key against the play. */
+export interface ImportKeyFields {
+  itemGuid: string | null;
+  itemShowTitle: string | null;
+  itemSeason: number | null;
+  itemEpisode: number | null;
+  showTvdbId: number | null;
+  showTmdbId: number | null;
+}
+
+export type ImportKeyIdentity = SessionIdentity & ImportKeyFields;
+
+const libraryItemIdentityColumns = {
+  ratingKey: libraryItems.ratingKey,
+  mediaId: libraryItems.mediaId,
+  imdbId: libraryItems.imdbId,
+  tmdbId: libraryItems.tmdbId,
+  tvdbId: libraryItems.tvdbId,
+  parentRatingKey: libraryItems.parentRatingKey,
+  grandparentRatingKey: libraryItems.grandparentRatingKey,
+  showMediaId: media.showMediaId,
+  itemMediaType: libraryItems.mediaType,
+  itemTitle: libraryItems.title,
+  itemYear: libraryItems.year,
+};
+
+/**
+ * Container items, and items whose media row is a container, are skipped, so a rating key
+ * that points at a show, season, artist or album resolves to nothing.
+ */
+function playableLibraryItems(serverId: string, ratingKeys: string[]) {
+  return and(
+    eq(libraryItems.serverId, serverId),
+    inArray(libraryItems.ratingKey, ratingKeys),
+    notInArray(libraryItems.mediaType, [...CONTAINER_MEDIA_TYPES]),
+    or(isNull(media.mediaType), notInArray(media.mediaType, [...CONTAINER_MEDIA_TYPES]))
+  );
+}
+
+function sessionIdentityOf(r: SessionIdentity): SessionIdentity {
+  return {
+    mediaId: r.mediaId,
+    showMediaId: r.itemMediaType === 'episode' ? r.showMediaId : null,
+    imdbId: r.imdbId,
+    tmdbId: r.tmdbId,
+    tvdbId: r.tvdbId,
+    parentRatingKey: r.parentRatingKey,
+    grandparentRatingKey: r.grandparentRatingKey,
+    itemMediaType: r.itemMediaType,
+    itemTitle: r.itemTitle,
+    itemYear: r.itemYear,
+  };
+}
+
 /**
  * Batch load canonical media identity for a set of rating keys on one server
- * (eliminates a per-session lookup in the polling loop). Container items, and
- * items whose media row is a container, are skipped, so a rating key that
- * points at a show, season, artist or album resolves to nothing.
+ * (eliminates a per-session lookup in the polling loop).
  *
  * @param serverId - Server the rating keys belong to
  * @param ratingKeys - Rating keys to resolve identity for
@@ -88,45 +140,55 @@ export async function batchGetLibraryItemIdentity(
   if (ratingKeys.length === 0) return result;
 
   const rows = await db
+    .select(libraryItemIdentityColumns)
+    .from(libraryItems)
+    .leftJoin(media, eq(media.id, libraryItems.mediaId))
+    .where(playableLibraryItems(serverId, ratingKeys));
+
+  for (const r of rows) result.set(r.ratingKey, sessionIdentityOf(r));
+  return result;
+}
+
+/**
+ * The same lookup for an import, which also reads what it tests a key against: the item's
+ * guid, show title and numbers, and the show's ids through its merge winner.
+ */
+export async function batchGetImportKeyIdentity(
+  serverId: string,
+  ratingKeys: string[]
+): Promise<Map<string, ImportKeyIdentity>> {
+  const result = new Map<string, ImportKeyIdentity>();
+  if (ratingKeys.length === 0) return result;
+
+  const keyedShow = alias(media, 'keyed_show');
+  const show = alias(media, 'show_media');
+  const rows = await db
     .select({
-      ratingKey: libraryItems.ratingKey,
-      mediaId: libraryItems.mediaId,
-      imdbId: libraryItems.imdbId,
-      tmdbId: libraryItems.tmdbId,
-      tvdbId: libraryItems.tvdbId,
-      parentRatingKey: libraryItems.parentRatingKey,
-      grandparentRatingKey: libraryItems.grandparentRatingKey,
-      showMediaId: media.showMediaId,
-      itemMediaType: libraryItems.mediaType,
-      itemTitle: libraryItems.title,
-      itemYear: libraryItems.year,
+      ...libraryItemIdentityColumns,
+      itemGuid: libraryItems.plexGuid,
+      itemShowTitle: libraryItems.grandparentTitle,
+      itemSeason: libraryItems.parentIndex,
+      itemEpisode: libraryItems.itemIndex,
+      showTvdbId: show.tvdbId,
+      showTmdbId: show.tmdbId,
     })
     .from(libraryItems)
     .leftJoin(media, eq(media.id, libraryItems.mediaId))
-    .where(
-      and(
-        eq(libraryItems.serverId, serverId),
-        inArray(libraryItems.ratingKey, ratingKeys),
-        notInArray(libraryItems.mediaType, [...CONTAINER_MEDIA_TYPES]),
-        or(isNull(media.mediaType), notInArray(media.mediaType, [...CONTAINER_MEDIA_TYPES]))
-      )
-    );
+    .leftJoin(keyedShow, eq(keyedShow.id, media.showMediaId))
+    .leftJoin(show, eq(show.id, sql`coalesce(${keyedShow.mergedIntoId}, ${keyedShow.id})`))
+    .where(playableLibraryItems(serverId, ratingKeys));
 
   for (const r of rows) {
     result.set(r.ratingKey, {
-      mediaId: r.mediaId,
-      showMediaId: r.itemMediaType === 'episode' ? r.showMediaId : null,
-      imdbId: r.imdbId,
-      tmdbId: r.tmdbId,
-      tvdbId: r.tvdbId,
-      parentRatingKey: r.parentRatingKey,
-      grandparentRatingKey: r.grandparentRatingKey,
-      itemMediaType: r.itemMediaType,
-      itemTitle: r.itemTitle,
-      itemYear: r.itemYear,
+      ...sessionIdentityOf(r),
+      itemGuid: r.itemGuid,
+      itemShowTitle: r.itemShowTitle,
+      itemSeason: r.itemSeason,
+      itemEpisode: r.itemEpisode,
+      showTvdbId: r.showTvdbId,
+      showTmdbId: r.showTmdbId,
     });
   }
-
   return result;
 }
 
@@ -446,6 +508,36 @@ export async function getServerUserIdByExternalId(
 }
 
 /**
+ * The account each external id resolves to, by its own external id or one a same-server merge
+ * folded into it, as getServerUserIdByExternalId does. Ids no account holds are left out.
+ */
+export async function getServerUserIdsByExternalId(
+  serverId: string,
+  externalIds: string[]
+): Promise<Map<string, string>> {
+  if (externalIds.length === 0) return new Map();
+  const rows = await db
+    .select({ externalId: serverUsers.externalId, serverUserId: serverUsers.id })
+    .from(serverUsers)
+    .where(and(eq(serverUsers.serverId, serverId), inArray(serverUsers.externalId, externalIds)))
+    .unionAll(
+      db
+        .select({
+          externalId: serverUserExternalAliases.externalId,
+          serverUserId: serverUserExternalAliases.serverUserId,
+        })
+        .from(serverUserExternalAliases)
+        .where(
+          and(
+            eq(serverUserExternalAliases.serverId, serverId),
+            inArray(serverUserExternalAliases.externalId, externalIds)
+          )
+        )
+    );
+  return new Map(rows.map((row) => [row.externalId, row.serverUserId]));
+}
+
+/**
  * Create an account for each unknown session user, with a Tracearr user behind each, in one
  * transaction so a failed account insert leaves no orphan user. Like user sync, the new user has
  * no display name, so the person is named by users.username.
@@ -556,10 +648,22 @@ let serversCache: { data: (typeof servers.$inferSelect)[]; expiresAt: number } |
 // The servers cache is the poller's, not the engine's.
 const serversLogger = createLogger('servers');
 
+// A server's type never changes, so types are kept past the servers cache's expiry until it is invalidated.
+let serverTypesCache: ReadonlyMap<string, ServerType> | null = null;
+
+const serversInvalidatedListeners: (() => void)[] = [];
+
+/** Called on every servers-cache invalidation on this instance; listeners must not throw. */
+export function onServersCacheInvalidated(listener: () => void): void {
+  serversInvalidatedListeners.push(listener);
+}
+
 /** Invalidate the servers cache. Call from every server create/update/delete path. */
 export function invalidateServersCache(): void {
   serversCache = null;
   clearMobileAppServerCache();
+  serverTypesCache = null;
+  for (const listener of serversInvalidatedListeners) listener();
 }
 
 /** Drop this instance's servers cache and tell the others to do the same. */
@@ -569,7 +673,7 @@ export async function publishServersChanged(): Promise<void> {
     ?.publish(WS_EVENTS.SERVERS_CHANGED, {})
     .catch((error: unknown) => {
       serversLogger.warn(
-        'servers:changed publish failed; other instances fall back to the cache TTL',
+        'servers:changed publish failed; other instances keep their servers until the cache TTL and their server types until one they have not seen is asked for',
         {
           error,
         }
@@ -590,6 +694,17 @@ export async function getCachedServers(): Promise<(typeof servers.$inferSelect)[
   const rows = await db.select().from(servers);
   serversCache = { data: rows, expiresAt: now + SERVERS_CACHE_TTL_MS };
   return rows;
+}
+
+/** Each server's type, reading the servers cache only for a server not seen since the last invalidation */
+export async function getServerTypes(
+  serverIds: string[] = []
+): Promise<ReadonlyMap<string, ServerType>> {
+  const known = serverTypesCache;
+  if (known && serverIds.every((serverId) => known.has(serverId))) return known;
+  const types = new Map((await getCachedServers()).map((server) => [server.id, server.type]));
+  serverTypesCache = types;
+  return types;
 }
 
 // A row the boot migration never stamped matches no trigger, so warn once per id rather than per tick.

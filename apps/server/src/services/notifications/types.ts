@@ -12,6 +12,7 @@ import {
   qualityText,
   episodeHeadline,
 } from './formatters/media.js';
+import { getUserDisplayName, nameWithProfile } from './destinations/sessionText.js';
 import type {
   ViolationWithDetails,
   ActiveSession,
@@ -287,7 +288,7 @@ export const PayloadBuilders = {
   },
 
   fromSessionStarted(session: ActiveSession): NotificationPayload {
-    const userName = session.user.identityName ?? session.user.username;
+    const userName = nameWithProfile(getUserDisplayName(session), session.nonMainProfile);
     return {
       event: 'stream_started',
       title: 'Stream Started',
@@ -299,7 +300,7 @@ export const PayloadBuilders = {
   },
 
   fromSessionStopped(session: ActiveSession): NotificationPayload {
-    const userName = session.user.identityName ?? session.user.username;
+    const userName = nameWithProfile(getUserDisplayName(session), session.nonMainProfile);
     return {
       event: 'stream_stopped',
       title: 'Stream Stopped',
@@ -632,6 +633,7 @@ function variablesOf(event: NotificationEvent): Record<string, string> {
         'session.sourceVideoCodec': s.sourceVideoCodec ?? '',
         'session.seasonNumber': scalar(s.seasonNumber),
         'session.episodeNumber': scalar(s.episodeNumber),
+        'session.profile': s.nonMainProfile?.name ?? '',
         'server.name': s.server.name,
         'server.type': s.server.type,
         durationMinutes: s.durationMs === null ? '' : String(Math.round(s.durationMs / 60_000)),

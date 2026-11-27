@@ -70,6 +70,7 @@ import { getAuth } from '../lib/auth.js';
 import { assertOwnerKeepsALoginAfter } from '../lib/authGuards.js';
 import { upsertTofaAccount } from '../lib/memberLogin.js';
 import { refreshUserSessionSnapshots, revokeSessionsForUsers } from '../lib/revoke.js';
+import { forgetPolledProfiles, moveProfilesToAccount } from './profiles.js';
 import {
   recomputeIdentityAggregates,
   ServerUserNotFoundError,
@@ -127,7 +128,10 @@ export function stricterLoginAccess(a: LoginAccess, b: LoginAccess): LoginAccess
  * whoever owns it, so the row is no way in on its own and follows the account through a merge or
  * split. A password or OIDC row is the lookup itself, so it still makes its identity login-capable.
  */
-export const MEDIA_AUTH_PROVIDERS = ['plex', 'jellyfin', 'emby', 'tofa'];
+export const MEDIA_AUTH_PROVIDERS = ['plex', 'jellyfin', 'emby', 'tofa', 'silo'];
+
+/** Sign-in providers whose account id is `${serverId}:${externalId}` */
+export const SERVER_ACCOUNT_PROVIDERS = ['jellyfin', 'emby', 'silo'] as const;
 
 export function isLoginCapable(user: MergeIdentitySnapshot): boolean {
   return (
@@ -376,6 +380,7 @@ async function combineServerUsers(
     .update(mediaDownloads)
     .set({ serverUserId: targetServerUserId })
     .where(eq(mediaDownloads.serverUserId, sourceServerUserId));
+  await moveProfilesToAccount(tx, sourceServerUserId, targetServerUserId);
 
   // Per-user rule overrides: primary wins on name conflicts, the rest move over.
   // Conflicting source rules are dropped rather than kept as duplicates; their
@@ -654,6 +659,7 @@ export async function mergeUsers(
   });
 
   invalidateAutomationsCache();
+  for (const combine of result.combinedServerUsers) forgetPolledProfiles(combine.serverId);
 
   // recomputeIdentityAggregates wrote the target's columns with raw SQL,
   // which any live session's cached Redis snapshot never sees on its own
@@ -874,7 +880,7 @@ export async function splitServerUser(
     };
     const namesThisAccount = [
       and(
-        inArray(authAccounts.providerId, ['jellyfin', 'emby']),
+        inArray(authAccounts.providerId, [...SERVER_ACCOUNT_PROVIDERS]),
         eq(authAccounts.accountId, `${serverUser.serverId}:${serverUser.externalId}`)
       ),
       ...(await cloudAccountRow('plex', serverUser.plexAccountId, serverUsers.plexAccountId)),

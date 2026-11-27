@@ -12,7 +12,7 @@ import type { BuildCompositeKeyInput } from './types.js';
 
 /**
  * Build a cache/tracking key for a session.
- * Plex: `serverId:sessionKey`. JF/Emby: `serverId:userId:deviceId:ratingKey`.
+ * Plex, tofa and Silo: `serverId:sessionKey`. JF/Emby: `serverId:userId:deviceId:ratingKey`.
  */
 export function buildCompositeKey(input: BuildCompositeKeyInput): string {
   const { serverType, serverId, externalUserId, deviceId, ratingKey, sessionKey } = input;
@@ -92,6 +92,7 @@ export function canTerminate(
       return !!session.plexSessionId;
     case 'jellyfin':
     case 'emby':
+    case 'silo':
     case 'dispatcharr':
     case 'channels_dvr':
       return true;

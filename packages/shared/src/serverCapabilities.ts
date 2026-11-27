@@ -4,6 +4,7 @@ export const SERVER_CAPABILITIES: Record<ServerType, { mediaLibrary: boolean }> 
   jellyfin: { mediaLibrary: true },
   emby: { mediaLibrary: true },
   tofa: { mediaLibrary: true },
+  silo: { mediaLibrary: true },
   dispatcharr: { mediaLibrary: false },
   channels_dvr: { mediaLibrary: true },
 };

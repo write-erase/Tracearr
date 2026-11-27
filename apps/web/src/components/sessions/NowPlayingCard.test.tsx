@@ -56,6 +56,7 @@ function makeSession(overrides: Partial<ActiveSession> = {}): ActiveSession {
     serverUserId: 'user-1',
     sessionKey: 'sk-1',
     profileName: null,
+    profileId: null,
     state: 'playing',
     mediaType: 'live',
     mediaTitle: 'Morning News',
@@ -718,6 +719,24 @@ describe('NowPlayingCard title links', () => {
 
     fireEvent.click(screen.getByText('alice'));
     expect(onClick).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('NowPlayingCard profile', () => {
+  it('puts a non-main profile over the account avatar, by its initial when it has no photo', () => {
+    renderCard({ nonMainProfile: { name: 'Robin', thumbUrl: null, removed: false } });
+
+    const profile = screen.getByRole('img', { name: 'Robin' });
+    expect(profile).toHaveAttribute('title', 'Robin');
+    expect(profile).toHaveTextContent(/^R$/);
+    expect(screen.getByTitle('alice')).toHaveTextContent(/^alice$/);
+  });
+
+  it('shows nothing of a main profile, which plays as the account', () => {
+    renderCard({ profileId: 'p-morgan', profileName: 'Morgan' });
+
+    expect(screen.queryByRole('img', { name: 'Morgan' })).not.toBeInTheDocument();
+    expect(screen.queryByText(/Morgan/)).not.toBeInTheDocument();
   });
 });
 

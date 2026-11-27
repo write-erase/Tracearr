@@ -1,12 +1,23 @@
 import { dispatcharrDeviceIdSql } from '../../../services/mediaServer/dispatcharr/deviceIdentity.js';
 /** Per-user play reads: totals, per-account counts and the recent plays page. */
 
-import { sql, type SQL } from 'drizzle-orm';
+import { and, sql, type SQL } from 'drizzle-orm';
 import type { db as defaultDb } from '../../../db/client.js';
 import { sessions } from '../../../db/schema.js';
 import { uuidArraySql } from '../../../utils/sqlArrays.js';
+import { profileFilterSql } from '../../../db/sessions/conditions.js';
 import { firstSegmentJoin, groupedPlaysCte } from '../../../db/sessions/groupedPlays.js';
-import { localSessionSql, PLAY_COUNT, RAW_WATCH_TIME } from '../../../db/sessions/rules.js';
+import {
+  localSessionSql,
+  PLAY_COUNT,
+  profileColumnsSql,
+  RAW_WATCH_TIME,
+} from '../../../db/sessions/rules.js';
+import {
+  readCurrentProfiles,
+  shownProfile,
+  type CurrentProfiles,
+} from '../../../services/profiles.js';
 
 // Accept either the default db or a transaction context
 type DbOrTx = typeof defaultDb;
@@ -55,11 +66,12 @@ export async function userSessionCounts(
   return counts;
 }
 
-/** Plays (not raw rows) and watch time across the accounts. */
+/** Plays (not raw rows) and watch time across the accounts, or only these profiles of theirs. */
 export async function userPlayTotals(
   dbOrTx: DbOrTx,
   serverUserIds: string[],
-  window: StartedAtWindow
+  window: StartedAtWindow,
+  profileIds?: string[]
 ): Promise<{ totalSessions: number; totalWatchTime: number }> {
   const [row] = await dbOrTx
     .select({
@@ -67,7 +79,7 @@ export async function userPlayTotals(
       totalWatchTime: RAW_WATCH_TIME,
     })
     .from(sessions)
-    .where(accountsInWindow(serverUserIds, window));
+    .where(and(accountsInWindow(serverUserIds, window), profileFilterSql(profileIds, 'sessions')));
   return {
     totalSessions: row?.totalSessions ?? 0,
     totalWatchTime: Number(row?.totalWatchTime ?? 0),
@@ -111,6 +123,8 @@ interface UserPlaySqlRow {
   geo_asn_number: number | null;
   geo_asn_organization: string | null;
   is_local: boolean;
+  profile_id: string | null;
+  profile_name: string | null;
   player_name: string | null;
   dispatcharr_device_id?: string | null;
   device_id: string | null;
@@ -124,7 +138,7 @@ interface UserPlaySqlRow {
   paused_duration_ms: string | null;
 }
 
-function mapUserPlayRow(row: UserPlaySqlRow) {
+function mapUserPlayRow(row: UserPlaySqlRow, profiles: CurrentProfiles) {
   return {
     id: row.id,
     serverId: row.server_id,
@@ -164,6 +178,7 @@ function mapUserPlayRow(row: UserPlaySqlRow) {
     geoAsnNumber: row.geo_asn_number,
     geoAsnOrganization: row.geo_asn_organization,
     isLocal: row.is_local === true,
+    ...shownProfile(profiles, row.profile_id, row.profile_name),
     playerName: row.player_name,
     dispatcharrDeviceId: row.dispatcharr_device_id,
     deviceId: row.device_id,
@@ -178,17 +193,24 @@ function mapUserPlayRow(row: UserPlaySqlRow) {
 
 export type UserPlayRow = ReturnType<typeof mapUserPlayRow>;
 
-/** The accounts' plays newest first, pause/resume chains collapsed to one row. */
+/**
+ * The accounts' plays newest first, or only these profiles' plays, pause/resume chains
+ * collapsed to one row. hasProfiles says whether any of the accounts is on a server with profiles.
+ */
 export async function userRecentPlays(
   dbOrTx: DbOrTx,
   serverUserIds: string[],
   window: StartedAtWindow,
-  page: { limit: number; offset?: number }
+  page: { limit: number; offset?: number },
+  options: { hasProfiles: boolean; profileIds?: string[] }
 ): Promise<UserPlayRow[]> {
   const bounds = [sql`s.started_at >= ${window.start}`, sql`s.started_at <= ${window.end}`];
+  const where = [serverUserIdAnyFragment(serverUserIds, 's.server_user_id'), ...bounds];
+  const byProfile = profileFilterSql(options.profileIds);
+  if (byProfile) where.push(byProfile);
   const result = await dbOrTx.execute(sql`
     WITH grouped_sessions AS (${groupedPlaysCte({
-      where: [serverUserIdAnyFragment(serverUserIds, 's.server_user_id'), ...bounds],
+      where,
       orderLimit: sql`ORDER BY MIN(s.started_at) DESC LIMIT ${page.limit} OFFSET ${page.offset ?? 0}`,
     })})
     SELECT
@@ -203,6 +225,7 @@ export async function userRecentPlays(
       s.geo_continent, s.geo_postal, s.geo_lat, s.geo_lon,
       s.geo_asn_number, s.geo_asn_organization,
       ${localSessionSql('s')} AS is_local,
+      ${profileColumnsSql(options.hasProfiles)},
       s.player_name, s.device_id, ${dispatcharrDeviceIdSql('s')} AS dispatcharr_device_id, s.product, s.device, s.platform,
       s.quality, s.is_transcode, s.bitrate, s.last_paused_at
     FROM grouped_sessions gs
@@ -210,5 +233,10 @@ export async function userRecentPlays(
     JOIN servers sv ON sv.id = s.server_id
     ORDER BY gs.started_at DESC
   `);
-  return (result.rows as unknown as UserPlaySqlRow[]).map(mapUserPlayRow);
+  const rows = result.rows as unknown as UserPlaySqlRow[];
+  const profiles = await readCurrentProfiles(
+    dbOrTx,
+    rows.map((row) => row.profile_id)
+  );
+  return rows.map((row) => mapUserPlayRow(row, profiles));
 }

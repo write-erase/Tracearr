@@ -6,6 +6,7 @@
  * This endpoint combines:
  * - User details
  * - Session stats and recent sessions
+ * - The identity's profiles
  * - Locations
  * - Devices
  * - Violations
@@ -16,10 +17,15 @@
  */
 
 import type { FastifyPluginAsync } from 'fastify';
-import { eq, and, desc, isNull, sql } from 'drizzle-orm';
-import { userIdParamSchema, identityScopeQuerySchema } from '@tracearr/shared';
+import { eq, and, desc, inArray, isNull, sql } from 'drizzle-orm';
+import {
+  someServerHasProfiles,
+  userIdParamSchema,
+  identityScopeQuerySchema,
+} from '@tracearr/shared';
 import { db } from '../../db/client.js';
 import {
+  serverProfiles,
   serverUsers,
   servers,
   users,
@@ -29,6 +35,7 @@ import {
   userMergeAudits,
 } from '../../db/schema.js';
 import { runSession, violationAliasConditions } from '../../services/automations/aliasFilter.js';
+import { profileOptions } from '../../services/profiles.js';
 import { hasServerAccess } from '../../utils/serverFiltering.js';
 import { serverOrderBy } from '../../utils/serverOrder.js';
 import {
@@ -168,9 +175,25 @@ export const fullRoutes: FastifyPluginAsync = async (app) => {
       const stats = await userPlayTotals(tx, scopedIds, window);
 
       // 3. Get recent sessions grouped by play (collapse pause/resume chains)
-      const recentSessions = await userRecentPlays(tx, scopedIds, window, {
-        limit: sessionsLimit,
-      });
+      const recentSessions = await userRecentPlays(
+        tx,
+        scopedIds,
+        window,
+        { limit: sessionsLimit },
+        {
+          hasProfiles: someServerHasProfiles(
+            identityServerUserRows
+              .filter((account) => scopedIds.includes(account.id))
+              .map((account) => account.serverType)
+          ),
+        }
+      );
+
+      const profiles = someServerHasProfiles(
+        identityServerUserRows.map((account) => account.serverType)
+      )
+        ? await profileOptions(tx, inArray(serverProfiles.serverUserId, identityIds))
+        : [];
 
       // 4. Get locations
       const locations = await queryUserLocations(tx, scopedIds, window);
@@ -273,6 +296,7 @@ export const fullRoutes: FastifyPluginAsync = async (app) => {
           total: stats.totalSessions,
           hasMore: stats.totalSessions > sessionsLimit,
         },
+        profiles,
         locations,
         devices,
         violations: {

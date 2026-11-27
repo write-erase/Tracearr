@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { ArrowLeft } from 'lucide-react';
@@ -9,6 +9,7 @@ import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { SessionDetailSheet } from '@/components/history/SessionDetailSheet';
+import { showsProfiles } from '@/components/sessions/useProfileLabel';
 import { UserRequestsCard } from '@/components/requests/UserRequestsCard';
 import { EditTrustScoreDialog } from '@/components/users/EditTrustScoreDialog';
 import { EditUserIdentityDialog } from '@/components/users/EditUserIdentityDialog';
@@ -114,6 +115,14 @@ export function UserDetail() {
     pageSize: DOWNLOADS_PAGE_SIZE,
     scope: identityScope,
   });
+  const allProfiles = fullData?.profiles;
+  const profilesInView = useMemo(() => {
+    if (!allProfiles) return [];
+    const accountProfiles = identityScope
+      ? allProfiles
+      : allProfiles.filter((profile) => profile.serverUserId === effectiveId);
+    return showsProfiles(accountProfiles) ? accountProfiles : [];
+  }, [allProfiles, identityScope, effectiveId]);
 
   if (isLoading) {
     return (
@@ -228,6 +237,7 @@ export function UserDetail() {
             period={timeRange.period}
             detail={fullData}
             showServer={showServer}
+            profiles={profilesInView}
             onSessionClick={handleSessionClick}
             onShowSessions={() => handleTabChange('sessions')}
           />
@@ -239,6 +249,7 @@ export function UserDetail() {
             scope={identityScope}
             user={user}
             personName={user.identityName ?? identity.username}
+            profiles={profilesInView}
             showServer={showServer}
             onSessionClick={handleSessionClick}
           />

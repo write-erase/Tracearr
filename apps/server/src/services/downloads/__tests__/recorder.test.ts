@@ -289,6 +289,29 @@ describe('recordDownload', () => {
     expect(mockDispatchMediaDownloaded).toHaveBeenCalledTimes(1);
   });
 
+  it("collapses only into the same profile's download, so two profiles of one account keep a row each", async () => {
+    const [profiled] = selects([], [{ id: 'lib-1' }]);
+    const insert = insertReturning({ id: 'dl-6', firstSeenAt: T });
+    await recordDownload(signal({ source: 'tofa', profileId: 'profile-robin' }));
+
+    const robin = renderCall(profiled, 'where');
+    expect(robin.text).toContain('media_downloads.profile_id =');
+    expect(robin.params).toContain('profile-robin');
+    expect(insert.values.mock.calls[0]?.[0]).toMatchObject({ profileId: 'profile-robin' });
+
+    const [unprofiled] = selects([], [{ id: 'lib-1' }]);
+    insertReturning({ id: 'dl-7', firstSeenAt: T });
+    await recordDownload(signal({ source: 'tofa', profileId: null }));
+    expect(renderCall(unprofiled, 'where').text).toContain('media_downloads.profile_id is null');
+  });
+
+  it('adds no profile condition for a server without profiles', async () => {
+    const [collapse] = selects([], [{ id: 'lib-1' }]);
+    insertReturning({ id: 'dl-8', firstSeenAt: T });
+    await recordDownload(signal());
+    expect(renderCall(collapse, 'where').text).not.toContain('profile_id');
+  });
+
   it('stores a signal with no serverUserId', async () => {
     const [collapse] = selects([], []);
     const insert = insertReturning({ id: 'dl-4', firstSeenAt: T });

@@ -1067,6 +1067,19 @@ export class ChannelsDvrClient implements IMediaServerClient {
    * user sync has something to work with; the poller also creates users from
    * sessions as they appear.
    */
+  // No profiles under an account, and no requests of its own (fork)
+  async getAccountProfiles(): Promise<NotNeeded> {
+    return NOT_NEEDED;
+  }
+
+  async getRequests(): Promise<NotNeeded> {
+    return NOT_NEEDED;
+  }
+
+  async getRequestPosterPath(): Promise<NotNeeded> {
+    return NOT_NEEDED;
+  }
+
   async getUsers(): Promise<MediaUser[]> {
     const data = await this.getDvrStatus();
     const byId = new Map<string, MediaUser>();

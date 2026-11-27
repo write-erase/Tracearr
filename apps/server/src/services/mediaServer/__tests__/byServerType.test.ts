@@ -61,4 +61,11 @@ describe('byServerType', () => {
       stopRefusal({ sessionKey: 'viewer:viewer-1', server: { type: 'tofa', canStopStreams: true } })
     ).toBe('tofa has no way for Tracearr to stop a live TV viewer without a playback session');
   });
+
+  it('reads no facts from a Silo server and never refuses a Silo stop', async () => {
+    expect(await readServerFacts('silo', 'http://silo.local:8090', 'key')).toEqual({});
+    expect(
+      stopRefusal({ sessionKey: 'session-1', server: { type: 'silo', canStopStreams: null } })
+    ).toBeNull();
+  });
 });

@@ -419,7 +419,7 @@ describe('ExternalServiceError', () => {
       message: 'Dispatcharr error: Connection refused',
       code: ErrorCodes.DISPATCHARR_ERROR,
     });
-    expect(error.code).toBe('EXT_005');
+    expect(error.code).toBe('EXT_901');
   });
 
   it('should use PLEX_ERROR code for plex service', () => {

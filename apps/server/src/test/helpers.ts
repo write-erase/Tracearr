@@ -2,12 +2,14 @@
  * Test helper utilities for creating Fastify instances and mock data
  */
 
+import { randomUUID } from 'node:crypto';
+import { Readable } from 'node:stream';
 import Fastify, { type FastifyInstance } from 'fastify';
 import jwt from '@fastify/jwt';
 import cookie from '@fastify/cookie';
 import sensible from '@fastify/sensible';
 import type { Redis } from 'ioredis';
-import type { AuthUser } from '@tracearr/shared';
+import type { AuthUser, ServerType } from '@tracearr/shared';
 import type { SQL } from 'drizzle-orm';
 import { CasingCache } from 'drizzle-orm/casing';
 import { permissionGuard } from '../lib/scope.js';
@@ -43,6 +45,7 @@ const QUERY_CHAIN_METHODS = [
   'set',
   'values',
   'returning',
+  'execute',
 ];
 
 // Chainable Drizzle stub that records every builder argument and resolves to `result`.
@@ -55,6 +58,21 @@ export function queryChain(createMock: (impl: () => unknown) => any, result: unk
   chain.then = (resolve: (value: unknown) => unknown, reject?: (reason: unknown) => unknown) =>
     Promise.resolve(result).then(resolve, reject);
   return chain;
+}
+
+// One server without profiles and one with, for routes that ask whether their scope has profiles
+export const PROFILE_TEST_SERVERS = { plex: randomUUID(), tofa: randomUUID() };
+
+// The poller database module with getServerTypes knowing PROFILE_TEST_SERVERS, as a vi.mock factory body
+export async function withProfileTestServerTypes(importOriginal: <T>() => Promise<T>) {
+  const types = new Map<string, ServerType>([
+    [PROFILE_TEST_SERVERS.plex, 'plex'],
+    [PROFILE_TEST_SERVERS.tofa, 'tofa'],
+  ]);
+  return {
+    ...(await importOriginal<Record<string, unknown>>()),
+    getServerTypes: async () => types,
+  };
 }
 
 // Renders an argument a queryChain recorded as normalized SQL text plus its bound params.
@@ -113,6 +131,10 @@ export function createMockRedis() {
     keys: async (pattern: string) => {
       const prefix = pattern.replace('*', '');
       return Array.from(store.keys()).filter((k) => k.startsWith(prefix));
+    },
+    scanStream: ({ match }: { match: string }) => {
+      const glob = new RegExp(`^${match.split('*').map(RegExp.escape).join('.*')}$`);
+      return Readable.from([Array.from(store.keys()).filter((k) => glob.test(k))]);
     },
     _store: store, // For test inspection
   };

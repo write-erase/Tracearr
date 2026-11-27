@@ -12,8 +12,14 @@ vi.mock('highcharts', () => ({ default: {} }));
 vi.mock('highcharts-react-official', () => ({ HighchartsReact: () => null }));
 
 vi.mock('@/components/history/HistoryTable', () => ({
-  HistoryTable: ({ sessions }: { sessions: { id: string; mediaTitle: string }[] }) => (
-    <ul aria-label="sessions">
+  HistoryTable: ({
+    sessions,
+    profileNames,
+  }: {
+    sessions: { id: string; mediaTitle: string }[];
+    profileNames?: ReadonlyMap<string, string>;
+  }) => (
+    <ul aria-label={profileNames ? 'sessions by profile' : 'sessions'}>
       {sessions.map((session) => (
         <li key={session.id}>{session.mediaTitle}</li>
       ))}
@@ -117,6 +123,7 @@ const fullData = {
     stats: { totalSessions: 12, totalWatchTime: 0 },
   },
   sessions: { data: ['s1', 's2', 's3', 's4', 's5', 's6'].map(session), total: 12, hasMore: true },
+  profiles: [],
   locations: [],
   devices: [],
   violations: { data: [], total: 3, hasMore: false },
@@ -146,6 +153,7 @@ const rangeStats = {
   serverPeakHour: 21,
   personPeakHour: 22,
   mediaTypeSplit: { movie: 2, episode: 8, track: 0, other: 0 },
+  profiles: [],
   topGenres: [{ genre: 'Drama', plays: 6 }],
   mostFinished: [
     {
@@ -458,5 +466,41 @@ describe('UserDetail', () => {
       'su-1',
       expect.objectContaining({ scope: 'identity', page: 1 })
     );
+  });
+
+  describe('profiles on the Sessions tab', () => {
+    const profile = (name: string, main: boolean) => ({
+      id: `p-${name}`,
+      name,
+      serverUserId: 'su-1',
+      accountUsername: 'alice',
+      serverName: 'Server One',
+      main,
+      removed: false,
+    });
+    const renderWithProfiles = (profiles: ReturnType<typeof profile>[]) => {
+      mockUseUserFull.mockReturnValue({
+        data: { ...fullData, profiles },
+        isLoading: false,
+      } as unknown as ReturnType<typeof useUserFull>);
+      renderDetail('/users/su-1?tab=sessions');
+    };
+
+    it('offers no profile column or pick for an account with only its main profile', () => {
+      renderWithProfiles([profile('Morgan', true)]);
+
+      expect(screen.getByRole('list', { name: 'sessions' })).toBeInTheDocument();
+      expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
+    });
+
+    it('offers a profile column and pick once a non-main profile is in view, the main one as the account', async () => {
+      renderWithProfiles([profile('Morgan', true), profile('Robin', false)]);
+
+      expect(screen.getByRole('list', { name: 'sessions by profile' })).toBeInTheDocument();
+      await userEvent.click(screen.getByRole('combobox', { name: 'common:labels.profiles' }));
+      expect(screen.getByRole('option', { name: 'alice' })).toBeInTheDocument();
+      expect(screen.getByRole('option', { name: 'Robin' })).toBeInTheDocument();
+      expect(screen.queryByRole('option', { name: 'Morgan' })).not.toBeInTheDocument();
+    });
   });
 });

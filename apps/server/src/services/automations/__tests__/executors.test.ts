@@ -76,6 +76,7 @@ function createMockSession(overrides: Partial<Session> = {}): Session {
     geoAsnNumber: 7922,
     geoAsnOrganization: 'Comcast',
     isLocal: false,
+    profileId: null,
     profileName: null,
     playerName: 'Living Room TV',
     deviceId: 'device-123',
@@ -1246,7 +1247,11 @@ describe('Action Executor Registry', () => {
 
         const result = await executeAction(context, action);
 
-        expect(mockDeps.sendClientMessage).toHaveBeenCalledWith('s2', 'Warning!', expect.anything());
+        expect(mockDeps.sendClientMessage).toHaveBeenCalledWith(
+          's2',
+          'Warning!',
+          expect.anything()
+        );
         expect(result).toMatchObject({
           success: false,
           message: 'tofa can only show a message when it stops a stream',

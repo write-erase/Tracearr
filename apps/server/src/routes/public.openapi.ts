@@ -76,6 +76,23 @@ const UserInfo = z.object({
   avatarUrl: z.string().nullable().openapi({ description: 'Proxied avatar URL' }),
 });
 
+const PlayProfile = z
+  .object({
+    name: z.string().openapi({ example: 'Kids' }),
+    thumbUrl: z
+      .string()
+      .nullable()
+      .openapi({ description: 'Avatar path or URL from the media server as stored, not proxied' }),
+    removed: z
+      .boolean()
+      .openapi({ description: 'True once the server no longer lists the profile' }),
+  })
+  .nullable()
+  .openapi('PlayProfile', {
+    description:
+      "The profile that played, on accounts that hold several (tofa and Silo), when it is not the account's main one. Null for a main-profile play and on servers without profiles. Unrelated to the codec profile inside the video and audio details.",
+  });
+
 const MediaInfo = z.object({
   mediaTitle: z.string().openapi({
     description: 'Primary media value. For Dispatcharr live TV this is the channel name.',
@@ -524,6 +541,7 @@ const Stream = z
     username: z.string().openapi({ example: 'John Doe' }),
     userThumb: z.string().nullable(),
     userAvatarUrl: z.string().nullable(),
+    profile: PlayProfile,
     // Media
     ...MediaInfo.shape,
     durationMs: z
@@ -816,6 +834,7 @@ const SessionHistory = z
     ...StreamDetails.shape,
     ...DisplayValues.shape,
     user: UserInfo,
+    profile: PlayProfile,
   })
   .openapi('SessionHistory');
 

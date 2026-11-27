@@ -1068,6 +1068,7 @@ function toActiveSession(entry: ActiveRow): ActiveSession {
     geoAsnNumber: row.place.asnNumber,
     geoAsnOrganization: row.place.asnOrganization,
     isLocal: false,
+    profileId: null,
     profileName: null,
     playerName: row.device.playerName,
     deviceId: row.deviceId,

@@ -12,8 +12,8 @@ import type {
   PlaybackReportingImportResult,
   TautulliImportProgress,
   TautulliImportResult,
-  TofaImportProgress,
-  TofaImportResult,
+  ServerHistoryImportProgress,
+  ServerHistoryImportResult,
   UpdateUserAccessInput,
   UserRole,
   ServerUserWithIdentity,
@@ -359,6 +359,7 @@ function appendHistoryFilterParams(
 ): void {
   if (params.serverUserIds?.length)
     searchParams.set('serverUserIds', params.serverUserIds.join(','));
+  if (params.profileIds?.length) searchParams.set('profileIds', params.profileIds.join(','));
   if (params.serverIds?.length) {
     for (const id of params.serverIds) {
       searchParams.append('serverIds', id);
@@ -397,7 +398,7 @@ export interface BulkViolationParams {
 
 // GET /library/media/:id/history has no shared-package response type yet (its
 // query builder still returns the public v2 snake_case play shape rather than
-// the internal camelCase convention other Task-18-era routes use) - minimal
+// the internal camelCase convention other routes use) - minimal
 // shape only, refine once a dedicated internal history type lands. `user` is
 // typed to match mapHistoryRow's actual serialization (snake_case keys,
 // username already resolved to identity name over server username).
@@ -419,6 +420,7 @@ export interface MediaHistoryPlayEntry {
     thumb_url: string | null;
     avatar_url: string | null;
   };
+  profile: { name: string; thumb_url: string | null; removed: boolean } | null;
   [key: string]: unknown;
 }
 
@@ -1055,7 +1057,10 @@ class ApiClient {
       if (scope) params.set('scope', scope);
       return this.request<UserRangeStats>(`/users/${id}/stats?${params.toString()}`);
     },
-    sessions: (id: string, params?: { page?: number; pageSize?: number; scope?: 'identity' }) => {
+    sessions: (
+      id: string,
+      params?: { page?: number; pageSize?: number; scope?: 'identity'; profileIds?: string[] }
+    ) => {
       return this.request<PaginatedResponse<Session>>(
         `/users/${id}/sessions?${listSearchParams(params ?? {})}`
       );
@@ -2362,12 +2367,15 @@ class ApiClient {
           method: 'DELETE',
         }),
     },
-    tofa: {
+    serverHistory: {
       start: (serverId: string) =>
-        this.request<{ status: string; jobId?: string; message: string }>('/import/tofa', {
-          method: 'POST',
-          body: JSON.stringify({ serverId }),
-        }),
+        this.request<{ status: string; jobId?: string; message: string }>(
+          '/import/server-history',
+          {
+            method: 'POST',
+            body: JSON.stringify({ serverId }),
+          }
+        ),
       getActive: (serverId: string) =>
         this.request<{
           active: boolean;
@@ -2375,8 +2383,8 @@ class ApiClient {
           state?: string;
           progress?: number | object;
           createdAt?: number;
-          latest: LatestImportStatus<TofaImportProgress, TofaImportResult> | null;
-        }>(`/import/tofa/active/${serverId}`),
+          latest: LatestImportStatus<ServerHistoryImportProgress, ServerHistoryImportResult> | null;
+        }>(`/import/server-history/active/${serverId}`),
     },
   };
 

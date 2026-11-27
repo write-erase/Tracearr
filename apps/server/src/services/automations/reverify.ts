@@ -115,6 +115,14 @@ export interface ReverifyKillConditionResult {
   skipReason?: string;
 }
 
+/** A session with its server and account, in the shape the engine evaluates */
+async function readContextSession(id: string, startedAt: string | undefined) {
+  const found = await readSessionRow(id, startedAt, (where) =>
+    db.query.sessions.findFirst({ where, with: { server: true, serverUser: true } })
+  );
+  return found && { ...found, isLocal: isLocalSession(found) };
+}
+
 /**
  * Re-verify a kill_stream match at fire time and terminate if it still holds.
  * Ownership of the actual termination call lives here rather than in the
@@ -138,14 +146,10 @@ export async function reverifyKillCondition(
 
   // The TARGET decides the already-stopped short-circuit and is the session we
   // actually terminate.
-  const targetFound = await readSessionRow(targetSessionId, targetStartedAt, (where) =>
-    db.query.sessions.findFirst({ where, with: { server: true, serverUser: true } })
-  );
-
-  if (!targetFound) {
+  const targetRow = await readContextSession(targetSessionId, targetStartedAt);
+  if (!targetRow) {
     return { outcome: 'skipped_already_stopped' };
   }
-  const targetRow = { ...targetFound, isLocal: isLocalSession(targetFound) };
 
   if (targetRow.server.historicalAt) {
     return { outcome: 'skipped_condition_cleared', skipReason: 'server_historical' };
@@ -190,10 +194,7 @@ export async function reverifyKillCondition(
   // self-abort every time.
   let contextSession = targetRow;
   if (triggeringSessionId !== targetSessionId) {
-    const triggerFound = await readSessionRow(triggeringSessionId, triggeringStartedAt, (where) =>
-      db.query.sessions.findFirst({ where, with: { server: true, serverUser: true } })
-    );
-    const triggerRow = triggerFound && { ...triggerFound, isLocal: isLocalSession(triggerFound) };
+    const triggerRow = await readContextSession(triggeringSessionId, triggeringStartedAt);
 
     if (triggerRow && !triggerRow.stoppedAt) {
       contextSession = triggerRow;

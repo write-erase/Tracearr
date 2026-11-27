@@ -1,6 +1,10 @@
 import { SERVER_STATS_CONFIG } from './constants.js';
 import { assertNever, type ServerType } from './serverTypes.js';
 
+/** The servers whose own watch history Tracearr imports; each importer is named after its server type */
+export const SERVER_HISTORY_IMPORTERS = ['tofa', 'silo'] as const satisfies readonly ServerType[];
+export type ServerHistoryImporter = (typeof SERVER_HISTORY_IMPORTERS)[number];
+
 export interface ServerProfile {
   /** The product's name, written the way the product writes it. */
   displayName: string;
@@ -9,18 +13,24 @@ export interface ServerProfile {
   /** The id the server needs to stop a playback. */
   terminatesBy: 'plexSessionId' | 'sessionKey';
   /**
-   * ssePlugin: needs the Tracearr SSE plugin installed on the server; without it the poller covers the server.
+   * ssePlugin: needs the Tracearr SSE plugin installed on the server; without it the poller covers the server. siloSocket: Silo's events socket.
    * dispatcharrRealtime: Dispatcharr's own WebSocket, with the Tracearr metrics plugin for stats (fork).
    * poller: no live events; the poller reads the server every few seconds (fork, Channels DVR).
    */
-  liveEvents: 'plexWebsocket' | 'ssePlugin' | 'tofaSocket' | 'dispatcharrRealtime' | 'poller';
+  liveEvents:
+    'plexWebsocket' | 'ssePlugin' | 'tofaSocket' | 'siloSocket' | 'dispatcharrRealtime' | 'poller';
   /**
-   * Where host CPU and memory come from: Plex's statistics endpoint, the SSE plugin's stats events, or tofa's metrics endpoint.
+   * Where host CPU and memory come from: Plex's statistics endpoint, the SSE plugin's stats events, tofa's metrics endpoint, or Silo's resources endpoint.
    * dispatcharrPlugin: the Dispatcharr metrics plugin over its WebSocket, with bandwidth (fork).
    * channelsSystem: sampled from Channels DVR's `/system` (fork).
    */
   hostStats:
-    'plexStatistics' | 'ssePlugin' | 'tofaMetrics' | 'dispatcharrPlugin' | 'channelsSystem';
+    | 'plexStatistics'
+    | 'ssePlugin'
+    | 'tofaMetrics'
+    | 'siloResources'
+    | 'dispatcharrPlugin'
+    | 'channelsSystem';
   /** Seconds between host samples while nothing is reading them; null when the server samples at one rate. */
   hostStatsIdleSeconds: number | null;
   /** username: the server reports no email, so an account's email is its username when that is an address. */
@@ -31,14 +41,16 @@ export interface ServerProfile {
   playerNameCountsTowardDevice: boolean;
   /** History imported for this server is linked to library items after a library sync. */
   linksImportedHistory: boolean;
+  /** An item's key can name a different item after the server's database is rebuilt, so a key recorded at play time is evidence only when the play and the item agree. */
+  reusesItemKeys: boolean;
   /**
-   * How the owner adds the server: picked from a linked Plex account, by URL and API key, or picked from the owner's tofa account, which makes the key.
+   * How the owner adds the server: picked from a linked Plex account, by URL and API key, picked from the owner's tofa account, which makes the key, or by a code an admin approves on the server, which makes the key.
    * dispatcharr: URL with an API key, or a username and password (fork).
    * urlOnly: just the URL; the server's API takes no key (fork, Channels DVR).
    */
-  addServerAuth: 'plexOAuth' | 'apiKey' | 'tofaCloud' | 'dispatcharr' | 'urlOnly';
-  /** How members sign in: through plex.tv, with their username and password on the server, through their tofa account, or not at all when the server offers no sign-in Tracearr can call. */
-  memberSignIn: 'plexTv' | 'serverPassword' | 'tofaCloud' | 'unavailable';
+  addServerAuth: 'plexOAuth' | 'apiKey' | 'tofaCloud' | 'siloPairing' | 'dispatcharr' | 'urlOnly';
+  /** How members sign in: through plex.tv, with their username and password on the server, through their tofa account, by a code they approve on the server, or not at all when the server offers no sign-in Tracearr can call. */
+  memberSignIn: 'plexTv' | 'serverPassword' | 'tofaCloud' | 'siloPairing' | 'unavailable';
   /** The server measures its own bandwidth, so the dashboard can chart it. */
   reportsBandwidth: boolean;
   /** A transcode reports separate video and audio bitrates; without them only the total stream bitrate is known. */
@@ -46,15 +58,19 @@ export interface ServerProfile {
   /** Tautulli tracks this server, so its play history can be imported from Tautulli. */
   importsTautulliHistory: boolean;
   /** The importer for the watch history the server keeps itself; null when it keeps none. */
-  serverHistoryImport: 'tofa' | null;
+  serverHistoryImport: ServerHistoryImporter | null;
   /** Which rule counts a play as watched: Tracearr's own setting, or the completion percent the server reports. */
   watchedThreshold: 'tracearrSetting' | 'serverRule';
-  /** The request service the server's own requests are mirrored through, created and removed with the server; null when it has none. */
-  builtInRequests: 'tofa' | null;
-  /** Hosts outside the server that its program guide links live TV art from. */
+  /** The server keeps requests of its own, mirrored through a request service created and removed with the server. */
+  builtInRequests: boolean;
+  /** Hosts outside the server that its program guide links live TV art from, or its profile avatars. */
   guideImageHosts: readonly string[];
   /** Where a link to one item opens: the vendor's hosted web app, or the server's own address, which members must be able to reach. */
   itemLinks: 'hostedApp' | 'serverAddress';
+  /** One account plays under several profiles, and each play names the profile that played. */
+  hasProfiles: boolean;
+  /** release: a dotted release number, compared with the newest release. build: a build id, shown as reported and never compared. */
+  versionKind: 'release' | 'build';
 }
 
 export const SERVER_PROFILES: Record<ServerType, ServerProfile> = {
@@ -69,6 +85,7 @@ export const SERVER_PROFILES: Record<ServerType, ServerProfile> = {
     userIdsIdentifyInstall: false,
     playerNameCountsTowardDevice: false,
     linksImportedHistory: true,
+    reusesItemKeys: true,
     addServerAuth: 'plexOAuth',
     memberSignIn: 'plexTv',
     reportsBandwidth: true,
@@ -76,10 +93,12 @@ export const SERVER_PROFILES: Record<ServerType, ServerProfile> = {
     importsTautulliHistory: true,
     serverHistoryImport: null,
     watchedThreshold: 'tracearrSetting',
-    builtInRequests: null,
+    builtInRequests: false,
     // Plex's guide links art from both Gracenote hosts; ebyl serves show art for many lineups (fork)
     guideImageHosts: ['plex.tmsimg.com', 'ebyl.tmsimg.com'],
     itemLinks: 'hostedApp',
+    hasProfiles: false,
+    versionKind: 'release',
   },
   jellyfin: {
     displayName: 'Jellyfin',
@@ -92,6 +111,7 @@ export const SERVER_PROFILES: Record<ServerType, ServerProfile> = {
     userIdsIdentifyInstall: true,
     playerNameCountsTowardDevice: true,
     linksImportedHistory: false,
+    reusesItemKeys: false,
     addServerAuth: 'apiKey',
     memberSignIn: 'serverPassword',
     reportsBandwidth: false,
@@ -99,9 +119,11 @@ export const SERVER_PROFILES: Record<ServerType, ServerProfile> = {
     importsTautulliHistory: false,
     serverHistoryImport: null,
     watchedThreshold: 'tracearrSetting',
-    builtInRequests: null,
+    builtInRequests: false,
     guideImageHosts: [],
     itemLinks: 'serverAddress',
+    hasProfiles: false,
+    versionKind: 'release',
   },
   emby: {
     displayName: 'Emby',
@@ -114,6 +136,7 @@ export const SERVER_PROFILES: Record<ServerType, ServerProfile> = {
     userIdsIdentifyInstall: true,
     playerNameCountsTowardDevice: true,
     linksImportedHistory: false,
+    reusesItemKeys: false,
     addServerAuth: 'apiKey',
     memberSignIn: 'serverPassword',
     reportsBandwidth: false,
@@ -121,9 +144,11 @@ export const SERVER_PROFILES: Record<ServerType, ServerProfile> = {
     importsTautulliHistory: false,
     serverHistoryImport: null,
     watchedThreshold: 'tracearrSetting',
-    builtInRequests: null,
+    builtInRequests: false,
     guideImageHosts: [],
     itemLinks: 'serverAddress',
+    hasProfiles: false,
+    versionKind: 'release',
   },
   tofa: {
     displayName: 'tofa',
@@ -136,6 +161,7 @@ export const SERVER_PROFILES: Record<ServerType, ServerProfile> = {
     userIdsIdentifyInstall: false,
     playerNameCountsTowardDevice: true,
     linksImportedHistory: false,
+    reusesItemKeys: false,
     addServerAuth: 'tofaCloud',
     memberSignIn: 'tofaCloud',
     reportsBandwidth: false,
@@ -143,9 +169,36 @@ export const SERVER_PROFILES: Record<ServerType, ServerProfile> = {
     importsTautulliHistory: false,
     serverHistoryImport: 'tofa',
     watchedThreshold: 'serverRule',
-    builtInRequests: 'tofa',
+    builtInRequests: true,
     guideImageHosts: ['api.tofa.tv'],
     itemLinks: 'hostedApp',
+    hasProfiles: true,
+    versionKind: 'release',
+  },
+  silo: {
+    displayName: 'Silo',
+    sessionIdentity: 'sessionKey',
+    terminatesBy: 'sessionKey',
+    liveEvents: 'siloSocket',
+    hostStats: 'siloResources',
+    hostStatsIdleSeconds: null,
+    emailSource: 'server',
+    userIdsIdentifyInstall: false,
+    playerNameCountsTowardDevice: true,
+    linksImportedHistory: false,
+    reusesItemKeys: false,
+    addServerAuth: 'siloPairing',
+    memberSignIn: 'siloPairing',
+    reportsBandwidth: false,
+    reportsTranscodeTrackBitrates: false,
+    importsTautulliHistory: false,
+    serverHistoryImport: 'silo',
+    watchedThreshold: 'tracearrSetting',
+    builtInRequests: true,
+    guideImageHosts: ['api.dicebear.com'],
+    itemLinks: 'serverAddress',
+    hasProfiles: true,
+    versionKind: 'build',
   },
   // Fork server types. Where upstream branched Plex against everything else, these keep the
   // "everything else" side, as they had before the profiles existed.
@@ -161,6 +214,7 @@ export const SERVER_PROFILES: Record<ServerType, ServerProfile> = {
     userIdsIdentifyInstall: false,
     playerNameCountsTowardDevice: true,
     linksImportedHistory: false,
+    reusesItemKeys: false,
     addServerAuth: 'dispatcharr',
     // Tracearr has no Dispatcharr member sign-in.
     memberSignIn: 'unavailable',
@@ -170,10 +224,13 @@ export const SERVER_PROFILES: Record<ServerType, ServerProfile> = {
     importsTautulliHistory: false,
     serverHistoryImport: null,
     watchedThreshold: 'tracearrSetting',
-    builtInRequests: null,
+    builtInRequests: false,
     guideImageHosts: [],
     // Dispatcharr has no library pages; links fall back to the server root.
     itemLinks: 'serverAddress',
+    hasProfiles: false,
+    // Dotted releases; a dev image adds its build time and is compared by it (fork).
+    versionKind: 'release',
   },
   channels_dvr: {
     displayName: 'Channels DVR',
@@ -187,6 +244,7 @@ export const SERVER_PROFILES: Record<ServerType, ServerProfile> = {
     userIdsIdentifyInstall: false,
     playerNameCountsTowardDevice: true,
     linksImportedHistory: false,
+    reusesItemKeys: false,
     addServerAuth: 'urlOnly',
     // Channels DVR has no user accounts to sign in with.
     memberSignIn: 'unavailable',
@@ -195,11 +253,19 @@ export const SERVER_PROFILES: Record<ServerType, ServerProfile> = {
     importsTautulliHistory: false,
     serverHistoryImport: null,
     watchedThreshold: 'tracearrSetting',
-    builtInRequests: null,
+    builtInRequests: false,
     guideImageHosts: [],
     itemLinks: 'serverAddress',
+    hasProfiles: false,
+    // Date-style releases (2026.11.11.2228), compared like any other release.
+    versionKind: 'release',
   },
 };
+
+/** Whether any of the servers plays one account under several profiles, so profile reads have rows to find */
+export function someServerHasProfiles(types: readonly ServerType[]): boolean {
+  return types.some((type) => SERVER_PROFILES[type].hasProfiles);
+}
 
 /**
  * How long a server's live stats line may go without a sample before it breaks. A server that
@@ -213,11 +279,13 @@ export function liveStatsGapSeconds(serverType: ServerType): number {
 
 /**
  * How the owner proves an account on the server is theirs before it joins them: Plex links the
- * plex.tv account itself, Jellyfin and Emby take the account's username typed back, and tofa needs
- * a tofa sign-in as that account, since it also becomes the owner's tofa login. Dispatcharr and
- * Channels DVR offer no linking (fork).
+ * plex.tv account itself, Jellyfin and Emby take the account's username typed back, tofa needs a
+ * tofa sign-in as that account, since it also becomes the owner's tofa login, and Silo needs a
+ * pairing code approved while signed in to Silo as that account. Dispatcharr and Channels DVR offer
+ * no linking (fork).
  */
-export type OwnerLinkProof = 'plexAccount' | 'typedUsername' | 'tofaSignIn' | 'none';
+export type OwnerLinkProof =
+  'plexAccount' | 'typedUsername' | 'tofaSignIn' | 'siloPairing' | 'none';
 
 export function ownerLinkProof(type: ServerType): OwnerLinkProof {
   switch (type) {
@@ -228,6 +296,8 @@ export function ownerLinkProof(type: ServerType): OwnerLinkProof {
       return 'typedUsername';
     case 'tofa':
       return 'tofaSignIn';
+    case 'silo':
+      return 'siloPairing';
     case 'dispatcharr':
     case 'channels_dvr':
       return 'none';

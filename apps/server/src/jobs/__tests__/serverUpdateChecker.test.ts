@@ -72,6 +72,7 @@ import {
   fakeChannelsDvrClient,
   fakeJellyfinClient,
   fakePlexClient,
+  fakeSiloClient,
   fakeTofaClient,
 } from '../../test/mediaServerFakes.js';
 
@@ -82,6 +83,7 @@ const fakeClients = {
   plex: fakePlexClient,
   jellyfin: fakeJellyfinClient,
   tofa: fakeTofaClient,
+  silo: fakeSiloClient,
   channels_dvr: fakeChannelsDvrClient,
 };
 
@@ -166,6 +168,22 @@ describe('runServerUpdateCheck', () => {
         releaseUrl: 'https://docs.tofa.tv/keep-your-server-updated.html',
       })
     );
+  });
+
+  it('stores the build a Silo server reports as its version, with no latest version and no nudge', async () => {
+    mockServerRows.mockResolvedValue([
+      { id: 's5', name: 'Silo', type: 'silo' as const, url: 'http://silo.local', token: 't' },
+    ]);
+    mockGetSoftwareVersion.mockResolvedValue('28dd1484');
+
+    await runServerUpdateCheck();
+
+    expect(mockUpdate).toHaveBeenCalledWith(expect.objectContaining({ version: '28dd1484' }));
+    expect(mockUpdate).not.toHaveBeenCalledWith(
+      expect.objectContaining({ latestVersion: expect.anything() })
+    );
+    expect(mockLatestVersionFor).not.toHaveBeenCalled();
+    expect(mockDispatchServerUpdate).not.toHaveBeenCalled();
   });
 
   it('re-arms when a newer release appears', async () => {

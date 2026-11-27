@@ -3,7 +3,7 @@
  * Uses condensed info sections matching the app's design patterns.
  */
 
-import { lazy, memo, Suspense, useState } from 'react';
+import { lazy, memo, Suspense, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '@/hooks/useAuth';
 import { Link } from 'react-router';
@@ -51,6 +51,7 @@ import { DATE_TIME_OPTIONS, formatDate, formatDuration } from '@/lib/dateFormat'
 import { getAvatarUrl } from '@/components/users/utils';
 import { DeviceBrandIcon } from '@/components/sessions/DeviceBrandIcon';
 import { LocalBadge } from '@/components/sessions/LocalBadge';
+import { useProfileLabel } from '@/components/sessions/useProfileLabel';
 import { MediaPageLink } from '@/components/media/MediaPageLink';
 import { StreamDetailsPanel } from './StreamDetailsPanel';
 
@@ -226,6 +227,7 @@ function SessionContent({
   onNavigate: () => void;
 }) {
   const { t } = useTranslation(['common', 'pages']);
+  const profileLabel = useProfileLabel();
   const viewer = useAuth().user;
   const canOpenUser = !!viewer && isStaff(viewer.role);
   const [locationOpen, setLocationOpen] = useState(false);
@@ -383,17 +385,25 @@ function SessionContent({
 
         {/* Server */}
         <Section icon={Server} title={t('labels.server')}>
-          <div className="flex items-center justify-between text-sm">
-            <span className="text-muted-foreground">{t('labels.server')}</span>
-            <span className="flex items-center gap-1.5">
-              <span
-                className="size-2 shrink-0 rounded-full"
-                style={{ backgroundColor: SERVER_TYPE_BRAND_COLORS[session.server.type] }}
-              />
-              <span>{SERVER_PROFILES[session.server.type].displayName}</span>
-              <span className="text-muted-foreground">·</span>
-              {session.server.name}
-            </span>
+          <div className="space-y-1.5 text-sm">
+            <div className="flex items-center justify-between">
+              <span className="text-muted-foreground">{t('labels.server')}</span>
+              <span className="flex items-center gap-1.5">
+                <span
+                  className="size-2 shrink-0 rounded-full"
+                  style={{ backgroundColor: SERVER_TYPE_BRAND_COLORS[session.server.type] }}
+                />
+                <span>{SERVER_PROFILES[session.server.type].displayName}</span>
+                <span className="text-muted-foreground">·</span>
+                {session.server.name}
+              </span>
+            </div>
+            {session.nonMainProfile && (
+              <div className="flex items-center justify-between">
+                <span className="text-muted-foreground">{t('labels.profile')}</span>
+                <span className="truncate">{profileLabel(session.nonMainProfile)}</span>
+              </div>
+            )}
           </div>
         </Section>
 
@@ -661,11 +671,19 @@ function SessionContent({
 }
 
 export function SessionDetailSheet({ session, open, onOpenChange }: Props) {
+  const contentRef = useRef<HTMLDivElement>(null);
   if (!session) return null;
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent className="w-full overflow-y-auto sm:max-w-[500px]">
+      <SheetContent
+        ref={contentRef}
+        onOpenAutoFocus={(event) => {
+          event.preventDefault();
+          contentRef.current?.focus();
+        }}
+        className="w-full overflow-y-auto outline-none sm:max-w-[500px]"
+      >
         <SessionContent session={session} onNavigate={() => onOpenChange(false)} />
       </SheetContent>
     </Sheet>

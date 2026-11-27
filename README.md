@@ -6,7 +6,7 @@
   <strong>Tracearr with Dispatcharr and Channels DVR support.</strong>
 </p>
 
-This is an unofficial fork of [Tracearr](https://github.com/connorgallopo/Tracearr) by Connor Gallopo. It adds two server types, [Dispatcharr](https://github.com/Dispatcharr/Dispatcharr) and [Channels DVR](https://getchannels.com/dvr-server/), alongside Tracearr's Plex, Jellyfin, Emby and tofa support. Dispatcharr support started in [d4rk-4lchemy's fork](https://github.com/d4rk-4lchemy/Tracearr), which this one builds on.
+This is an unofficial fork of [Tracearr](https://github.com/connorgallopo/Tracearr) by Connor Gallopo. It adds two server types, [Dispatcharr](https://github.com/Dispatcharr/Dispatcharr) and [Channels DVR](https://getchannels.com/dvr-server/), alongside Tracearr's Plex, Jellyfin, Emby, tofa and Silo support. Dispatcharr support started in [d4rk-4lchemy's fork](https://github.com/d4rk-4lchemy/Tracearr), which this one builds on.
 
 It is not supported by the Tracearr project. Please report problems with it [here](https://github.com/write-erase/Tracearr/issues), not upstream.
 
@@ -15,7 +15,7 @@ It is not supported by the Tracearr project. Please report problems with it [her
 
 ## What Tracearr Does
 
-Tracearr monitors Plex, Jellyfin, Emby and tofa servers from one dashboard: live streams, watch history, playback and library analytics, a stream map, account-sharing detection with trust scores, automations, notifications and newsletters. This fork is merged with each upstream release.
+Tracearr monitors Plex, Jellyfin, Emby, tofa and Silo servers from one dashboard: live streams, watch history, playback and library analytics, a stream map, account-sharing detection with trust scores, automations, notifications and newsletters. This fork is merged with each upstream release.
 
 For the full feature tour, see [upstream's README](https://github.com/connorgallopo/Tracearr#readme), [tracearr.com](https://tracearr.com) and the manual at [docs.tracearr.com](https://docs.tracearr.com).
 
@@ -68,7 +68,7 @@ Channels DVR does not provide individual user accounts, so Tracearr identifies v
 ## Mobile App
 
 > [!NOTE]
-> **Dispatcharr and Channels DVR servers don't appear in the Tracearr mobile app.** The app doesn't know these server types and stopped working when it got one, so Tracearr leaves them out of everything it sends the app: the server list, Now Playing, history, stats, users, alerts and push notifications. Your other servers work as usual. The Android app has not been tested.
+> **Dispatcharr and Channels DVR servers show in the Tracearr mobile app again,** now that the app no longer stops working on server types it doesn't know. Their streams show, but not their CPU and memory charts: the app draws those only for the server types it knows. Tested on iPhone; the Android app has not been tested.
 
 The app is upstream's, so this fork can't change it, only what Tracearr sends to it. Cast your vote for the final decision in the [poll (#67)](https://github.com/write-erase/Tracearr/discussions/67).
 
