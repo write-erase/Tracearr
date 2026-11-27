@@ -1,5 +1,22 @@
 # Tracearr Fork Information
 
+## November 27, 2026 — Dispatcharr and Channels DVR shown in the mobile app again
+
+Connor's app no longer stops working on a server type it doesn't have in its tables (Mobile-App
+`6fce3c7`, November 24: "unknown server types no longer crash the picker, dashboard and session
+screens"). It shows the type's raw name in the server picker, skips the type-specific details on
+a session, and leaves the server off the dashboard's CPU and memory charts.
+
+So `MOBILE_APP_SERVER_TYPES` (`apps/server/src/lib/mobileAppServers.ts`) now includes
+`dispatcharr` and `channels_dvr`, undoing the hiding from November 24 for those two. The app gets
+their servers, Now Playing, history, stats, users, alerts and push notifications like any other.
+The filtering itself stays, for a server id it can't find, and so a type can be hidden again in
+one line.
+
+Tested with the store app on two iPhones: a Dispatcharr stream shows on its card, and no CPU and
+memory charts appear for it, as above. An app that hasn't picked up Connor's fix would still stop
+on these servers. The Android app has not been tested.
+
 ## November 26, 2026 — Upstream main through 3.3.0-beta.4 (82a0cd1c), with Silo
 
 Merges Connor's `main` from `6c9da518` (November 22, merged in #66) through `82a0cd1c`, his
@@ -57,8 +74,10 @@ Conflicts (61 files) and how each was settled:
   catalog reads; only the Channels DVR guide read is stubbed now. Silo's poll trigger expects the
   `{ immediateStops: false }` the fork passes, as the tofa test already did.
 
-Typecheck, lint, the server build and every test suite pass. Not yet run on a running server.
-Silo itself is upstream's and untested here: this fork has no Silo server to try it on.
+Typecheck, lint, the server build and every test suite pass. Run on a server with Plex,
+Dispatcharr and Channels DVR: editing a server (the Dispatcharr sign-in included), the CPU and RAM
+charts, History, images and live sessions all work as before. Silo itself is upstream's and
+untested here: this fork has no Silo server to try it on.
 
 ## November 26, 2026 — Release v3.2.1-r3
 

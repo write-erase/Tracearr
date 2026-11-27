@@ -1,16 +1,18 @@
 /**
- * Keeps Dispatcharr and Channels DVR servers out of what Tracearr's mobile app gets (fork).
+ * Keeps servers the mobile app can't show out of what it gets (fork).
  *
- * The app (Tracearr/Mobile-App, built on @tracearr/shared 3.3.0-beta.4) looks every server's type up in
- * its own tables (`SERVER_PROFILES[type].displayName` and the like) and stops working on a type
- * it doesn't have. For a request from the app, recognised by its `x-tracearr-client: mobile/...`
- * header:
+ * The app (Tracearr/Mobile-App) used to stop working on a server type it didn't have in its own
+ * tables. Connor's app now copes with one (`6fce3c7`, "unknown server types no longer crash the
+ * picker, dashboard and session screens"), so Dispatcharr and Channels DVR are shown again: their
+ * sessions and history, without CPU and memory charts, which the app draws only for types it
+ * knows. What's left hidden is a server id this list can't find. For a request from the app,
+ * recognised by its `x-tracearr-client: mobile/...` header:
  * - the server lists (`/servers`, `/servers/health`, the servers in `/sessions/filter-options`)
- *   leave those servers out;
- * - a list or stat asked for "all servers" covers only the servers the app knows, and one asked
+ *   leave hidden servers out;
+ * - a list or stat asked for "all servers" covers only the servers the app can show, and one asked
  *   for named servers drops any hidden one;
- * - a session or server of a hidden type answers 404.
- * Push notifications and socket server alerts for those servers are skipped where they are sent.
+ * - a session or server that is hidden answers 404.
+ * Push notifications and socket server alerts for hidden servers are skipped where they are sent.
  * The web app is unchanged.
  */
 
@@ -19,13 +21,18 @@ import { API_BASE_PATH, MOBILE_CLIENT_HEADER, type ServerType } from '@tracearr/
 import { db } from '../db/client.js';
 import { servers } from '../db/schema.js';
 
-/** The server types the mobile app has in its tables: upstream's, Silo included since 3.3.0. */
+/**
+ * The server types the mobile app is sent: upstream's, Silo included since 3.3.0, and this fork's
+ * since the app stopped crashing on types it doesn't know.
+ */
 export const MOBILE_APP_SERVER_TYPES: ReadonlySet<string> = new Set<ServerType>([
   'plex',
   'jellyfin',
   'emby',
   'tofa',
   'silo',
+  'dispatcharr',
+  'channels_dvr',
 ]);
 
 /** Matches no server, so a filter naming only hidden servers never widens to "all". */
