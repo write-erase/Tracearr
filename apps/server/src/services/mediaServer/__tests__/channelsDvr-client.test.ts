@@ -697,6 +697,53 @@ describe('Channels DVR recordings and live progress', () => {
       url.endsWith('/dvr') ? { activity: {} } : []) as never);
     expect(await client().getRecordings()).toEqual([]);
   });
+
+  it('lists each live channel streaming once, with every client sharing it (fork)', async () => {
+    vi.mocked(fetchJson).mockImplementation((async (url: string) => {
+      if (url.endsWith('/dvr'))
+        return {
+          activity: {
+            '0-job-1794391200-ch2': 'Recording ch2 for News 9 @ 4a until 4:30AM',
+            '6-stream-M3U-DispatcharrMPEGTS-2-192.168.30.8': 'Watching ch2 from Den',
+            '7-ch2-dANY-26688a6db1d2':
+              "Watching ch2 from Craig's Apple TV (Remux Starting: 28m54s @ 1x (60.04fps)): buf=0% drop=0%",
+            '6-stream-M3U-DispatcharrMPEGTS-23-192.168.30.9': 'Watching ch23 Heroes from Mac',
+          },
+        };
+      if (url.endsWith('/devices'))
+        return [{ DeviceID: 'M3U-DispatcharrMPEGTS', FriendlyName: 'Trilo', TunerCount: 5 }];
+      if (url.includes('/guide')) return guide;
+      return [];
+    }) as never);
+
+    const schedule = await client().getSchedule();
+
+    expect(schedule.streams).toEqual([
+      {
+        channelNumber: '2',
+        // Neither line names the channel, so the guide's name
+        channelTitle: 'KWTV',
+        thumbPath: '/dvr/guide/channels/2/logo',
+        sourceName: 'Trilo',
+        // The recording on ch2 shares the stream
+        recording: true,
+        viewers: [
+          { key: '6-stream-M3U-DispatcharrMPEGTS-2-192.168.30.8', name: 'Den' },
+          { key: '7-ch2-dANY-26688a6db1d2', name: "Craig's Apple TV" },
+        ],
+      },
+      {
+        channelNumber: '23',
+        channelTitle: 'Heroes',
+        thumbPath: '/dvr/guide/channels/23/logo',
+        sourceName: 'Trilo',
+        recording: false,
+        viewers: [{ key: '6-stream-M3U-DispatcharrMPEGTS-23-192.168.30.9', name: 'Mac' }],
+      },
+    ]);
+    // One tuner each: the shared stream and ch23
+    expect(schedule.tuners).toEqual({ inUse: 2, total: 5 });
+  });
 });
 
 describe('ChannelsDvrClient.setRecordingSkipped', () => {

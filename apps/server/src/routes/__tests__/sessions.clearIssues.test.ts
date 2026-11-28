@@ -29,6 +29,7 @@ vi.mock('../../services/mediaServer/channelsDvr/client.js', () => ({
 }));
 
 import { db } from '../../db/client.js';
+import { getCacheService } from '../../services/cache.js';
 import { sessionRoutes } from '../sessions/index.js';
 import { permissionGuard } from '../../lib/scope.js';
 
@@ -172,6 +173,7 @@ describe('GET /sessions/recordings', () => {
       tuners: null,
       disk: null,
       recent: [recentFile('1501'), recentFile('1502')],
+      streams: [],
     });
   });
 
@@ -198,5 +200,96 @@ describe('GET /sessions/recordings', () => {
     const body = response.json<ChannelsDvrScheduleResponse>();
 
     expect(body.recent.map((file) => file.issuesCleared)).toEqual([false, false]);
+  });
+});
+
+describe('GET /sessions/recordings streaming now (fork)', () => {
+  const LOCAL = '6-stream-M3U-DispatcharrMPEGTS-4-192.168.30.2';
+  const REMOTE = '7-ch4-dANY-26688a6db1d2';
+
+  beforeEach(() => {
+    vi.mocked(db.select).mockReturnValue(
+      queryChain(vi.fn, [{ id: SERVER_ID, name: 'Channels', url: 'http://channels:8089' }])
+    );
+    getSchedule.mockResolvedValue({
+      recordings: [],
+      upcoming: [],
+      tuners: null,
+      disk: null,
+      recent: [],
+      streams: [
+        {
+          channelNumber: '4',
+          channelTitle: 'NBC KFOR',
+          thumbPath: '/dvr/guide/channels/4/logo',
+          sourceName: 'Trilo',
+          recording: false,
+          viewers: [
+            { key: LOCAL, name: 'Apple TV' },
+            { key: REMOTE, name: "Craig's Apple TV" },
+          ],
+        },
+      ],
+    });
+    redis.smembers.mockResolvedValue([]);
+  });
+
+  it("names each client and times the stream from Tracearr's sessions", async () => {
+    vi.mocked(getCacheService).mockReturnValue({
+      getAllActiveSessions: async () => [
+        {
+          serverId: SERVER_ID,
+          sessionKey: REMOTE,
+          playerName: "Craig's Apple TV",
+          startedAt: '2026-11-28T14:05:00.000Z',
+        },
+        {
+          serverId: SERVER_ID,
+          sessionKey: LOCAL,
+          playerName: 'Living Room',
+          startedAt: '2026-11-28T14:10:00.000Z',
+        },
+        // Another server's session under the same key is not this stream's
+        {
+          serverId: randomUUID(),
+          sessionKey: LOCAL,
+          playerName: 'Elsewhere',
+          startedAt: '2026-11-28T13:00:00.000Z',
+        },
+      ],
+    } as never);
+    app = await buildApp(owner);
+
+    const body = (
+      await app.inject({ url: '/sessions/recordings' })
+    ).json<ChannelsDvrScheduleResponse>();
+
+    expect(body.streams).toEqual([
+      {
+        serverId: SERVER_ID,
+        serverName: 'Channels',
+        channelNumber: '4',
+        channelTitle: 'NBC KFOR',
+        thumbPath: '/dvr/guide/channels/4/logo',
+        sourceName: 'Trilo',
+        recording: false,
+        startedAt: '2026-11-28T14:05:00.000Z',
+        viewers: ['Living Room', "Craig's Apple TV"],
+      },
+    ]);
+  });
+
+  it("falls back to the activity line's names, with no time, when there's no session yet", async () => {
+    vi.mocked(getCacheService).mockReturnValue(null);
+    app = await buildApp(owner);
+
+    const body = (
+      await app.inject({ url: '/sessions/recordings' })
+    ).json<ChannelsDvrScheduleResponse>();
+
+    expect(body.streams[0]).toMatchObject({
+      startedAt: null,
+      viewers: ['Apple TV', "Craig's Apple TV"],
+    });
   });
 });

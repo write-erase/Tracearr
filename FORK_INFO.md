@@ -1,5 +1,32 @@
 # Tracearr Fork Information
 
+## November 28, 2026 — Channels DVR card: Streaming Now
+
+The Channels DVR card gets a Streaming Now list above Recording Now, like the Dispatcharr card's.
+Channels shares one stream from a channel's source between every client watching that channel,
+so each row is one stream: the channel's logo and name (its number when it has none), then
+"source · 2 viewers · 35 min", and a chip for each client connected to it. A recording on the
+same channel shares the stream too, and its row is tagged Recording. Beside the Dispatcharr card,
+where the Channels DVR card is half width, the detail line wraps rather than lose the time; at full
+width it's cut off.
+
+The tuner pill adds the shared streams while there are any: "1 of 5 tuners in use · 1 shared". A
+shared stream is a channel with more than one client, or a client and a recording, on one tuner.
+
+Channels lists one activity line per client (`GET /dvr`), keyed by the channel and, for a client
+on the network, the source: `6-stream-M3U-DispatcharrMPEGTS-4-192.168.30.2` or
+`7-ch1009-dM3U-Alabama-ip172.17.0.1`. A client away from home names no source
+(`7-ch4-dANY-26688a6db1d2`), so lines are grouped by channel, as the tuner pill counts, and the
+source comes from whichever line names it, shown by its name in Channels (`GET /devices`).
+
+The channel's name is the one in the activity line, else the guide's. Each client is named, and the
+stream timed, from Tracearr's own session for that line, so proxy and Tailscale device names
+(#63) carry over; a client Tracearr hasn't picked up yet shows the name in the line, else its IP.
+Playback of recordings uses no stream from a source and stays out of the list.
+
+Built from a real read of a shared stream and run on a server with it: an Apple TV at home and a
+remote Apple TV on channel 4 show as one row with a chip for each, and the source by its name.
+
 ## November 28, 2026 — Upstream main through 494051d1d (3.3.0 release notes)
 
 Merges Connor's `main` from `82a0cd1c` (3.3.0-beta.4, merged in #78) through `494051d1d`: six

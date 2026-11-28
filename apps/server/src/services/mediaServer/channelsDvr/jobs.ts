@@ -149,6 +149,23 @@ export function parseTunerSources(data: unknown): TunerSource[] {
   return sources;
 }
 
+/**
+ * Every source's name in Channels by its device id, M3U and virtual sources included, for naming
+ * the source a live stream comes from (fork).
+ */
+export function parseDeviceNames(data: unknown): Map<string, string> {
+  const names = new Map<string, string>();
+  if (!Array.isArray(data)) return names;
+  for (const raw of data) {
+    if (!raw || typeof raw !== 'object') continue;
+    const device = raw as Record<string, unknown>;
+    const id = str(device.DeviceID);
+    const name = str(device.FriendlyName);
+    if (id && name) names.set(id, name);
+  }
+  return names;
+}
+
 /** More recordings than tuners at once on one source. */
 export interface TunerConflict {
   /** The source's name, as Channels shows it */
