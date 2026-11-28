@@ -1,5 +1,157 @@
 # Tracearr Fork Information
 
+## November 28, 2026 — Release v3.3.0-r1
+
+On upstream 3.3.0 (`68e71568`), Connor's release. It carries every entry from November 26 to 28
+below that came after r3:
+
+- Upstream 3.3.0 (#78, #79, #81): profiles, the imported Plex history repair, Silo as a fifth
+  upstream server type, fewer disk writes, and server colours from each logo. Dispatcharr and
+  Channels DVR keep theirs, and their error codes are now `EXT_901` and `EXT_902`.
+- Channels DVR card: Streaming Now, one row per shared stream with a chip for each client, and
+  "· 1 shared" on the tuner pill (#80)
+- Dispatcharr and Channels DVR shown in the mobile app again, now that Connor's app no longer stops
+  on server types it doesn't know (#78)
+- The E2E seed waits out a concurrent refresh of `library_stats_daily` (#79), and a FORK_INFO
+  correction (#77)
+
+Migrations 0133–0137 run on start, so back up before updating; going back to r3 needs that backup.
+Everything here was seen on a running server with Plex, Dispatcharr and Channels DVR; the mobile app
+was checked on iPhone only, and Silo is untested here. The README's pinned example is `3.3.0-r1`.
+
+## November 28, 2026 — Upstream v3.3.0 (68e71568)
+
+Merges Connor's `main` from `494051d1d` (merged in #79) through `68e71568`, his `v3.3.0` release:
+four commits, none of them Tracearr's own code. The 3.3.0 release notes are dated the 28th,
+@types/react goes from 19.3.1 to 19.3.3, and the lockfile is refreshed with it (Connor's,
+unchanged). His helm chart sync to 3.3.0 is the only conflict; this fork removed the chart, and it
+stays removed.
+
+## November 28, 2026 — Channels DVR card: Streaming Now
+
+The Channels DVR card gets a Streaming Now list above Recording Now, like the Dispatcharr card's.
+Channels shares one stream from a channel's source between every client watching that channel,
+so each row is one stream: the channel's logo and name (its number when it has none), then
+"source · 2 viewers · 35 min", and a chip for each client connected to it. A recording on the
+same channel shares the stream too, and its row is tagged Recording. Beside the Dispatcharr card,
+where the Channels DVR card is half width, the detail line wraps rather than lose the time; at full
+width it's cut off.
+
+The tuner pill adds the shared streams while there are any: "1 of 5 tuners in use · 1 shared". A
+shared stream is a channel with more than one client, or a client and a recording, on one tuner.
+
+Channels lists one activity line per client (`GET /dvr`), keyed by the channel and, for a client
+on the network, the source: `6-stream-M3U-DispatcharrMPEGTS-4-192.168.30.2` or
+`7-ch1009-dM3U-Alabama-ip172.17.0.1`. A client away from home names no source
+(`7-ch4-dANY-26688a6db1d2`), so lines are grouped by channel, as the tuner pill counts, and the
+source comes from whichever line names it, shown by its name in Channels (`GET /devices`).
+
+The channel's name is the one in the activity line, else the guide's. Each client is named, and the
+stream timed, from Tracearr's own session for that line, so proxy and Tailscale device names
+(#63) carry over; a client Tracearr hasn't picked up yet shows the name in the line, else its IP.
+Playback of recordings uses no stream from a source and stays out of the list.
+
+Built from a real read of a shared stream and run on a server with it: an Apple TV at home and a
+remote Apple TV on channel 4 show as one row with a chip for each, and the source by its name.
+
+## November 28, 2026 — Upstream main through 494051d1d (3.3.0 release notes)
+
+Merges Connor's `main` from `82a0cd1c` (3.3.0-beta.4, merged in #78) through `494051d1d`: six
+commits, none of them Tracearr's own code.
+
+- 3.3.0 notes for the stable release: a headline, four highlights (profiles, the imported Plex
+  history repair, Silo, fewer disk writes) and a few more change lines. There is no `v3.3.0` tag
+  yet; the newest is still `v3.3.0-beta.4`.
+- better-auth 1.7.25 → 1.7.27 (server and web), @types/react 19.3.0 → 19.3.1, and the lockfile
+  refreshed with them. The merged lockfile is Connor's, unchanged.
+- Updated GeoLite2 City and ASN databases.
+- A change to the renovate workflow, which this fork removed; it stays removed. That was the only
+  conflict.
+
+Also in this PR: the E2E seed's refresh of `library_stats_daily` (this fork's, from #64) failed
+one CI shard with "could not refresh continuous aggregate ... due to a concurrent refresh", when
+another refresh of it was already running. It now waits half a second and tries again, up to 20
+times, and still fails on any other error.
+
+## November 27, 2026 — Dispatcharr and Channels DVR shown in the mobile app again
+
+Connor's app no longer stops working on a server type it doesn't have in its tables (Mobile-App
+`6fce3c7`, November 24: "unknown server types no longer crash the picker, dashboard and session
+screens"). It shows the type's raw name in the server picker, skips the type-specific details on
+a session, and leaves the server off the dashboard's CPU and memory charts.
+
+So `MOBILE_APP_SERVER_TYPES` (`apps/server/src/lib/mobileAppServers.ts`) now includes
+`dispatcharr` and `channels_dvr`, undoing the hiding from November 24 for those two. The app gets
+their servers, Now Playing, history, stats, users, alerts and push notifications like any other.
+The filtering itself stays, for a server id it can't find, and so a type can be hidden again in
+one line.
+
+Tested with the store app on two iPhones: a Dispatcharr stream shows on its card, and no CPU and
+memory charts appear for it, as above. An app that hasn't picked up Connor's fix would still stop
+on these servers. The Android app has not been tested.
+
+## November 26, 2026 — Upstream main through 3.3.0-beta.4 (82a0cd1c), with Silo
+
+Merges Connor's `main` from `6c9da518` (November 22, merged in #66) through `82a0cd1c`, his
+3.3.0-beta.4: 39 commits. Upstream is a 3.3.0 beta from here on, so this waits for 3.3.0 before a
+release.
+
+What it brings: Silo as a fifth upstream server type (added by a code an admin approves in Silo,
+its own events socket, resources, requests, watch history and profiles); per-user profiles on a
+server (a `server_profiles` table, a Profile column in History); repair jobs that relink imported
+plays to the right library item; server colours taken from each logo. Migrations 0133–0137 run on
+start: back up first.
+
+Conflicts (61 files) and how each was settled:
+
+- Files this fork removed and upstream edited (the vouch, labeler and renovate workflows,
+  `SECURITY.md`, the helm chart) stay removed.
+- Server types: `plex, jellyfin, emby, tofa, silo, dispatcharr, channels_dvr`. Every switch,
+  profile, schema and test lists all seven. Dispatcharr and Channels DVR take upstream's new
+  profile fields: `reusesItemKeys: false`, `hasProfiles: false`, `versionKind: 'release'`, and
+  `builtInRequests: false` (now a boolean).
+- Error codes: upstream gave tofa `EXT_005` and Silo `EXT_006`, the codes this fork had given
+  Dispatcharr and Channels DVR. Upstream's types keep upstream's codes; Dispatcharr is now
+  `EXT_901` and Channels DVR `EXT_902`, numbered apart so upstream's next codes can't collide.
+  Nothing matched on the old codes but one test.
+- Brand colours: upstream's types take upstream's colours from their logos; Dispatcharr
+  (`#14B8A6`) and Channels DVR (`#0EA5E9`) keep theirs.
+- Editing a server: upstream moved the checks into `services/serverChange.ts`. This fork's
+  Dispatcharr sign-in (token or username and password) and its skipped identity check (Dispatcharr
+  reports none) moved there with it.
+- Update checks: Silo reports a build hash and has no release feed, so it gets no latest version,
+  as upstream has it; the six-hour sweep and the minute watch for Channels DVR and Dispatcharr are
+  unchanged.
+- CPU and RAM charts: a server that reports nothing gets no line (upstream), and Silo, which has
+  no process CPU, is left off the CPU chart (upstream). Dispatcharr and Channels DVR are still
+  drawn from their host figure as "Name (System)" where their process reports none (this fork, a
+  `hostFallback` flag on the series). The single-server process line is named by the server's display name, "Plex" rather than
+  "Plex Media Server" (upstream).
+- History table: upstream's column widths (`historyColumns.ts`) replace this fork's, which did the
+  same job; the catch-up badge, no watched-tier badge on live TV, and title truncation stay. The
+  fork's three tests of its own widths are gone; its six live TV and catch-up tests run against
+  upstream's table.
+- Image proxy: upstream resolves a Silo image to its signed URL first; Channels DVR channel logos
+  and Plex outside art keep their own paths.
+- Newsletters: Dispatcharr and Channels DVR still get no item links.
+- Request services: upstream renamed the built-in type `tofa` to `server`; Seerr matching for
+  Dispatcharr and Channels DVR keeps what it had.
+- Mobile app: Connor's app now builds against 3.3.0-beta.4 and knows Silo, so Silo servers are no
+  longer hidden from it; Dispatcharr and Channels DVR still are. An app older than 3.3.0 stops on a
+  Silo server, as it would with upstream's Tracearr.
+- README: Silo added where it lists Tracearr's server types.
+- Dispatcharr and Channels DVR clients answer upstream's three new client calls (account
+  profiles, requests, request posters) with "not needed", as Plex does. Silo is in the media
+  library capability list, so its library syncs and history import run.
+- Tests: the fork's image proxy test stubbed all of `utils/http.js`, which also stubbed Silo's
+  catalog reads; only the Channels DVR guide read is stubbed now. Silo's poll trigger expects the
+  `{ immediateStops: false }` the fork passes, as the tofa test already did.
+
+Typecheck, lint, the server build and every test suite pass. Run on a server with Plex,
+Dispatcharr and Channels DVR: editing a server (the Dispatcharr sign-in included), the CPU and RAM
+charts, History, images and live sessions all work as before. Silo itself is upstream's and
+untested here: this fork has no Silo server to try it on.
+
 ## November 26, 2026 — Release v3.2.1-r3
 
 Still on upstream 3.2.1, plus Connor's `main` up to `6c9da518` (November 22, merged in #66), which
@@ -20,8 +172,8 @@ below that came after r2:
 - README rewritten for the fork, and upstream repo files this fork doesn't use removed (#68, #69)
 
 No new migrations, so updating from r2 needs no backup beyond the usual and r2 can be rolled back to
-without one. Not yet seen on a running server: the Dispatcharr card's failed-refresh pill; the
-mobile app was checked on iPhone only. The README's pinned example is
+without one. Everything in it has been seen on a running server; the mobile app was checked on
+iPhone only. The README's pinned example is
 `3.2.1-r3`.
 
 ## November 24, 2026 — Dispatcharr dev images: updates from Docker Hub's dev tag
@@ -203,8 +355,8 @@ Covered by unit tests (parsing, counting, Streaming Now, the client calls, the v
 card and the dashboard layout). Checked on a running server: the connections pills, the version
 pill, Streaming Now with two viewers sharing one channel and connection, Anonymous listed while
 "ignore Anonymous streams" is on, and the shared row beside Channels DVR. The "Channels DVR" chip
-was seen on November 23 (Recording Now entry), and the logos in the card titles by November 26. Not
-yet seen there: a failed-refresh pill.
+was seen on November 23 (Recording Now entry), the logos in the card titles by November 26, and a
+failed-refresh pill on November 26.
 
 ## November 23, 2026 — Dev images skip pushes that don't change the image
 

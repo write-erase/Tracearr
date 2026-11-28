@@ -69,9 +69,9 @@ function locationFilters(query: LocationStatsQueryInput, request: FastifyRequest
     strict: false,
   });
   const serverFragment = buildMultiServerFragment(resolvedIds, 's.server_id');
-  const userFragment = buildUserFilterFragment(serverUserId, serverUserIds as string[] | undefined);
+  const userFragment = buildUserFilterFragment(serverUserId, serverUserIds);
 
-  // Mirrors buildHistoryFilterConditions in routes/sessions.ts so a location's count equals
+  // Mirrors buildHistoryFilterConditions in routes/sessions/history.ts so a location's count equals
   // History's play count for the same filters.
   const scoped = scopeSessionsRaw(request.scope, sql`s.server_user_id`);
   const baseConditions: SQL[] = [sql`s.geo_country IS NOT NULL`];

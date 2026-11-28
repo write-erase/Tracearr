@@ -219,6 +219,9 @@ async function latestForServer(
         latestFor: sameForAll(server.type, await tofaUpdateVersion(server)),
         installed: known,
       };
+    // Silo reports a build hash and publishes no feed Tracearr reads, so it has no latest version.
+    case 'silo':
+      return { latestFor: sameForAll(server.type, null), installed: known };
     case 'dispatcharr': {
       const installed = known ?? (await installedVersionOf(server)) ?? undefined;
       if (installed && isDispatcharrDevVersion(installed)) {

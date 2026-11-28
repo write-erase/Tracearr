@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
 import type {
   ChannelsDvrRecentEntry,
+  ChannelsDvrStreamEntry,
   ChannelsDvrTunerUsage,
   ChannelsDvrUpcomingEntry,
 } from '@tracearr/shared';
@@ -432,5 +433,103 @@ describe('Channels DVR version pill', () => {
     render(<RecordingNowSection recordings={[]} versions={[]} />);
     expect(screen.queryByTestId('dvr-update')).toBeNull();
     expect(screen.queryByTestId('dvr-up-to-date')).toBeNull();
+  });
+});
+
+describe('RecordingNowSection streaming now (fork)', () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(NOW);
+  });
+  afterEach(() => vi.useRealTimers());
+
+  const stream = (overrides: Partial<ChannelsDvrStreamEntry> = {}): ChannelsDvrStreamEntry => ({
+    serverId: 'cdvr',
+    serverName: 'Channels',
+    channelNumber: '4',
+    channelTitle: 'NBC KFOR',
+    thumbPath: '/dvr/guide/channels/4/logo',
+    sourceName: 'Trilo',
+    startedAt: new Date(NOW.getTime() - 35 * 60_000).toISOString(),
+    recording: false,
+    viewers: ['Apple TV', "Craig's Apple TV"],
+    ...overrides,
+  });
+
+  it('says nothing is streaming when no client is watching live TV', () => {
+    render(<RecordingNowSection recordings={[]} streams={[]} />);
+    expect(screen.getByTestId('channels-streaming-idle')).toBeTruthy();
+    expect(screen.queryByTestId('channels-stream')).toBeNull();
+  });
+
+  it('shows one row per shared stream, with its source, viewer count and a chip per client', () => {
+    render(<RecordingNowSection recordings={[]} streams={[stream()]} />);
+
+    const row = screen.getByTestId('channels-stream');
+    expect(row.textContent).toContain('NBC KFOR');
+    expect(row.textContent).toContain('Trilo');
+    // A named channel isn't numbered too
+    expect(row.textContent).not.toContain('dashboard.recording.channel:');
+    expect(row.textContent).toContain('dashboard.recording.viewers:');
+    expect(row.textContent).toContain('"count":2');
+    expect(row.querySelector('img')?.getAttribute('src')).toContain(
+      encodeURIComponent('/dvr/guide/channels/4/logo')
+    );
+    const chips = screen.getAllByTestId('channels-stream-viewer').map((chip) => chip.textContent);
+    expect(chips).toEqual(['Apple TV', "Craig's Apple TV"]);
+    expect(screen.queryByTestId('channels-stream-recording')).toBeNull();
+  });
+
+  it('tags a stream a recording shares, and names an unnamed channel by its number', () => {
+    render(
+      <RecordingNowSection
+        recordings={[]}
+        streams={[stream({ channelTitle: null, sourceName: null, recording: true })]}
+      />
+    );
+
+    const row = screen.getByTestId('channels-stream');
+    expect(row.textContent).toContain('dashboard.recording.channel:');
+    expect(row.textContent).toContain('"number":"4"');
+    expect(row.textContent).not.toContain('Trilo');
+    expect(screen.getByTestId('channels-stream-recording')).toBeTruthy();
+  });
+
+  it('cuts the detail line off at full width, and wraps it beside the Dispatcharr card', () => {
+    const { unmount } = render(<RecordingNowSection recordings={[]} streams={[stream()]} />);
+    expect(screen.getByTestId('channels-stream-detail').className).toContain('truncate');
+    unmount();
+
+    render(<RecordingNowSection recordings={[]} streams={[stream()]} halfWidth />);
+    expect(screen.getByTestId('channels-stream-detail').className).not.toContain('truncate');
+  });
+
+  it('counts shared streams on the tuner pill, and says nothing of sharing without any', () => {
+    const { unmount } = render(
+      <RecordingNowSection
+        recordings={[]}
+        tuners={[{ serverId: 'cdvr', serverName: 'Channels', inUse: 2, total: 5 }]}
+        streams={[
+          stream(),
+          // One viewer and a recording on the same channel share a tuner too
+          stream({ channelNumber: '9', viewers: ['Den'], recording: true }),
+          // One viewer alone shares nothing
+          stream({ channelNumber: '23', viewers: ['Mac'] }),
+        ]}
+      />
+    );
+    expect(screen.getByTestId('tuner-usage').textContent).toMatch(
+      /dashboard\.recording\.tunersShared:.*"count":2/
+    );
+    unmount();
+
+    render(
+      <RecordingNowSection
+        recordings={[]}
+        tuners={[{ serverId: 'cdvr', serverName: 'Channels', inUse: 1, total: 5 }]}
+        streams={[stream({ viewers: ['Apple TV'] })]}
+      />
+    );
+    expect(screen.getByTestId('tuner-usage').textContent).not.toContain('tunersShared');
   });
 });

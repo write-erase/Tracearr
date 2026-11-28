@@ -23,6 +23,7 @@ import {
   type HistorySessionResponse,
   type HistoryAggregates,
   type ChannelsDvrScheduleResponse,
+  type ChannelsDvrStreamEntry,
   type DispatcharrOverviewResponse,
   DEFAULT_DISK_ALERT_PERCENT,
 } from '@tracearr/shared';
@@ -41,6 +42,7 @@ import { getCacheService } from '../../services/cache.js';
 import { ChannelsDvrClient } from '../../services/mediaServer/channelsDvr/client.js';
 import { DispatcharrClient } from '../../services/mediaServer/dispatcharr/client.js';
 import { getActiveAutomations } from '../../jobs/poller/database.js';
+import { readCurrentProfiles, serversHaveProfiles } from '../../services/profiles.js';
 import {
   assertInScope,
   memberCacheSegment,
@@ -58,7 +60,7 @@ import {
   fetchSessionPage,
   parseHistoryCursor,
 } from './history.js';
-import { mapHistoryRow } from './historyRow.js';
+import { mapHistoryRows } from './historyRow.js';
 
 /** How long cleared recording issues are kept: past the day Recently Recorded covers (fork). */
 const CLEARED_ISSUES_TTL_SECONDS = 2 * 24 * 60 * 60;
@@ -103,9 +105,17 @@ export const sessionRoutes: FastifyPluginAsync = async (app) => {
     if (state) conditions.push(sql`s.state = ${state}`);
     conditions.push(mediaType ? sql`s.media_type = ${mediaType}` : historyMediaTypeDefault());
 
-    const sessionData = (
-      await fetchSessionPage(conditions, { startDate, endDate, pageSize, offset })
-    ).map(mapHistoryRow);
+    const sessionData = await mapHistoryRows(
+      await fetchSessionPage(conditions, {
+        startDate,
+        endDate,
+        pageSize,
+        offset,
+        hasProfiles: await serversHaveProfiles(
+          resolveServerIds(authUser, serverId, undefined, { strict: false })
+        ),
+      })
+    );
 
     const total = await countPlays(conditions);
 
@@ -158,6 +168,9 @@ export const sessionRoutes: FastifyPluginAsync = async (app) => {
       cursor: pageCursor,
       startDate: query.data.startDate,
       endDate: query.data.endDate,
+      hasProfiles: await serversHaveProfiles(
+        resolveServerIds(authUser, query.data.serverId, query.data.serverIds, { strict: false })
+      ),
     });
 
     const firstRow = rows[0];
@@ -167,7 +180,7 @@ export const sessionRoutes: FastifyPluginAsync = async (app) => {
       return { data: [], hasMore: false } satisfies HistorySessionResponse;
     }
 
-    const sessionData = rows.map(mapHistoryRow);
+    const sessionData = await mapHistoryRows(rows);
 
     // Generate next cursor
     const lastSession = sessionData[sessionData.length - 1];
@@ -346,11 +359,21 @@ export const sessionRoutes: FastifyPluginAsync = async (app) => {
         .map((alert) => alert.percent);
       return percents.length > 0 ? Math.max(...percents) : DEFAULT_DISK_ALERT_PERCENT;
     };
+    // Streaming Now names each client and times each stream from Tracearr's own sessions (fork)
+    const activeSessions =
+      visible.length > 0
+        ? await (getCacheService()?.getAllActiveSessions() ?? Promise.resolve([])).catch(() => [])
+        : [];
     const perServer = await Promise.all(
       visible.map(async (server) => {
         try {
           const client = new ChannelsDvrClient({ url: server.url, token: '' });
           const schedule = await client.getSchedule();
+          const sessionsByKey = new Map(
+            activeSessions
+              .filter((session) => session.serverId === server.id)
+              .map((session) => [session.sessionKey, session])
+          );
           const tag = { serverId: server.id, serverName: server.name };
           // Recordings whose issues an owner or admin cleared (fork); Redis down clears none
           const cleared = new Set(
@@ -370,10 +393,28 @@ export const sessionRoutes: FastifyPluginAsync = async (app) => {
             disks: schedule.disk
               ? [{ ...schedule.disk, ...tag, warnPercent: warnPercentFor(server.id) }]
               : [],
+            streams: schedule.streams.map((stream): ChannelsDvrStreamEntry => {
+              const sessions = stream.viewers.map((viewer) => sessionsByKey.get(viewer.key));
+              const starts = sessions
+                .map((session) => (session ? new Date(session.startedAt).getTime() : NaN))
+                .filter(Number.isFinite);
+              return {
+                ...tag,
+                channelNumber: stream.channelNumber,
+                channelTitle: stream.channelTitle,
+                thumbPath: stream.thumbPath,
+                sourceName: stream.sourceName,
+                recording: stream.recording,
+                startedAt: starts.length > 0 ? new Date(Math.min(...starts)).toISOString() : null,
+                viewers: stream.viewers.map(
+                  (viewer, index) => sessions[index]?.playerName ?? viewer.name
+                ),
+              };
+            }),
           };
         } catch (err) {
           app.log.debug({ serverId: server.id, err }, 'Channels DVR recordings unavailable');
-          return { recordings: [], upcoming: [], tuners: [], disks: [], recent: [] };
+          return { recordings: [], upcoming: [], tuners: [], disks: [], recent: [], streams: [] };
         }
       })
     );
@@ -385,6 +426,7 @@ export const sessionRoutes: FastifyPluginAsync = async (app) => {
       tuners: perServer.flatMap((s) => s.tuners),
       disks: perServer.flatMap((s) => s.disks),
       recent: perServer.flatMap((s) => s.recent).sort((a, b) => b.endedAt.localeCompare(a.endedAt)),
+      streams: perServer.flatMap((s) => s.streams),
     };
   });
 
@@ -680,7 +722,7 @@ export const sessionRoutes: FastifyPluginAsync = async (app) => {
       return reply.forbidden('You do not have access to this session');
     }
 
-    return mapSessionDetail(row);
+    return mapSessionDetail(row, await readCurrentProfiles(db, [row.profileId]));
   });
 
   /**

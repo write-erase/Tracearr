@@ -16,6 +16,8 @@ import {
   localSessionSql,
   playCountQuery,
   playSegmentsLateral,
+  profileColumnsSql,
+  profileFilterSql,
   startedAtRange,
   whereClause,
 } from '../../db/sessions/index.js';
@@ -45,6 +47,7 @@ export function buildHistoryFilterConditions(
 ): HistoryFilterResult {
   const {
     serverUserIds,
+    profileIds,
     serverId,
     serverIds: rawServerIds,
     state,
@@ -80,21 +83,21 @@ export function buildHistoryFilterConditions(
   if (!conditions) return null;
 
   if (serverUserIds && serverUserIds.length > 0) {
-    const ids = serverUserIds as string[];
-    if (ids.length === 1) {
-      conditions.push(sql`s.server_user_id = ${ids[0]}`);
+    if (serverUserIds.length === 1) {
+      conditions.push(sql`s.server_user_id = ${serverUserIds[0]}`);
     } else {
-      const userIdList = ids.map((id) => sql`${id}`);
+      const userIdList = serverUserIds.map((id) => sql`${id}`);
       conditions.push(sql`s.server_user_id IN (${sql.join(userIdList, sql`, `)})`);
     }
   }
+  const byProfile = profileFilterSql(profileIds);
+  if (byProfile) conditions.push(byProfile);
   if (state) conditions.push(sql`s.state = ${state}`);
   if (mediaTypes && mediaTypes.length > 0) {
-    const types = mediaTypes as string[];
-    if (types.length === 1) {
-      conditions.push(sql`s.media_type = ${types[0]}`);
+    if (mediaTypes.length === 1) {
+      conditions.push(sql`s.media_type = ${mediaTypes[0]}`);
     } else {
-      const mediaTypeList = types.map((t) => sql`${t}`);
+      const mediaTypeList = mediaTypes.map((t) => sql`${t}`);
       conditions.push(sql`s.media_type IN (${sql.join(mediaTypeList, sql`, `)})`);
     }
   } else {
@@ -124,11 +127,10 @@ export function buildHistoryFilterConditions(
   }
 
   if (platforms && platforms.length > 0) {
-    const plats = platforms as string[];
-    if (plats.length === 1) {
-      conditions.push(sql`s.platform = ${plats[0]}`);
+    if (platforms.length === 1) {
+      conditions.push(sql`s.platform = ${platforms[0]}`);
     } else {
-      const platformList = plats.map((p) => sql`${p}`);
+      const platformList = platforms.map((p) => sql`${p}`);
       conditions.push(sql`s.platform IN (${sql.join(platformList, sql`, `)})`);
     }
   }
@@ -138,11 +140,10 @@ export function buildHistoryFilterConditions(
 
   if (ipAddress) conditions.push(sql`s.ip_address = ${ipAddress}`);
   if (geoCountries && geoCountries.length > 0) {
-    const countries = geoCountries as string[];
-    if (countries.length === 1) {
-      conditions.push(sql`s.geo_country = ${countries[0]}`);
+    if (geoCountries.length === 1) {
+      conditions.push(sql`s.geo_country = ${geoCountries[0]}`);
     } else {
-      const countryList = countries.map((c) => sql`${c}`);
+      const countryList = geoCountries.map((c) => sql`${c}`);
       conditions.push(sql`s.geo_country IN (${sql.join(countryList, sql`, `)})`);
     }
   }
@@ -195,7 +196,8 @@ export function buildCacheFingerprint(params: Record<string, unknown>): string {
 }
 
 /** The columns mapHistoryRow reads, over plays gs joined to their first segment s. */
-const HISTORY_ROW_COLUMNS = sql`
+function historyRowColumns(hasProfiles: boolean): SQL {
+  return sql`
     gs.play_id as id,
     gs.started_at,
     gs.last_started_at,
@@ -238,7 +240,7 @@ const HISTORY_ROW_COLUMNS = sql`
     s.geo_asn_number,
     s.geo_asn_organization,
     ${localSessionSql('s')} AS is_local,
-    s.profile_name,
+    ${profileColumnsSql(hasProfiles)},
     s.player_name,
     s.device_id, ${dispatcharrDeviceIdSql('s')} AS dispatcharr_device_id,
     s.product,
@@ -263,24 +265,36 @@ const HISTORY_ROW_COLUMNS = sql`
     s.transcode_info,
     s.subtitle_info
 `;
+}
+
+/** The joins historyRowColumns reads beyond the first segment s. */
+const HISTORY_ROW_JOINS = sql`
+      JOIN server_users su ON su.id = s.server_user_id
+      JOIN servers sv ON sv.id = s.server_id
+      LEFT JOIN users u ON u.id = su.user_id
+`;
 
 /** One page of plays grouped by reference_id, newest first, for GET /sessions. */
 export async function fetchSessionPage(
   conditions: SQL[],
-  page: { startDate?: Date; endDate?: Date; pageSize: number; offset: number }
+  page: {
+    startDate?: Date;
+    endDate?: Date;
+    pageSize: number;
+    offset: number;
+    hasProfiles: boolean;
+  }
 ): Promise<HistoryRow[]> {
-  const { startDate, endDate, pageSize, offset } = page;
+  const { startDate, endDate, pageSize, offset, hasProfiles } = page;
   const result = await db.execute(sql`
       WITH grouped_sessions AS (${groupedPlaysCte({
         where: conditions,
         orderLimit: sql`ORDER BY MIN(s.started_at) DESC LIMIT ${pageSize} OFFSET ${offset}`,
       })})
-      SELECT ${HISTORY_ROW_COLUMNS}
+      SELECT ${historyRowColumns(hasProfiles)}
       FROM grouped_sessions gs
       ${firstSegmentJoin({ alias: 'gs', boundsFrom: 'grouped_sessions' }, startedAtRange(startDate, endDate))}
-      JOIN server_users su ON su.id = s.server_user_id
-      JOIN servers sv ON sv.id = s.server_id
-      LEFT JOIN users u ON u.id = su.user_id
+      ${HISTORY_ROW_JOINS}
       ORDER BY gs.started_at DESC
     `);
   return result.rows as unknown as HistoryRow[];
@@ -299,6 +313,7 @@ export interface HistoryPageParams {
   cursor: { time: Date; id: string; key: string | number | null } | null;
   startDate?: Date;
   endDate?: Date;
+  hasProfiles: boolean;
 }
 
 type HistoryCursor = NonNullable<HistoryPageParams['cursor']>;
@@ -391,7 +406,7 @@ export async function fetchHistoryPage(params: HistoryPageParams): Promise<Histo
  * as constants, which lets the planner drop chunks it would otherwise plan for InitPlans.
  */
 async function fetchStartedAtHistoryPage(params: HistoryPageParams): Promise<HistoryRow[]> {
-  const { conditions, pageSize, startDate, endDate } = params;
+  const { conditions, pageSize, startDate, endDate, hasProfiles } = params;
   const { dir, orderByExpr, havingClause } = pageOrder(params);
 
   // started_utc keeps the microseconds a JS Date would drop.
@@ -440,16 +455,14 @@ async function fetchStartedAtHistoryPage(params: HistoryPageParams): Promise<His
           sql`s.started_at <= ${ceiling}`,
         ],
       })})
-      SELECT ${HISTORY_ROW_COLUMNS},
+      SELECT ${historyRowColumns(hasProfiles)},
         lat.segments,
         NULL AS sort_key,
         ${candidates.length}::int AS page_candidate_count
       FROM grouped_sessions gs
       JOIN history_page_ids hp ON hp.play_id = gs.play_id
       ${firstSegmentJoin({ alias: 'gs', bounds: { min: lo, max: hi } }, startedAtRange(startDate, endDate))}
-      JOIN server_users su ON su.id = s.server_user_id
-      JOIN servers sv ON sv.id = s.server_id
-      LEFT JOIN users u ON u.id = su.user_id
+      ${HISTORY_ROW_JOINS}
       ${playSegmentsLateral('gs', startDate, lo)}
       ORDER BY hp.rn
     `);
@@ -458,7 +471,7 @@ async function fetchStartedAtHistoryPage(params: HistoryPageParams): Promise<His
 
 /** A keyset page in one statement, for any sort. */
 export async function fetchSortedHistoryPage(params: HistoryPageParams): Promise<HistoryRow[]> {
-  const { conditions, pageSize, startDate, endDate } = params;
+  const { conditions, pageSize, startDate, endDate, hasProfiles } = params;
   const { sortKeyExpr, mediaJoin, orderByExpr, havingClause } = pageOrder(params);
 
   // Full per-play aggregation is scoped to this page's play ids and to started_at between
@@ -492,16 +505,14 @@ export async function fetchSortedHistoryPage(params: HistoryPageParams): Promise
         SELECT play_id, started_at, last_started_at, sort_key, rn FROM history_page WHERE rn <= ${pageSize}
       ),
       grouped_sessions AS (${groupedPlaysCte({ where: groupedConditions })})
-      SELECT ${HISTORY_ROW_COLUMNS},
+      SELECT ${historyRowColumns(hasProfiles)},
         lat.segments,
         hp.sort_key,
         (SELECT count(*) FROM history_page)::int as page_candidate_count
       FROM grouped_sessions gs
       JOIN history_page_ids hp ON hp.play_id = gs.play_id
       ${firstSegmentJoin({ alias: 'gs', boundsFrom: 'history_page_ids' }, startedAtRange(startDate, endDate))}
-      JOIN server_users su ON su.id = s.server_user_id
-      JOIN servers sv ON sv.id = s.server_id
-      LEFT JOIN users u ON u.id = su.user_id
+      ${HISTORY_ROW_JOINS}
       ${playSegmentsLateral('gs', startDate)}
       ORDER BY hp.rn
     `);

@@ -33,6 +33,7 @@ import {
 import { describeChannelsClient } from './macClient.js';
 import {
   countTunersInUse,
+  parseDeviceNames,
   parseDisk,
   parseDvrJobStatuses,
   parseJobs,
@@ -47,6 +48,7 @@ import {
 } from './jobs.js';
 import type { ChannelsDvrActivityEntry } from './parser.js';
 import { parseLineups, type LineupSource } from './lineup.js';
+import { groupLiveStreams } from './streams.js';
 import { recentRecordings, type RecentRecording, type RecentRecordingIssue } from './recent.js';
 import { runChannelsDvrCheck } from './check.js';
 import { isDockerGatewayAddress, type ChannelsDvrCheck } from '@tracearr/shared';
@@ -58,7 +60,7 @@ const TUNERS_CACHE_TTL_MS = 5 * 60 * 1000;
 const jobsCache = new Map<string, { data: ChannelsDvrJob[]; expiresAt: number }>();
 const tunersCache = new Map<
   string,
-  { total: number | null; sources: TunerSource[]; expiresAt: number }
+  { total: number | null; sources: TunerSource[]; names: Map<string, string>; expiresAt: number }
 >();
 /**
  * `GET /dvr/files` lists the whole DVR library, imports included, so the dashboard's Recently
@@ -189,6 +191,22 @@ export interface ChannelsDvrSchedule {
   disk: { freeBytes: number; totalBytes: number } | null;
   /** Recordings finished in the last day, newest first; empty when the file list is unavailable */
   recent: ChannelsDvrRecentRecording[];
+  /** Live channels streaming now and the clients sharing each (fork) */
+  streams: ChannelsDvrStream[];
+}
+
+/** A live channel streaming now: one stream from its source, shared by every client on it (fork) */
+export interface ChannelsDvrStream {
+  channelNumber: string;
+  channelTitle: string | null;
+  /** The channel's guide logo, for the image proxy; null for a channel number it can't name */
+  thumbPath: string | null;
+  /** The tuner source's name in Channels; null when no client's activity line names it */
+  sourceName: string | null;
+  /** A recording on the same channel is sharing the stream */
+  recording: boolean;
+  /** Each client: its activity key (Tracearr's session key) and its name in the line, else its IP */
+  viewers: { key: string; name: string }[];
 }
 
 export class ChannelsDvrClient implements IMediaServerClient {
@@ -786,7 +804,11 @@ export class ChannelsDvrClient implements IMediaServerClient {
    * Total tuners across the DVR's sources, and each source's tuners and channels for the
    * conflict check (`GET /devices`).
    */
-  private async getTuners(): Promise<{ total: number | null; sources: TunerSource[] }> {
+  private async getTuners(): Promise<{
+    total: number | null;
+    sources: TunerSource[];
+    names: Map<string, string>;
+  }> {
     const cached = tunersCache.get(this.baseUrl);
     if (cached && cached.expiresAt > Date.now()) return cached;
     const data = await fetchJson<unknown>(`${this.baseUrl}/devices`, {
@@ -794,7 +816,11 @@ export class ChannelsDvrClient implements IMediaServerClient {
       service: 'channels-dvr',
       timeout: 10000,
     });
-    const tuners = { total: parseTunerTotal(data), sources: parseTunerSources(data) };
+    const tuners = {
+      total: parseTunerTotal(data),
+      sources: parseTunerSources(data),
+      names: parseDeviceNames(data),
+    };
     tunersCache.set(this.baseUrl, { ...tuners, expiresAt: Date.now() + TUNERS_CACHE_TTL_MS });
     return tuners;
   }
@@ -830,15 +856,18 @@ export class ChannelsDvrClient implements IMediaServerClient {
     // Every queued job counts, not just the ones shown, so a conflict with a recording further
     // down the list (or one already running) still shows on the rows that are listed.
     const conflicts = findTunerConflicts(jobs, tunerInfo?.sources ?? [], nowSec);
-    const [guide, passJobIds] =
+    const live = groupLiveStreams(entries);
+    const [guide, passJobIds] = await Promise.all([
+      // Coming Up and Streaming Now name their channels from the guide
+      next.length > 0 || live.length > 0
+        ? this.getGuideDataForSession().catch(() => null)
+        : Promise.resolve(null),
+      // Which jobs a series pass scheduled: only GET /dvr/jobs says (RuleID). Without it
+      // every job falls back to Cancel, as before.
       next.length > 0
-        ? await Promise.all([
-            this.getGuideDataForSession(),
-            // Which jobs a series pass scheduled: only GET /dvr/jobs says (RuleID). Without it
-            // every job falls back to Cancel, as before.
-            this.getPassJobIds().catch(() => new Set<string>()),
-          ])
-        : [null, new Set<string>()];
+        ? this.getPassJobIds().catch(() => new Set<string>())
+        : Promise.resolve(new Set<string>()),
+    ]);
     const upcoming = next.map((job): ChannelsDvrUpcomingRecording => {
       const channelNumber = job.channels[0] ?? null;
       return {
@@ -892,7 +921,21 @@ export class ChannelsDvrClient implements IMediaServerClient {
         (file.channelNumber ? channelLogoPath(file.channelNumber) : null),
       issues: file.issues,
     }));
-    return { recordings, upcoming, tuners, disk: parseDisk(status), recent };
+    const recordingChannels = new Set(recordings.map((r) => r.channelNumber));
+    const streams = live.map((stream): ChannelsDvrStream => ({
+      channelNumber: stream.channelNumber,
+      // The name Channels writes in the activity line, else the guide's
+      channelTitle:
+        stream.channelTitle ??
+        (guide ? (this.getLiveAiring(guide, stream.channelNumber)?.channelTitle ?? null) : null),
+      thumbPath: channelLogoPath(stream.channelNumber),
+      sourceName: stream.deviceId
+        ? (tunerInfo?.names.get(stream.deviceId) ?? stream.deviceId)
+        : null,
+      recording: recordingChannels.has(stream.channelNumber),
+      viewers: stream.viewers,
+    }));
+    return { recordings, upcoming, tuners, disk: parseDisk(status), recent, streams };
   }
 
   /** Recordings finished in the last day (`GET /dvr/files`), newest first. */
@@ -1067,6 +1110,19 @@ export class ChannelsDvrClient implements IMediaServerClient {
    * user sync has something to work with; the poller also creates users from
    * sessions as they appear.
    */
+  // No profiles under an account, and no requests of its own (fork)
+  async getAccountProfiles(): Promise<NotNeeded> {
+    return NOT_NEEDED;
+  }
+
+  async getRequests(): Promise<NotNeeded> {
+    return NOT_NEEDED;
+  }
+
+  async getRequestPosterPath(): Promise<NotNeeded> {
+    return NOT_NEEDED;
+  }
+
   async getUsers(): Promise<MediaUser[]> {
     const data = await this.getDvrStatus();
     const byId = new Map<string, MediaUser>();

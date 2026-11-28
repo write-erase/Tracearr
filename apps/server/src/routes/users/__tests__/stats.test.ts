@@ -10,12 +10,19 @@ import sensible from '@fastify/sensible';
 import { randomUUID } from 'node:crypto';
 import type { AuthUser } from '@tracearr/shared';
 import type * as PeopleStatsModule from '../../../services/stats/peopleStats.js';
+import type * as QueriesModule from '../queries/index.js';
+import { PROFILE_TEST_SERVERS } from '../../../test/helpers.js';
 
 vi.mock('../../../db/client.js', () => ({ db: {} }));
 
-vi.mock('../queries/index.js', () => ({
+vi.mock('../queries/index.js', async (importActual) => ({
+  ...(await importActual<typeof QueriesModule>()),
   resolveIdentityScopedServerUserIds: vi.fn(),
 }));
+
+vi.mock('../../../jobs/poller/database.js', async (importOriginal) =>
+  (await import('../../../test/helpers.js')).withProfileTestServerTypes(importOriginal)
+);
 
 vi.mock('../../../services/stats/peopleStats.js', async (importActual) => ({
   ...(await importActual<typeof PeopleStatsModule>()),
@@ -26,6 +33,8 @@ import { resolveIdentityScopedServerUserIds } from '../queries/index.js';
 import { queryIdentityRangeStats } from '../../../services/stats/peopleStats.js';
 import { statsRoutes } from '../stats.js';
 import { permissionGuard } from '../../../lib/scope.js';
+
+const { plex: PLEX_SERVER, tofa: TOFA_SERVER } = PROFILE_TEST_SERVERS;
 
 const mockResolve = vi.mocked(resolveIdentityScopedServerUserIds);
 const mockStats = vi.mocked(queryIdentityRangeStats);
@@ -54,8 +63,9 @@ describe('GET /users/:id/stats', () => {
   beforeEach(async () => {
     vi.clearAllMocks();
     mockResolve.mockImplementation(async (_db, _user, id, scope) => ({
-      serverUser: { id, serverId: randomUUID(), userId: randomUUID() },
+      serverUser: { id, serverId: PLEX_SERVER, userId: randomUUID() },
       ids: scope === 'identity' ? [id, SIBLING] : [id],
+      serverIds: scope === 'identity' ? [PLEX_SERVER, TOFA_SERVER] : [PLEX_SERVER],
     }));
     app = await buildTestApp(owner());
   });
@@ -72,6 +82,14 @@ describe('GET /users/:id/stats', () => {
 
     await app.inject({ url: `/users/${ANCHOR}/stats` });
     expect(mockStats.mock.calls[1]?.[0].serverUserIds).toEqual([ANCHOR]);
+  });
+
+  it("tells the service whether any account's server has profiles", async () => {
+    await app.inject({ url: `/users/${ANCHOR}/stats?scope=identity` });
+    expect(mockStats.mock.calls[0]?.[0].hasProfiles).toBe(true);
+
+    await app.inject({ url: `/users/${ANCHOR}/stats` });
+    expect(mockStats.mock.calls[1]?.[0].hasProfiles).toBe(false);
   });
 
   it('rejects a custom range without dates with 400', async () => {

@@ -9,6 +9,7 @@ describe('server types', () => {
       'jellyfin',
       'emby',
       'tofa',
+      'silo',
       'dispatcharr',
       'channels_dvr',
     ]);
@@ -29,6 +30,7 @@ describe('server types', () => {
     ['jellyfin', true],
     ['emby', true],
     ['tofa', true],
+    ['silo', true],
     ['dispatcharr', true],
     ['channels_dvr', true],
   ] as const)('a %s server accepts a public address: %s', (type, accepted) => {

@@ -48,6 +48,7 @@
       "codeExpired": "This code expired.",
       "newCode": "New code",
       "refused": "Sign-in is not available for this account.",
+      "signInUnavailable": "Sign-in is not available on this server right now.",
       "notPermitted": "You are not permitted to sign in. Please contact the server owner."
     }
   },
@@ -119,7 +120,7 @@
     "othersStreaming_one": "{{count}} other stream playing",
     "othersStreaming_other": "{{count}} other streams playing",
     "dayStreak": "Day streak",
-    "noServers": "Connect a Plex, Jellyfin, Emby or tofa server to see its streams, history and libraries here.",
+    "noServers": "Connect a Plex, Jellyfin, Emby, tofa or Silo server to see its streams, history and libraries here.",
     "view": {
       "label": "Dashboard view",
       "admin": "Server",
@@ -162,6 +163,10 @@
     "tvWatchTime": "TV Watch Time",
     "recording": {
       "panelTitle": "Channels DVR",
+      "streamingNow": "Streaming Now",
+      "nothingStreaming": "Nothing streaming.",
+      "viewers_one": "{{count}} viewer",
+      "viewers_other": "{{count}} viewers",
       "title": "Recording Now",
       "badge": "Recording",
       "channel": "Channel {{number}}",
@@ -179,6 +184,8 @@
       "tuners": "{{inUse}} of {{total}} tuners in use",
       "tunersOnServer": "{{server}}: {{inUse}} of {{total}} tuners in use",
       "tunersHint": "One tuner per channel being watched live or recorded",
+      "tunersShared": "{{count}} shared",
+      "tunersSharedHint": "One tuner per channel being watched live or recorded. Everyone on the same channel, and a recording of it, share one tuner",
       "comingUp": "Coming Up",
       "comingUpCaption": "next 24 hours",
       "tomorrow": "Tomorrow {{time}}",
@@ -421,6 +428,7 @@
     "overallTrust": "Overall Trust",
     "serverScope": "Server",
     "allServers": "All servers",
+    "allProfiles": "All profiles",
     "title": "User Details",
     "editIdentity": "Edit name and contact email",
     "editIdentityDescription": "Both apply to this person everywhere. Leave the name empty to show @{{username}}.",
@@ -529,6 +537,7 @@
       "clearUsers": "Clear all users",
       "clearPlatforms": "Clear all platforms",
       "clearCountries": "Clear all countries",
+      "clearProfiles": "Clear all profiles",
       "clearFilters": "Clear all filters"
     },
     "detail": {
@@ -539,7 +548,7 @@
     },
     "stream": {
       "notAvailable": "N/A",
-      "bitrateUnavailable": "Jellyfin, Emby and tofa do not expose individual video and audio bitrates during transcoding. Only the total stream bitrate is available.",
+      "bitrateUnavailable": "Jellyfin, Emby, tofa and Silo do not expose individual video and audio bitrates during transcoding. Only the total stream bitrate is available.",
       "rebuffers": "Rebuffers",
       "droppedFrames": "Dropped frames",
       "stereo": "Stereo",
@@ -1028,7 +1037,8 @@
         "sourceVideoCodec": "Source video codec",
         "seasonNumber": "Season number",
         "episodeNumber": "Episode number",
-        "name": "Show and episode, or title"
+        "name": "Show and episode, or title",
+        "profile": "Profile, when not the main one"
       },
       "server": {
         "name": "Server name",
@@ -1166,7 +1176,7 @@
       "message_client": {
         "label": "Message Client",
         "description": "Send a message to the media player",
-        "hint": "Jellyfin and Emby only. Plex and tofa only show a message when killing a stream.",
+        "hint": "Jellyfin, Emby and Silo only. A Silo player without a live connection to Silo misses it. Plex and tofa only show a message when killing a stream.",
         "fields": {
           "target": {
             "description": "Which sessions to message"

@@ -77,6 +77,7 @@ function buildSessionStarted(payload: NotificationPayload, ctx: SessionContext):
         username: session.user.username,
         displayName: getUserDisplayName(session),
       },
+      profile: session.nonMainProfile ?? null,
       media: {
         title: mediaTitle,
         subtitle,
@@ -117,6 +118,7 @@ function buildSessionStopped(payload: NotificationPayload, ctx: SessionContext):
         username: session.user.username,
         displayName: getUserDisplayName(session),
       },
+      profile: session.nonMainProfile ?? null,
       media: {
         title: mediaTitle,
         subtitle,

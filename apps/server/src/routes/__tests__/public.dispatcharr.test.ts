@@ -59,6 +59,12 @@ vi.mock('../../services/termination.js', () => ({
   terminateSession: vi.fn(),
 }));
 
+vi.mock('../../services/profiles.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../services/profiles.js')>()),
+  serversHaveProfiles: vi.fn(async () => false),
+  readCurrentProfiles: vi.fn(async () => new Map()),
+}));
+
 vi.mock('../stats/queries.js', () => ({
   queryConcurrentStreams: vi.fn(),
   queryPlatforms: vi.fn(),

@@ -394,7 +394,28 @@ export async function seedCore(client: Client): Promise<void> {
   // Library readiness reads the daily aggregate, not the raw snapshots.
   // Refresh outside the transaction so a fresh CI database is ready immediately,
   // without waiting for Timescale's background refresh policy.
-  await client.query(
-    `CALL refresh_continuous_aggregate('library_stats_daily'::regclass, NULL, NULL)`
-  );
+  await refreshLibraryStatsDaily(client);
+}
+
+const REFRESH_ATTEMPTS = 20;
+const REFRESH_RETRY_MS = 500;
+
+/**
+ * Timescale refuses a refresh while another refresh of the same aggregate runs, such as its own
+ * refresh policy or the server's on start. That one is refreshing it anyway, so this waits and
+ * asks again until its own refresh goes through.
+ */
+async function refreshLibraryStatsDaily(client: Client): Promise<void> {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      await client.query(
+        `CALL refresh_continuous_aggregate('library_stats_daily'::regclass, NULL, NULL)`
+      );
+      return;
+    } catch (error) {
+      const concurrent = error instanceof Error && error.message.includes('concurrent refresh');
+      if (!concurrent || attempt >= REFRESH_ATTEMPTS) throw error;
+      await new Promise((resolve) => setTimeout(resolve, REFRESH_RETRY_MS));
+    }
+  }
 }

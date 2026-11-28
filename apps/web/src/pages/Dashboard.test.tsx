@@ -263,7 +263,7 @@ describe('Dashboard', () => {
         },
       ],
     };
-    const schedule = { data: [], upcoming: [], tuners: [], disks: [], recent: [] };
+    const schedule = { data: [], upcoming: [], tuners: [], disks: [], recent: [], streams: [] };
 
     function stats() {
       mockUseDashboardStats.mockReturnValue({

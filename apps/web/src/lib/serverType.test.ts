@@ -8,6 +8,7 @@ describe('isJellyfinEmby', () => {
     ['jellyfin', true],
     ['emby', true],
     ['tofa', false],
+    ['silo', false],
     ['dispatcharr', false],
     ['channels_dvr', false],
   ] as const)('%s is %s', (type, expected) => {
@@ -27,6 +28,7 @@ describe('holdsApiKey', () => {
     ['jellyfin', true],
     ['emby', true],
     ['tofa', true],
+    ['silo', true],
     ['dispatcharr', false],
     ['channels_dvr', false],
   ] as const)('%s is %s', (type, expected) => {

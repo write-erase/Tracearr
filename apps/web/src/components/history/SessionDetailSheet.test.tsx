@@ -65,6 +65,20 @@ describe('SessionDetailSheet', () => {
     auth.user.role = 'owner';
   });
 
+  it('shows no profile field for a main profile, which plays as the account', () => {
+    renderSheet({ profileId: 'p-morgan', profileName: 'Morgan' });
+
+    expect(screen.queryByText('labels.profile')).not.toBeInTheDocument();
+    expect(screen.queryByText(/Morgan/)).not.toBeInTheDocument();
+  });
+
+  it('gives a non-main profile its own field', () => {
+    renderSheet({ nonMainProfile: { name: 'Robin', thumbUrl: null, removed: false } });
+
+    expect(screen.getByText('labels.profile').nextSibling).toHaveTextContent('Robin');
+    expect(screen.getByRole('link', { name: /alice/ })).not.toHaveTextContent('Robin');
+  });
+
   it('shows no progress percentage for a play without a total', () => {
     renderSheet({ progressMs: 3_600_000, totalDurationMs: null });
 
@@ -135,6 +149,13 @@ describe('SessionDetailSheet', () => {
     expect(screen.getByText(/Pilot/).closest('a')).toBeNull();
   });
 
+  it('focuses the sheet on open rather than its first control, the IP address toggle', () => {
+    renderSheet({ ipAddress: '73.25.14.11' });
+
+    expect(screen.getByRole('dialog')).toHaveFocus();
+    expect(screen.getByRole('button', { name: /labels.ipAddress/ })).not.toHaveFocus();
+  });
+
   it('closes the sheet when a title link is followed', () => {
     const onOpenChange = vi.fn();
     renderSheet({ mediaId: 'movie-1' }, onOpenChange);
@@ -144,17 +165,15 @@ describe('SessionDetailSheet', () => {
     expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 
-  it('names tofa and the user alone, and labels a relayed play', () => {
+  it('names tofa and labels a relayed play', () => {
     renderSheet({
       server: { id: 'server-1', name: 'Den', type: 'tofa' },
-      profileName: 'Robin',
       geoCountry: 'Tofa Relay',
       sourceVideoCodec: 'hevc',
       transcodeInfo: { rebufferCount: 2, droppedFrames: 14 },
     });
 
     expect(screen.getByText('tofa')).toBeInTheDocument();
-    expect(screen.queryByText('· Robin')).toBeNull();
     expect(screen.getByText('Tofa Relay')).toBeInTheDocument();
     expect(screen.getByText('pages:history.stream.rebuffers')).toBeInTheDocument();
     expect(screen.getByText('14')).toBeInTheDocument();

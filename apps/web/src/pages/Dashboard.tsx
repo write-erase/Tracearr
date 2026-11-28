@@ -110,6 +110,7 @@ function ServerDashboard({ actions }: { actions?: ReactNode }) {
       tuners: schedule.tuners.filter(selected),
       disks: schedule.disks.filter(selected),
       recent: schedule.recent.filter(selected),
+      streams: schedule.streams.filter(selected),
     };
   }, [schedule, channelsServerIds]);
   const { isConnected } = useSocket();
@@ -173,11 +174,7 @@ function ServerDashboard({ actions }: { actions?: ReactNode }) {
       (serverStats?.length ?? 0) > 0);
 
   const liveSelected = selectedServers.filter((s) => !s.historicalAt);
-  const singleProcessLabel = singleServer
-    ? singleServer.type === 'plex'
-      ? 'Plex Media Server'
-      : SERVER_PROFILES[singleServer.type].displayName
-    : undefined;
+  const singleProcessLabel = singleProfile?.displayName;
 
   const {
     series: multiLiveStats,
@@ -237,6 +234,7 @@ function ServerDashboard({ actions }: { actions?: ReactNode }) {
                   {
                     ...seriesMeta(server),
                     gapSeconds: liveStatsGapSeconds(server.type),
+                    hostFallback: server.type === 'dispatcharr' || server.type === 'channels_dvr',
                     data: s.statistics,
                   },
                 ]
@@ -356,6 +354,7 @@ function ServerDashboard({ actions }: { actions?: ReactNode }) {
             tuners={dvr?.tuners}
             disks={dvr?.disks}
             recent={dvr?.recent}
+            streams={dvr?.streams}
             versions={channelsVersions}
             linkBases={channelsLinkBases}
             showServer={channelsServerIds.length > 1}

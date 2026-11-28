@@ -253,6 +253,8 @@ export interface ServerUserFullDetail {
     total: number;
     hasMore: boolean;
   };
+  /** The profiles of the identity's accounts, removed ones included */
+  profiles: ProfileFilterOption[];
   locations: UserLocation[];
   devices: UserDevice[];
   violations: {
@@ -372,8 +374,37 @@ export interface SetupStatus {
     /** SSO-only is hiding the owner's and admins' other methods; /login?all shows them. */
     ssoOnly: boolean;
   };
-  memberLoginServers: { id: string; name: string; type: ServerType; quickConnect: boolean }[];
+  memberLoginServers: {
+    id: string;
+    name: string;
+    type: ServerType;
+    /** A code the member approves on the server: Jellyfin's Quick Connect, Silo's pairing */
+    codeSignIn: boolean;
+    passwordSignIn: boolean;
+  }[];
 }
+
+/** What a Silo sign-in code is for: adding a server, replacing its key, or linking the owner's own account */
+export type SiloPairPurpose = 'add-server' | 'rekey' | 'link';
+
+export interface SiloPairStart {
+  handle: string;
+  userCode: string;
+  /** verification_uri_complete, on the server's public URL origin when Tracearr has one */
+  link: string;
+  expiresIn: number;
+  interval: number;
+}
+
+export type SiloPairCheck =
+  | { status: 'pending'; opened: boolean }
+  | { status: 'expired' }
+  | { status: 'not-admin' }
+  | { status: 'needs-pin'; wrongPin: boolean }
+  | { status: 'pin-locked' }
+  | { status: 'added'; server: Server; canStopStreams: boolean }
+  | { status: 'rekeyed'; oldKeyLeft: boolean }
+  | { status: 'linked' };
 
 // Session types
 export type SessionState = 'playing' | 'paused' | 'stopped';
@@ -514,6 +545,14 @@ export const DEFAULT_STREAM_DETAILS: StreamDetailFields = {
   subtitleInfo: null,
 };
 
+/** A profile other than its account's main one, as screens show it */
+export interface NonMainProfile {
+  name: string;
+  thumbUrl: string | null;
+  /** The server no longer lists the profile; its plays keep the last name it had */
+  removed: boolean;
+}
+
 export interface Session extends StreamDetailFields {
   id: string;
   serverId: string;
@@ -565,8 +604,18 @@ export interface Session extends StreamDetailFields {
   geoAsnOrganization: string | null;
   // A local network session; its geo fields hold its server's location when one is set
   isLocal: boolean;
-  /** The profile that played, where one account holds several (tofa); null elsewhere */
+  /**
+   * Tracearr's server_profiles id for the profile that played, where one account holds several
+   * (tofa); null elsewhere. The server's own id for it is MediaSession.user.profileId.
+   */
+  profileId: string | null;
+  /** The profile's current name, else the name stored with the play */
   profileName: string | null;
+  /**
+   * The profile that played, when it is not its account's main profile. A main profile shows as
+   * the account, so it is never set for one.
+   */
+  nonMainProfile?: NonMainProfile;
   playerName: string | null; // Friendly device name
   /** Stable Dispatcharr device identity; deviceId remains the provider connection ID. */
   dispatcharrDeviceId?: string | null;
@@ -999,6 +1048,17 @@ export interface UserRangeStats {
   serverPeakHour: number | null;
   personPeakHour: number | null;
   mediaTypeSplit: { movie: number; episode: number; track: number; other: number };
+  /** Plays and watch time per profile, for the profiles with a play in the range */
+  profiles: {
+    profileId: string;
+    name: string;
+    removed: boolean;
+    /** The account's main profile, which shows as the account */
+    main: boolean;
+    accountUsername: string;
+    plays: number;
+    watchMs: number;
+  }[];
   /** Top 6 */
   topGenres: { genre: string; plays: number }[];
   /** Top 5 */
@@ -1096,7 +1156,7 @@ export interface ServerResourceDataPoint {
   timespan: number;
   /** System-wide CPU utilization percentage; null when the source cannot see the host (non-Linux plugin hosts) */
   hostCpuUtilization: number | null;
-  /** Media server process CPU utilization percentage; null when the source does not report it (Channels DVR) */
+  /** Media server process CPU utilization percentage; null when the server reports none for its process (Silo, Channels DVR) */
   processCpuUtilization: number | null;
   /** System-wide memory utilization percentage; null when the source cannot see the host */
   hostMemoryUtilization: number | null;
@@ -1492,8 +1552,8 @@ export interface PlaybackReportingImportResult {
   }[];
 }
 
-// tofa watch history import types
-export interface TofaImportProgress {
+/** A server's own watch history import */
+export interface ServerHistoryImportProgress {
   serverId: string;
   status: 'idle' | 'waiting' | 'fetching' | 'processing' | 'retrying' | 'complete' | 'error';
   fetchedRecords: number;
@@ -1514,7 +1574,7 @@ export interface TofaImportProgress {
   retry?: ImportRetry;
 }
 
-export interface TofaImportResult {
+export interface ServerHistoryImportResult {
   /** Always true: a failed import throws */
   success: true;
   imported: number;
@@ -1593,7 +1653,7 @@ export interface ServerToClientEvents {
   'import:progress': (progress: TautulliImportProgress) => void;
   'import:jellystat:progress': (progress: JellystatImportProgress) => void;
   'import:playbackreporting:progress': (progress: PlaybackReportingImportProgress) => void;
-  'import:tofa:progress': (progress: TofaImportProgress) => void;
+  'import:server-history:progress': (progress: ServerHistoryImportProgress) => void;
   'maintenance:progress': (progress: MaintenanceJobProgress) => void;
   'library:sync:progress': (progress: LibrarySyncProgress) => void;
   'tasks:updated': (tasks: RunningTask[]) => void;
@@ -1658,7 +1718,7 @@ export interface UserDevice {
 }
 
 export type MediaDownloadSource =
-  'activity_log' | 'emby_sync' | 'plex' | 'jellyfin_transcode' | 'tofa';
+  'activity_log' | 'emby_sync' | 'plex' | 'jellyfin_transcode' | 'tofa' | 'silo';
 
 export interface MediaDownloadRow {
   id: string;
@@ -1669,6 +1729,8 @@ export interface MediaDownloadRow {
   username: string | null;
   identityName: string | null;
   thumbUrl: string | null;
+  /** The profile that downloaded, when it is not the account's main one */
+  nonMainProfile?: NonMainProfile;
   libraryItemId: string | null;
   mediaId: string | null;
   title: string;
@@ -1779,6 +1841,20 @@ export interface UserFilterOption {
 }
 
 /**
+ * Profile option for the profile filter, grouped by its account in the dropdown.
+ */
+export interface ProfileFilterOption {
+  id: string;
+  name: string;
+  serverUserId: string;
+  accountUsername: string;
+  serverName: string;
+  /** The account's main profile, which shows as the account */
+  main: boolean;
+  removed: boolean;
+}
+
+/**
  * Server option for server filter dropdown.
  */
 export interface ServerFilterOption {
@@ -1814,6 +1890,8 @@ export interface HistoryFilterOptions {
   cities: FilterOptionItem[];
   /** Available users (with avatar info) */
   users: UserFilterOption[];
+  /** Profiles on the selected servers, removed ones included */
+  profiles: ProfileFilterOption[];
   /** Available servers (optional, included when requested) */
   servers?: ServerFilterOption[];
 }
@@ -1822,7 +1900,10 @@ export interface HistoryFilterOptions {
  * Extended filter options for rules builder.
  * Includes all countries with session indicators and servers.
  */
-export interface AutomationFilterOptions extends Omit<HistoryFilterOptions, 'countries'> {
+export interface AutomationFilterOptions extends Omit<
+  HistoryFilterOptions,
+  'countries' | 'profiles'
+> {
   /** All countries with session activity indicator */
   countries: CountryOption[];
   /** Available servers */
@@ -2334,7 +2415,9 @@ export type MaintenanceJobType =
   | 'backfill_session_identity'
   | 'remove_import_duplicates'
   | 'link_imported_history'
-  | 'sync_server_locations';
+  | 'sync_server_locations'
+  | 'backfill_tofa_profiles'
+  | 'repair_imported_links';
 
 export type MaintenanceJobStatus = 'idle' | 'waiting' | 'running' | 'complete' | 'error';
 
@@ -2373,7 +2456,7 @@ export type RunningTaskType =
   | 'tautulli_import'
   | 'jellystat_import'
   | 'playback_reporting_import'
-  | 'tofa_import'
+  | 'server_history_import'
   | 'image_precache'
   | 'maintenance';
 
@@ -3373,6 +3456,28 @@ export interface ChannelsDvrRecentEntry {
   issuesCleared: boolean;
 }
 
+/**
+ * A live channel streaming on a Channels DVR server now (fork). Channels shares one stream from
+ * the channel's source between every client watching it, so this is one tuner, or one provider
+ * connection for an M3U source, however many are connected.
+ */
+export interface ChannelsDvrStreamEntry {
+  serverId: string;
+  serverName: string;
+  channelNumber: string;
+  channelTitle: string | null;
+  /** The channel's guide logo on the Channels DVR server, for the image proxy */
+  thumbPath: string | null;
+  /** The tuner source's name in Channels; null when no client's activity names it */
+  sourceName: string | null;
+  /** When the first client still watching started, from Tracearr's session; null when unknown */
+  startedAt: string | null;
+  /** A recording on the same channel is sharing the stream */
+  recording: boolean;
+  /** Who is connected: each client's device name, else its IP address */
+  viewers: string[];
+}
+
 /** GET /sessions/recordings */
 export interface ChannelsDvrScheduleResponse {
   /** Recordings in progress */
@@ -3382,6 +3487,8 @@ export interface ChannelsDvrScheduleResponse {
   disks: ChannelsDvrDiskUsage[];
   /** Recordings finished in the last day, newest first across servers */
   recent: ChannelsDvrRecentEntry[];
+  /** Live channels streaming now, with the clients sharing each (fork) */
+  streams: ChannelsDvrStreamEntry[];
 }
 
 /**

@@ -6,7 +6,7 @@
  * bounded batches and is resumable: sessions whose rating key has no resolvable
  * library item are excluded so they never re-select.
  *
- * Run with: pnpm --filter @tracearr/server test:integration -- sessionIdentityBackfill
+ * Run with: pnpm --filter @tracearr/server test:integration sessionIdentityBackfill
  */
 
 import { randomUUID } from 'node:crypto';
@@ -27,6 +27,7 @@ import { setSetting } from '../../src/services/settings.js';
 import { getCompressedSessionChunkRanges, getSessionChunkRanges } from '../../src/db/timescale.js';
 import { resolveMediaForItem } from '../../src/services/library/mediaResolutionService.js';
 import { stampPendingSessionIdentity } from '../../src/services/librarySync.js';
+import { IMPORTED_LINK_REPAIR_VERSION } from '../../src/jobs/importedLinkRepair.js';
 import {
   backfillSessionIdentityBatch,
   fullScanFloors,
@@ -1087,6 +1088,68 @@ describe('session identity backfill', () => {
     expect(await linkOf('ep-legacy')).toEqual({ media_id: episodeId, show_media_id: showId });
   });
 
+  async function importedOnReusedKey(type: 'plex' | 'jellyfin') {
+    const server = await createTestServer({ type });
+    const user = await createTestUser();
+    const su = await createTestServerUser({ userId: user.id, serverId: server.id });
+    const showId = await resolveMediaForItem({
+      mediaType: 'show',
+      tvdbId: 61_801,
+      title: 'The Blacklist',
+      year: 2013,
+      serverId: server.id,
+      ratingKey: 'blacklist',
+    });
+    const episodeId = await resolveMediaForItem({
+      mediaType: 'episode',
+      tvdbId: 61_802,
+      title: 'Orion Relocation Services',
+      year: 2019,
+      serverId: server.id,
+      ratingKey: 'reused-key',
+      showMediaId: showId,
+      seasonNumber: 7,
+      episodeNumber: 9,
+    });
+    await createTestLibraryItem({
+      serverId: server.id,
+      ratingKey: 'reused-key',
+      title: 'Orion Relocation Services',
+      year: 2019,
+      mediaType: 'episode',
+      grandparentTitle: 'The Blacklist',
+      grandparentRatingKey: 'blacklist',
+      parentIndex: 7,
+      itemIndex: 9,
+      mediaId: episodeId,
+    });
+    await createTestSession({
+      serverId: server.id,
+      serverUserId: su.id,
+      externalSessionId: 'import-forged-s7e17',
+      ratingKey: 'reused-key',
+      mediaType: 'episode',
+      mediaTitle: 'Charlemagne’s Sword',
+      grandparentTitle: 'Forged in Fire',
+      seasonNumber: 7,
+      episodeNumber: 17,
+      year: 2020,
+      startedAt: daysAgo(2),
+    });
+    await backfillSessionIdentityBatch(1000, undefined, undefined, { resolveImports: true });
+    return { episodeId, link: await linkOf('reused-key') };
+  }
+
+  it('fresh stamp refuses a key the repair unlinked', async () => {
+    const { episodeId, link } = await importedOnReusedKey('plex');
+    expect(link.media_id).not.toBe(episodeId);
+  });
+
+  it('fresh stamp keeps the provably-reused rule on a Jellyfin server', async () => {
+    const { episodeId, link } = await importedOnReusedKey('jellyfin');
+    expect(link.media_id).toBe(episodeId);
+  });
+
   it('never title-resolves a tracked play whose key a library item has held', async () => {
     const server = await createTestServer({ type: 'plex' });
     const user = await createTestUser();
@@ -1113,4 +1176,40 @@ describe('session identity backfill', () => {
     expect((await linkOf('held-key')).media_id).toBeNull();
     expect(await mediaRowsTitled('Harbor Gone')).toBe(0);
   });
+
+  it.each([
+    ['this', IMPORTED_LINK_REPAIR_VERSION],
+    ['an older', IMPORTED_LINK_REPAIR_VERSION - 1],
+  ])(
+    'the title pass does not relink a play %s repair version could not place',
+    async (_, version) => {
+      const server = await createTestServer({ type: 'plex' });
+      const user = await createTestUser();
+      const su = await createTestServerUser({ userId: user.id, serverId: server.id });
+      const imported = (ratingKey: string) =>
+        createTestSession({
+          serverId: server.id,
+          serverUserId: su.id,
+          externalSessionId: `import-${ratingKey}`,
+          ratingKey,
+          mediaType: 'movie',
+          mediaTitle: 'Harbor Gone',
+          year: 2001,
+          tmdbId: 61_501,
+          startedAt: daysAgo(2),
+        });
+      const unplaced = await imported('unplaced-key');
+      await imported('placed-key');
+      await db.execute(sql`
+      INSERT INTO session_link_repairs (session_id, started_at, repair_version, server_id, clause)
+      SELECT id, started_at, ${version}, server_id, 'numbers'
+      FROM sessions WHERE id = ${unplaced.id}::uuid
+    `);
+
+      await backfillSessionIdentityBatch(1000);
+
+      expect((await linkOf('unplaced-key')).media_id).toBeNull();
+      expect((await linkOf('placed-key')).media_id).not.toBeNull();
+    }
+  );
 });

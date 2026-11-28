@@ -406,6 +406,19 @@ export class DispatcharrClient implements IMediaServerClient {
     });
   }
 
+  // No profiles under an account, and no requests of its own (fork)
+  async getAccountProfiles(): Promise<NotNeeded> {
+    return NOT_NEEDED;
+  }
+
+  async getRequests(): Promise<NotNeeded> {
+    return NOT_NEEDED;
+  }
+
+  async getRequestPosterPath(): Promise<NotNeeded> {
+    return NOT_NEEDED;
+  }
+
   async getUsers(): Promise<MediaUser[]> {
     const users: MediaUser[] = [];
     let nextUrl: string | null = `${this.baseUrl}/api/accounts/users/`;

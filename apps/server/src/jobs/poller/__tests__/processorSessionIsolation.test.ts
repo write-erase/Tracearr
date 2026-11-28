@@ -85,6 +85,7 @@ vi.mock('../../notificationQueue.js', () => ({
 
 vi.mock('../database.js', () => ({
   onActiveAutomationsRefill: vi.fn(),
+  onServersCacheInvalidated: vi.fn(),
   getCachedServers: () => mockDbSelect().from(servers),
   getActiveAutomations: mockGetActiveAutomations,
   batchGetIdentityServerUserIds: vi.fn().mockResolvedValue(new Map()),
@@ -161,6 +162,8 @@ function createMockProcessedSession(overrides: Partial<ProcessedSession> = {}): 
   return {
     sessionKey: 'sk-1',
     ratingKey: 'rk-1',
+    profileExternalId: null,
+    profileId: null,
     externalUserId: 'ext-user-1',
     username: 'testuser',
     userThumb: '',

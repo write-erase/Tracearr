@@ -50,7 +50,7 @@ import type {
   TautulliImportProgress,
   JellystatImportProgress,
   PlaybackReportingImportProgress,
-  TofaImportProgress,
+  ServerHistoryImportProgress,
   MaintenanceJobProgress,
   LibrarySyncProgress,
   NotificationToast,
@@ -181,6 +181,7 @@ import {
   startMaintenanceWorker,
   shutdownMaintenanceQueue,
   enqueueServerLocationSyncIfBehind,
+  enqueueImportedLinkRepairIfBehind,
   seedSnapshotsNormalizedAt,
 } from './jobs/maintenanceQueue.js';
 import {
@@ -1073,6 +1074,9 @@ async function initializeServices(app: FastifyInstance) {
   void enqueueServerLocationSyncIfBehind().catch((err: unknown) => {
     app.log.error({ err }, 'Failed to check for a pending server location sync');
   });
+  void enqueueImportedLinkRepairIfBehind().catch((err: unknown) => {
+    app.log.error({ err }, 'Failed to check for a pending imported link repair');
+  });
 
   // Size the pg pool from the server's real max_connections and the live
   // instance count (no-op when DATABASE_POOL_MAX is set explicitly)
@@ -1452,8 +1456,11 @@ async function initializePostListen(app: FastifyInstance) {
             data as PlaybackReportingImportProgress
           );
           break;
-        case WS_EVENTS.IMPORT_TOFA_PROGRESS:
-          broadcastToSessions('import:tofa:progress', data as TofaImportProgress);
+        case WS_EVENTS.IMPORT_SERVER_HISTORY_PROGRESS:
+          broadcastToSessions(
+            'import:server-history:progress',
+            data as ServerHistoryImportProgress
+          );
           break;
         case WS_EVENTS.MAINTENANCE_PROGRESS:
           broadcastToSessions('maintenance:progress', data as MaintenanceJobProgress);

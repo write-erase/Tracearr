@@ -8,7 +8,13 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { ActiveSession, EngineAutomation, Session, TriggerNode } from '@tracearr/shared';
+import type {
+  ActiveSession,
+  EngineAutomation,
+  NonMainProfile,
+  Session,
+  TriggerNode,
+} from '@tracearr/shared';
 import type { EvaluationServer } from '../events/types.js';
 
 // ============================================================================
@@ -45,6 +51,12 @@ const mockLoadEvaluationContext = vi.fn();
 vi.mock('../events/contextAssembly.js', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
   loadEvaluationContext: (...args: unknown[]) => mockLoadEvaluationContext(...args),
+}));
+
+const mockReadCurrentProfiles = vi.fn();
+vi.mock('../../profiles.js', async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  readCurrentProfiles: (...args: unknown[]) => mockReadCurrentProfiles(...args),
 }));
 
 const mockCountDownloads = vi.fn();
@@ -158,13 +170,17 @@ type ParamlessTrigger = Exclude<
 
 const node = (type: ParamlessTrigger): TriggerNode => ({ id: `${type}-node`, type, enabled: true });
 
-function stoppedSession(): Session {
+const KIDS: NonMainProfile = { name: 'Kids', thumbUrl: null, removed: false };
+
+function stoppedSession(overrides: Partial<Session> = {}): Session {
   return {
     id: 'session-1',
     serverId: 'server-1',
     serverUserId: 'su-1',
     state: 'stopped',
     mediaTitle: 'Test Movie',
+    profileId: null,
+    ...overrides,
   } as Session;
 }
 
@@ -352,7 +368,7 @@ describe('dispatchSessionStopped', () => {
     const seen = captureEvents('session.ended', 'session.stopped');
     const at = new Date('2026-08-21T10:00:00Z');
 
-    await dispatchSessionStopped(stoppedSession(), 60_000, at);
+    await dispatchSessionStopped(stoppedSession({ profileId: 'p-1' }), 60_000, at);
 
     expect(seen).toHaveLength(1);
     expect(seen[0]?.event).toEqual({
@@ -362,6 +378,7 @@ describe('dispatchSessionStopped', () => {
       serverId: 'server-1',
     });
     expect(mockLoadEvaluationContext).not.toHaveBeenCalled();
+    expect(mockReadCurrentProfiles).not.toHaveBeenCalled();
   });
 
   it('carries server, account, session and durationMs once an automation listens', async () => {
@@ -421,6 +438,53 @@ describe('dispatchSessionStopped', () => {
       dispatchSessionStopped(stoppedSession(), 1_000, new Date())
     ).resolves.toBeUndefined();
     expect(seen.map(({ event }) => event.type)).toEqual(['session.ended']);
+  });
+
+  describe('with an automation listening', () => {
+    beforeEach(() => {
+      const rules = [automation([node('session.stopped')])];
+      mockGetActiveAutomations.mockResolvedValue(rules);
+      mockLoadEvaluationContext.mockResolvedValue({
+        server,
+        serverUser: { id: 'su-1', userId: 'u-1', identityServerUserIds: ['su-1'] },
+        inputs: { activeAutomations: rules, activeSessions: [], recentSessions: [] },
+      });
+    });
+
+    it('names the non-main profile of a stopped play from one read of its profile', async () => {
+      mockReadCurrentProfiles.mockResolvedValue(
+        new Map([['p-1', { name: 'Kids', nonMainProfile: { ...KIDS, removed: true } }]])
+      );
+      const seen = captureEvents('session.ended', 'session.stopped');
+
+      await dispatchSessionStopped(stoppedSession({ profileId: 'p-1' }), 60_000, new Date());
+
+      expect(mockReadCurrentProfiles).toHaveBeenCalledTimes(1);
+      expect(mockReadCurrentProfiles.mock.calls[0]?.[1]).toEqual(['p-1']);
+      expect(seen[1]?.event).toMatchObject({
+        session: { nonMainProfile: { name: 'Kids', thumbUrl: null, removed: true } },
+      });
+    });
+
+    it('sends no profile read for a play with no profile', async () => {
+      const seen = captureEvents('session.ended', 'session.stopped');
+
+      await dispatchSessionStopped(stoppedSession(), 60_000, new Date());
+
+      expect(mockReadCurrentProfiles).not.toHaveBeenCalled();
+      expect(seen.map(({ event }) => event.type)).toEqual(['session.ended', 'session.stopped']);
+    });
+
+    it('leaves the profile off when its row is gone', async () => {
+      mockReadCurrentProfiles.mockResolvedValue(new Map());
+      const seen = captureEvents('session.ended', 'session.stopped');
+
+      await dispatchSessionStopped(stoppedSession({ profileId: 'p-gone' }), 60_000, new Date());
+
+      const stop = seen[1]?.event;
+      if (stop?.type !== 'session.stopped') throw new Error('expected a session.stopped event');
+      expect(stop.session.nonMainProfile).toBeUndefined();
+    });
   });
 });
 

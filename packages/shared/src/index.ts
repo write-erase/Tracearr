@@ -25,6 +25,9 @@ export type {
   LoginAccess,
   AuthUser,
   SetupStatus,
+  SiloPairPurpose,
+  SiloPairStart,
+  SiloPairCheck,
   UserLocation,
   UserDevice,
   MediaDownloadRow,
@@ -42,6 +45,7 @@ export type {
   SessionState,
   MediaType,
   Session,
+  NonMainProfile,
   SessionSegment,
   SessionWithDetails,
   ActiveSession,
@@ -124,8 +128,8 @@ export type {
   // Playback Reporting import
   PlaybackReportingImportProgress,
   PlaybackReportingImportResult,
-  TofaImportProgress,
-  TofaImportResult,
+  ServerHistoryImportProgress,
+  ServerHistoryImportResult,
   ImportRetry,
   LatestImportStatus,
   ImportWaitingForLibrarySync,
@@ -153,6 +157,7 @@ export type {
   HistorySessionResponse,
   FilterOptionItem,
   UserFilterOption,
+  ProfileFilterOption,
   ServerFilterOption,
   CountryOption,
   HistoryFilterOptions,
@@ -298,6 +303,7 @@ export type {
   ChannelsDvrDiskUsage,
   ChannelsDvrRecordingIssue,
   ChannelsDvrRecentEntry,
+  ChannelsDvrStreamEntry,
   ChannelsDvrScheduleResponse,
   DispatcharrSourceStatus,
   DispatcharrProviderUsage,
@@ -516,6 +522,9 @@ export {
   memberPasswordSignInSchema,
   quickConnectInitiateSchema,
   quickConnectCheckSchema,
+  siloPairStartSchema,
+  siloPairCheckSchema,
+  siloPairCancelSchema,
   callbackSchema,
   // Server
   createServerSchema,
@@ -551,6 +560,7 @@ export {
   sessionQuerySchema,
   historyQuerySchema,
   historyAggregatesQuerySchema,
+  userSessionsQuerySchema,
   selfQuerySchema,
   filterOptionsQuerySchema,
   sessionIdParamSchema,
@@ -620,7 +630,7 @@ export {
   // Playback Reporting import
   playbackReportingImportSchema,
   playbackReportingTestSchema,
-  tofaImportSchema,
+  serverHistoryImportSchema,
   // Engagement tracking
   engagementTierSchema,
   userBehaviorTypeSchema,
@@ -1039,10 +1049,13 @@ export {
   type JellyfinEmbyServerType,
 } from './serverTypes.js';
 export {
+  SERVER_HISTORY_IMPORTERS,
   SERVER_PROFILES,
   liveStatsGapSeconds,
   ownerLinkProof,
+  someServerHasProfiles,
   type OwnerLinkProof,
+  type ServerHistoryImporter,
   type ServerProfile,
 } from './serverProfiles.js';
 

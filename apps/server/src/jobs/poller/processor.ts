@@ -50,6 +50,12 @@ import { createMediaServerClient } from '../../services/mediaServer/index.js';
 import type { MediaSession } from '../../services/mediaServer/types.js';
 import { serverWatchedThreshold } from '../../services/mediaServer/byServerType.js';
 import {
+  profileSightings,
+  registerProfileCacheInvalidation,
+  resolveProfiles,
+  type ResolvedProfile,
+} from '../../services/profiles.js';
+import {
   RELAYED_SESSION_GEO,
   resolveSessionGeo,
   type SessionGeo,
@@ -669,7 +675,8 @@ function placeSession(
  * user and item means a new key is a duplicate. JF/Emby key sessions by user, device
  * and item, so their tracking key already covers this. A tofa player that reconnects gets
  * a new session id while the old one stays listed; the tofa client passes on only the
- * newest per device and file, and the confirm step stops the row it replaces.
+ * newest per device and file, and the confirm step stops the row it replaces. Silo lists and
+ * records each session id as its own session, so each is its own play here too.
  */
 async function findOpenRowForSameContent(
   serverType: ServerType,
@@ -698,6 +705,7 @@ async function findOpenRowForSameContent(
     case 'jellyfin':
     case 'emby':
     case 'tofa':
+    case 'silo':
     case 'dispatcharr':
     case 'channels_dvr':
       return undefined;
@@ -715,6 +723,7 @@ function fillsInMediaLater(serverType: ServerType): boolean {
     case 'plex':
     case 'jellyfin':
     case 'emby':
+    case 'silo':
     case 'dispatcharr':
     case 'channels_dvr':
       return false;
@@ -758,7 +767,7 @@ function noSessionChanges(success: boolean): ServerProcessingResult {
 
 /**
  * Issue #57: Plex keeps a sessionKey across items (e.g. "Play Next Episode"), so a
- * tracked session can change media. JF/Emby key sessions by item. Whether tofa moves a
+ * tracked session can change media. JF/Emby key sessions by item. Whether tofa or Silo moves a
  * session to the next item is unknown, so a new item under its session id is a new play.
  * Normalize '' to null: a row stored during a metadata blip carries an empty
  * ratingKey, which detectMediaChange would otherwise read as a real key and treat
@@ -772,6 +781,7 @@ function isMediaChange(
   switch (serverType) {
     case 'plex':
     case 'tofa':
+    case 'silo':
       return detectMediaChange(existingRatingKey || null, ratingKey || null);
     case 'jellyfin':
     case 'emby':
@@ -1239,8 +1249,7 @@ export async function processServerSessions(
     // First pass: identify server users and resolve from cache or mark for creation
     const sessionServerUserIds: (string | null)[] = [];
 
-    for (let i = 0; i < processedSessions.length; i++) {
-      const processed = processedSessions[i]!;
+    for (const [i, processed] of processedSessions.entries()) {
       const existingServerUser = serverUserByExternalId.get(processed.externalUserId);
 
       if (existingServerUser) {
@@ -1285,8 +1294,7 @@ export async function processServerSessions(
 
     if (serverUsersToCreate.length > 0) {
       const created = await createSessionServerUsers(server, serverUsersToCreate);
-      for (let i = 0; i < serverUsersToCreate.length; i++) {
-        const serverUserToCreate = serverUsersToCreate[i]!;
+      for (const [i, serverUserToCreate] of serverUsersToCreate.entries()) {
         const newServerUser = created[i];
         if (newServerUser) {
           sessionServerUserIds[serverUserToCreate.sessionIndex] = newServerUser.id;
@@ -1296,13 +1304,37 @@ export async function processServerSessions(
       }
     }
 
+    // Set before any play goes pending or is written, so either one carries its profile. A
+    // profile is optional data, so a failed write stores the plays with the profile name only.
+    const profiles = await resolveProfiles(
+      server.id,
+      profileSightings(
+        processedSessions.map((processed) => ({
+          accountExternalId: processed.externalUserId,
+          profileExternalId: processed.profileExternalId,
+          profileName: processed.profileName,
+        })),
+        (accountId) => serverUserByExternalId.get(accountId)?.id
+      ),
+      'refresh'
+    ).catch((error: unknown) => {
+      console.error(`[Poller] Failed to resolve profiles on ${server.name}:`, error);
+      return new Map<string, ResolvedProfile>();
+    });
+    for (const processed of processedSessions) {
+      const profile = processed.profileExternalId
+        ? profiles.get(processed.profileExternalId)
+        : undefined;
+      processed.profileId = profile?.id ?? null;
+      processed.nonMainProfile = profile?.nonMainProfile;
+    }
+
     // OPTIMIZATION: Batch load recent sessions for rule evaluation (new sessions only)
     // and batch the active-session lookup for already-tracked sessions.
     const serverUsersWithNewSessions = new Set<string>();
     const sessionKeysToCheck: string[] = [];
     const compositeIdentitiesToCheck: { serverUserId: string; ratingKey: string }[] = [];
-    for (let i = 0; i < processedSessions.length; i++) {
-      const processed = processedSessions[i]!;
+    for (const [i, processed] of processedSessions.entries()) {
       const serverUserId = sessionServerUserIds[i];
       // serverUserId must match what pollServers uses from cachedSessions
       const sessionKey = buildCompositeKey({
@@ -1447,8 +1479,7 @@ export async function processServerSessions(
     };
 
     // Process each session
-    for (let i = 0; i < processedSessions.length; i++) {
-      const processed = processedSessions[i]!;
+    for (const [i, processed] of processedSessions.entries()) {
       const serverUserId = sessionServerUserIds[i];
       const sessionKey = buildCompositeKey({
         serverType: server.type,
@@ -2729,6 +2760,7 @@ export function initializePoller(cache: CacheService, pubSub: PubSubService): vo
   registerRuleSubscribers();
   setPauseWakeDeps({ pubSubService });
   registerPauseWakeSubscriptions();
+  registerProfileCacheInvalidation();
 }
 
 /**

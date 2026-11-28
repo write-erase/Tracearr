@@ -58,6 +58,7 @@ import {
   fakeEmbyClient,
   fakeJellyfinClient,
   fakePlexClient,
+  fakeSiloClient,
   fakeTofaClient,
 } from '../../test/mediaServerFakes.js';
 
@@ -66,6 +67,7 @@ const fakeClients = {
   jellyfin: fakeJellyfinClient,
   emby: fakeEmbyClient,
   tofa: fakeTofaClient,
+  silo: fakeSiloClient,
   dispatcharr: fakeDispatcharrClient,
   channels_dvr: fakeChannelsDvrClient,
 };

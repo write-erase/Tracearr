@@ -9,8 +9,8 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import type { ServerType } from '@tracearr/shared';
 
-// The showcase seeds the three upstream servers it has data for; tofa has none yet.
-export type ServerKey = Extract<ServerType, 'plex' | 'jellyfin' | 'emby'>;
+/** The servers the showcase seeds; tofa, Silo and the fork's Dispatcharr and Channels DVR have none yet. */
+export type ServerKey = Exclude<ServerType, 'tofa' | 'silo' | 'dispatcharr' | 'channels_dvr'>;
 
 export interface ShowcaseServer {
   key: ServerKey;

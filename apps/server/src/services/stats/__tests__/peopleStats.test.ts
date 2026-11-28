@@ -182,6 +182,7 @@ describe('queryIdentityRangeStats', () => {
   it('computes bytes from bitrate and duration and transcodes from either decision', async () => {
     await queryIdentityRangeStats({
       serverUserIds: [A],
+      hasProfiles: false,
       resolvedServerIds: undefined,
       window: WEEK,
     });
@@ -197,6 +198,7 @@ describe('queryIdentityRangeStats', () => {
   it('sums both accounts of a merged identity and only the anchor at default scope', async () => {
     await queryIdentityRangeStats({
       serverUserIds: [A, B],
+      hasProfiles: false,
       resolvedServerIds: undefined,
       window: WEEK,
     });
@@ -210,15 +212,37 @@ describe('queryIdentityRangeStats', () => {
     vi.mocked(db.execute).mockClear();
     await queryIdentityRangeStats({
       serverUserIds: [A],
+      hasProfiles: false,
       resolvedServerIds: undefined,
       window: WEEK,
     });
     expect(executedSql().some((text) => text.includes(B))).toBe(false);
   });
 
+  it('splits plays by profile only when an account is on a server with profiles', async () => {
+    const withoutProfiles = await queryIdentityRangeStats({
+      serverUserIds: [A, B],
+      hasProfiles: false,
+      resolvedServerIds: undefined,
+      window: WEEK,
+    });
+    expect(executedSql().some((text) => text.includes('server_profiles'))).toBe(false);
+    expect(withoutProfiles.profiles).toEqual([]);
+
+    vi.mocked(db.execute).mockClear();
+    await queryIdentityRangeStats({
+      serverUserIds: [A, B],
+      hasProfiles: true,
+      resolvedServerIds: undefined,
+      window: WEEK,
+    });
+    expect(executedSql().filter((text) => text.includes('server_profiles'))).toHaveLength(1);
+  });
+
   it('counts every media type in the person and server series, while /plays keeps its filter', async () => {
     await queryIdentityRangeStats({
       serverUserIds: [A],
+      hasProfiles: false,
       resolvedServerIds: undefined,
       window: WEEK,
     });
@@ -249,6 +273,7 @@ describe('queryIdentityRangeStats', () => {
 
     const stats = await queryIdentityRangeStats({
       serverUserIds: [A],
+      hasProfiles: false,
       resolvedServerIds: undefined,
       window: resolveIdentityWindow({ period: 'week' }, now),
     });
@@ -266,6 +291,7 @@ describe('queryIdentityRangeStats', () => {
     vi.useFakeTimers({ now });
     const stats = await queryIdentityRangeStats({
       serverUserIds: [A],
+      hasProfiles: false,
       resolvedServerIds: undefined,
       window: resolveIdentityWindow({ period: 'week' }, now),
     });
@@ -277,6 +303,7 @@ describe('queryIdentityRangeStats', () => {
   it('divides the server average by people with a counted play, through server_users, not by accounts', async () => {
     await queryIdentityRangeStats({
       serverUserIds: [A],
+      hasProfiles: false,
       resolvedServerIds: undefined,
       window: WEEK,
     });
@@ -295,6 +322,7 @@ describe('queryIdentityRangeStats', () => {
         : { rows: [] }) as never);
     const stats = await queryIdentityRangeStats({
       serverUserIds: [A],
+      hasProfiles: false,
       resolvedServerIds: undefined,
       window: WEEK,
     });
@@ -306,6 +334,7 @@ describe('queryIdentityRangeStats', () => {
     vi.mocked(db.execute).mockResolvedValue({ rows: [] } as never);
     const empty = await queryIdentityRangeStats({
       serverUserIds: [A],
+      hasProfiles: false,
       resolvedServerIds: undefined,
       window: WEEK,
     });
@@ -315,6 +344,7 @@ describe('queryIdentityRangeStats', () => {
   it('returns a zero-filled prior series when the prior window has no rows', async () => {
     const stats = await queryIdentityRangeStats({
       serverUserIds: [A],
+      hasProfiles: false,
       resolvedServerIds: undefined,
       window: WEEK,
     });
@@ -344,6 +374,7 @@ describe('queryIdentityRangeStats', () => {
 
     const stats = await queryIdentityRangeStats({
       serverUserIds: [A],
+      hasProfiles: false,
       resolvedServerIds: undefined,
       window,
     });

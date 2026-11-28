@@ -6,7 +6,7 @@
   <strong>Tracearr with Dispatcharr and Channels DVR support.</strong>
 </p>
 
-This is an unofficial fork of [Tracearr](https://github.com/connorgallopo/Tracearr) by Connor Gallopo. It adds two server types, [Dispatcharr](https://github.com/Dispatcharr/Dispatcharr) and [Channels DVR](https://getchannels.com/dvr-server/), alongside Tracearr's Plex, Jellyfin, Emby and tofa support. Dispatcharr support started in [d4rk-4lchemy's fork](https://github.com/d4rk-4lchemy/Tracearr), which this one builds on.
+This is an unofficial fork of [Tracearr](https://github.com/connorgallopo/Tracearr) by Connor Gallopo. It adds two server types, [Dispatcharr](https://github.com/Dispatcharr/Dispatcharr) and [Channels DVR](https://getchannels.com/dvr-server/), alongside Tracearr's Plex, Jellyfin, Emby, tofa and Silo support. Dispatcharr support started in [d4rk-4lchemy's fork](https://github.com/d4rk-4lchemy/Tracearr), which this one builds on.
 
 It is not supported by the Tracearr project. Please report problems with it [here](https://github.com/write-erase/Tracearr/issues), not upstream.
 
@@ -15,7 +15,7 @@ It is not supported by the Tracearr project. Please report problems with it [her
 
 ## What Tracearr Does
 
-Tracearr monitors Plex, Jellyfin, Emby and tofa servers from one dashboard: live streams, watch history, playback and library analytics, a stream map, account-sharing detection with trust scores, automations, notifications and newsletters. This fork is merged with each upstream release.
+Tracearr monitors Plex, Jellyfin, Emby, tofa and Silo servers from one dashboard: live streams, watch history, playback and library analytics, a stream map, account-sharing detection with trust scores, automations, notifications and newsletters. This fork is merged with each upstream release.
 
 For the full feature tour, see [upstream's README](https://github.com/connorgallopo/Tracearr#readme), [tracearr.com](https://tracearr.com) and the manual at [docs.tracearr.com](https://docs.tracearr.com).
 
@@ -68,7 +68,7 @@ Channels DVR does not provide individual user accounts, so Tracearr identifies v
 ## Mobile App
 
 > [!NOTE]
-> **Dispatcharr and Channels DVR servers don't appear in the Tracearr mobile app.** The app doesn't know these server types and stopped working when it got one, so Tracearr leaves them out of everything it sends the app: the server list, Now Playing, history, stats, users, alerts and push notifications. Your other servers work as usual. The Android app has not been tested.
+> **Dispatcharr and Channels DVR servers show in the Tracearr mobile app again,** now that the app no longer stops working on server types it doesn't know. Their streams show, but not their CPU and memory charts: the app draws those only for the server types it knows. Tested on iPhone; the Android app has not been tested.
 
 The app is upstream's, so this fork can't change it, only what Tracearr sends to it. Cast your vote for the final decision in the [poll (#67)](https://github.com/write-erase/Tracearr/discussions/67).
 
@@ -82,8 +82,8 @@ All images are on `ghcr.io/write-erase/tracearr`, for AMD64 and ARM64. Release i
 | --------------------- | -------------------------------------------------------- |
 | `latest`              | Latest release (requires external DB/Redis)              |
 | `supervised-latest`   | All-in-one latest release                                |
-| `3.2.1-r3`            | A pinned release (requires external DB/Redis)            |
-| `supervised-3.2.1-r3` | All-in-one pinned release                                |
+| `3.3.0-r1`            | A pinned release (requires external DB/Redis)            |
+| `supervised-3.3.0-r1` | All-in-one pinned release                                |
 | `dev`                 | Built from the `dev` branch (requires external DB/Redis) |
 | `supervised-dev`      | All-in-one, built from the `dev` branch                  |
 
@@ -158,15 +158,15 @@ beforehand if you want to reuse the archive across image builds.
 ```bash
 # Standalone image
 docker build -f docker/Dockerfile -t tracearr \
-  --build-arg APP_VERSION=3.2.1 --build-arg APP_TAG=v3.2.1-r3 \
-  --build-arg APP_UPSTREAM_VERSION=3.2.1 --build-arg APP_FORK_REVISION=3 --build-arg APP_FORK_VERSION=3.2.1-r3 \
+  --build-arg APP_VERSION=3.3.0 --build-arg APP_TAG=v3.3.0-r1 \
+  --build-arg APP_UPSTREAM_VERSION=3.3.0 --build-arg APP_FORK_REVISION=1 --build-arg APP_FORK_VERSION=3.3.0-r1 \
   --build-arg APP_FORK_REPO=write-erase/Tracearr --build-arg APP_IMAGE_REPO=ghcr.io/write-erase/tracearr \
   --build-arg APP_COMMIT="$(git rev-parse --short HEAD)" --build-arg APP_BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)" .
 
 # Supervised image
 docker build -f docker/Dockerfile.supervised -t tracearr-supervised \
-  --build-arg APP_VERSION=3.2.1 --build-arg APP_TAG=supervised-3.2.1-r3 \
-  --build-arg APP_UPSTREAM_VERSION=3.2.1 --build-arg APP_FORK_REVISION=3 --build-arg APP_FORK_VERSION=3.2.1-r3 \
+  --build-arg APP_VERSION=3.3.0 --build-arg APP_TAG=supervised-3.3.0-r1 \
+  --build-arg APP_UPSTREAM_VERSION=3.3.0 --build-arg APP_FORK_REVISION=1 --build-arg APP_FORK_VERSION=3.3.0-r1 \
   --build-arg APP_FORK_REPO=write-erase/Tracearr --build-arg APP_IMAGE_REPO=ghcr.io/write-erase/tracearr \
   --build-arg APP_COMMIT="$(git rev-parse --short HEAD)" --build-arg APP_BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)" .
 ```

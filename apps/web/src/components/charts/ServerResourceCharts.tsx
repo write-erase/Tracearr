@@ -39,6 +39,11 @@ export interface ResourceMultiSeries {
   color: string;
   /** How long this server's line may go without a sample before it breaks. */
   gapSeconds: number;
+  /**
+   * Draw the host figure for a metric the server's process doesn't report (fork). Set for
+   * Dispatcharr and Channels DVR; any other server with no process figure is left off that chart.
+   */
+  hostFallback?: boolean;
   data: ServerResourceDataPoint[];
 }
 
@@ -53,7 +58,7 @@ interface ServerResourceChartsProps {
   } | null;
   /** One per-server line each; host metrics are dropped in this mode */
   multiSeries?: ResourceMultiSeries[];
-  /** Single-view name for the process series (defaults to Plex's) */
+  /** Single-view name for the process series */
   processLabel?: string;
   /** Single-view counterpart of a series' gapSeconds */
   gapSeconds?: number;
@@ -84,14 +89,15 @@ function AverageChip({ color, value }: { color: string; value: number | null | u
   );
 }
 
-// Sources that report no process figure (Channels DVR has no process CPU) fall
-// back to the host figure in the per-server view so they still draw a line
+// A fork source that reports no process figure (Channels DVR has no process CPU) falls
+// back to the host figure in the per-server view so it still draws a line
 function multiKeyFor(
   s: ResourceMultiSeries,
   processKey: ProcessKey,
   hostKey: HostKey
-): ProcessKey | HostKey {
-  return s.data.some((p) => p[processKey] != null) ? processKey : hostKey;
+): ProcessKey | HostKey | null {
+  if (s.data.some((p) => p[processKey] != null)) return processKey;
+  return s.hostFallback && s.data.some((p) => p[hostKey] != null) ? hostKey : null;
 }
 
 function ResourceChart({
@@ -111,60 +117,66 @@ function ResourceChart({
   const { t } = useTranslation(['pages', 'common']);
   const chartRef = useRef<HighchartsReact.RefObject | null>(null);
   const isMulti = !!multiSeries && multiSeries.length > 0;
-  const hasData = isMulti ? multiSeries.some((s) => s.data.length > 0) : !!data?.length;
-  // Channels DVR reports no process CPU: skip the empty process series and chip
-  const hasProcessSeries = (data ?? []).some((p) => p[processKey] != null);
+  // A server that reports nothing gets no line and no average, not an empty one. One that reports
+  // no process figure is drawn from its host figure when it is a fork source (Channels DVR has
+  // no process CPU), and left off the chart otherwise.
+  const plotted = useMemo(
+    () =>
+      (multiSeries ?? []).flatMap((s) => {
+        const key = multiKeyFor(s, processKey, hostKey);
+        return key ? [{ ...s, key }] : [];
+      }),
+    [multiSeries, processKey, hostKey]
+  );
+  const processPlotted = !!data?.some((p) => p[processKey] != null);
+  const hasData = isMulti ? plotted.length > 0 : !!data?.length;
 
   useSlidingWindow(chartRef, clockSkewMs);
 
   const chartOptions = useMemo<Highcharts.Options>(() => {
     if (!hasData) return {};
 
+    const processSeries: Highcharts.SeriesOptionsType = {
+      type: 'area',
+      ...(processLabel === undefined ? {} : { name: processLabel }),
+      color: COLORS.process,
+      data: withGaps(pointsFor(data ?? [], processKey), gap),
+      fillColor: {
+        linearGradient: { x1: 0, y1: 0, x2: 0, y2: 1 },
+        stops: [
+          [0, COLORS.processGradientStart],
+          [1, COLORS.processGradientEnd],
+        ],
+      },
+    };
+    const systemSeries: Highcharts.SeriesOptionsType = {
+      type: 'area',
+      name: t('dashboard.resources.system'),
+      color: COLORS.system,
+      data: withGaps(pointsFor(data ?? [], hostKey), gap),
+      fillColor: {
+        linearGradient: { x1: 0, y1: 0, x2: 0, y2: 1 },
+        stops: [
+          [0, COLORS.systemGradientStart],
+          [1, COLORS.systemGradientEnd],
+        ],
+      },
+    };
+
     // Host metrics belong to the box: N co-hosted servers, N identical lines
     const series: Highcharts.SeriesOptionsType[] = isMulti
-      ? multiSeries.map((s) => {
-          const key = multiKeyFor(s, processKey, hostKey);
-          return {
-            type: 'line' as const,
-            name:
-              key === processKey
-                ? s.serverName
-                : `${s.serverName} (${t('dashboard.resources.system')})`,
-            color: s.color,
-            data: withGaps(pointsFor(s.data, key), s.gapSeconds),
-          };
-        })
-      : [
-          {
-            type: 'area',
-            name: processLabel ?? 'Plex Media Server',
-            color: COLORS.process,
-            data: withGaps(pointsFor(data ?? [], processKey), gap),
-            fillColor: {
-              linearGradient: { x1: 0, y1: 0, x2: 0, y2: 1 },
-              stops: [
-                [0, COLORS.processGradientStart],
-                [1, COLORS.processGradientEnd],
-              ],
-            },
-          },
-          {
-            type: 'area',
-            name: t('dashboard.resources.system'),
-            color: COLORS.system,
-            data: withGaps(pointsFor(data ?? [], hostKey), gap),
-            fillColor: {
-              linearGradient: { x1: 0, y1: 0, x2: 0, y2: 1 },
-              stops: [
-                [0, COLORS.systemGradientStart],
-                [1, COLORS.systemGradientEnd],
-              ],
-            },
-          },
-        ];
-
-    // Single-server view, no process figures: draw only the host line
-    const visibleSeries = !isMulti && !hasProcessSeries ? series.slice(1) : series;
+      ? plotted.map(({ key, ...s }) => ({
+          type: 'line' as const,
+          name:
+            key === processKey
+              ? s.serverName
+              : `${s.serverName} (${t('dashboard.resources.system')})`,
+          color: s.color,
+          data: withGaps(pointsFor(s.data, key), s.gapSeconds),
+        }))
+      : processPlotted
+        ? [processSeries, systemSeries]
+        : [systemSeries];
 
     const values = series.flatMap((s) =>
       ((s as { data?: [number, number | null][] }).data ?? [])
@@ -228,7 +240,7 @@ function ResourceChart({
         style: { color: 'oklch(var(--popover-foreground))', fontSize: '12px' },
         formatter: nearestPointTooltip((y) => `${Math.round(y)}%`),
       },
-      series: visibleSeries,
+      series,
       responsive: {
         rules: [
           {
@@ -249,10 +261,10 @@ function ResourceChart({
     data,
     processKey,
     hostKey,
-    multiSeries,
+    plotted,
+    processPlotted,
     isMulti,
     hasData,
-    hasProcessSeries,
     processLabel,
     gap,
     clockSkewMs,
@@ -310,8 +322,7 @@ function ResourceChart({
         />
         <div className="text-muted-foreground mt-1 flex flex-wrap justify-end gap-4 pr-2 text-xs">
           {isMulti ? (
-            multiSeries.map((s) => {
-              const key = multiKeyFor(s, processKey, hostKey);
+            plotted.map(({ key, ...s }) => {
               const values = s.data.map((p) => p[key]).filter((v): v is number => v != null);
               const avg =
                 values.length > 0
@@ -321,7 +332,7 @@ function ResourceChart({
             })
           ) : (
             <>
-              {hasProcessSeries && <AverageChip color={COLORS.process} value={processAvg} />}
+              {processPlotted && <AverageChip color={COLORS.process} value={processAvg} />}
               <AverageChip color={COLORS.system} value={hostAvg} />
             </>
           )}

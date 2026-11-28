@@ -159,6 +159,7 @@
     "allServersConnectedDesc": "",
     "serverUrlPlaceholder": "",
     "serverUrlPlaceholderTofa": "",
+    "serverUrlPlaceholderSilo": "",
     "serverNamePlaceholder": "",
     "apiKeyPlaceholder": "",
     "connectServer": "",
@@ -172,20 +173,41 @@
     "allFieldsRequired": "",
     "addServerDialogDescPlex": "",
     "addServerDialogDescOther": "",
+    "addServerDialogDescSilo": "",
     "discoveringServers": "",
     "discoveringConnections": "",
     "plexAccount": "",
     "serverUrlHelpJellyfin": "",
     "serverUrlHelpEmby": "",
     "serverUrlHelpTofa": "",
+    "serverUrlHelpSilo": "",
     "publicUrl": "",
     "publicUrlHint": "",
     "apiKeyHelpJellyfin": "",
     "apiKeyHelpEmby": "",
     "apiKeyHelpTofa": "",
+    "apiKeyHelpSilo": "",
     "cannotStopStreams": "",
     "noSignIn": "",
     "apiKeyKeepCurrent": "",
+    "pairing": {
+      "getCode": "",
+      "getNewKey": "",
+      "useApiKey": "",
+      "useCode": "",
+      "openSilo": "",
+      "enterAt": "",
+      "opened": "",
+      "newCode": "",
+      "notAdmin": "",
+      "pinLabel": "",
+      "pinNeeded": "",
+      "wrongPin": "",
+      "pinLocked": "",
+      "rekeyed": "",
+      "oldKeyLeft": "",
+      "revokeOnRemove": ""
+    },
     "plexServerPlaceholder": "",
     "plexServerUrlPlaceholder": "",
     "updateHint": "",
@@ -293,6 +315,9 @@
       "tofaDialog": {
         "description": ""
       },
+      "siloDialog": {
+        "description": ""
+      },
       "confirmUnlink": {
         "title": "",
         "body": ""
@@ -398,7 +423,8 @@
     "deletesData": "",
     "deletesDataDesc": "",
     "automatic": "",
-    "startJob": ""
+    "startJob": "",
+    "repairHeld": ""
   },
   "memberLogin": {
     "serverActivity": "",
@@ -485,6 +511,12 @@
     "importTofaHistory": "",
     "skipUserNotFoundTofa": "",
     "skipDuplicateTofa": "",
+    "silo": "",
+    "siloHistory": "",
+    "siloHistoryDesc": "",
+    "selectSiloServer": "",
+    "importSiloHistory": "",
+    "skipUserNotFoundSilo": "",
     "skipActiveTofa": "",
     "apiKeyPlaceholder": "",
     "skipUserNotFoundPlex": "",

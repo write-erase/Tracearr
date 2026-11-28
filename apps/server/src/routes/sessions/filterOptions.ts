@@ -1,14 +1,16 @@
-import { sql, type SQL } from 'drizzle-orm';
+import { and, inArray, sql, type SQL } from 'drizzle-orm';
 import countries from 'i18n-iso-countries';
 import countriesEn from 'i18n-iso-countries/langs/en.json' with { type: 'json' };
-import type {
-  AutomationFilterOptions,
-  CountryOption,
-  HistoryFilterOptions,
+import {
+  someServerHasProfiles,
+  type AutomationFilterOptions,
+  type CountryOption,
+  type HistoryFilterOptions,
 } from '@tracearr/shared';
 import { db } from '../../db/client.js';
-import { servers } from '../../db/schema.js';
+import { serverProfiles, servers } from '../../db/schema.js';
 import { startedAtRange } from '../../db/sessions/conditions.js';
+import { profileOptions } from '../../services/profiles.js';
 import { buildMultiServerFragment, serverIdCondition } from '../../utils/serverFiltering.js';
 import { representativeAccountOrderSql } from '../../utils/representativeAccount.js';
 import { compareNames } from '../../utils/collation.js';
@@ -21,7 +23,7 @@ countries.registerLocale(countriesEn);
 export function emptyFilterOptions(
   includeAllCountries: boolean | undefined
 ): HistoryFilterOptions | AutomationFilterOptions {
-  const empty: HistoryFilterOptions = {
+  const empty = {
     platforms: [],
     products: [],
     devices: [],
@@ -29,7 +31,7 @@ export function emptyFilterOptions(
     cities: [],
     users: [],
   };
-  return includeAllCountries ? { ...empty, servers: [] } : empty;
+  return includeAllCountries ? { ...empty, servers: [] } : { ...empty, profiles: [] };
 }
 
 /**
@@ -58,6 +60,12 @@ export async function queryFilterOptions(params: {
     return sql`WHERE ${sql.join(allConditions, sql` AND `)}`;
   };
 
+  const serverList = db
+    .select({ id: servers.id, name: servers.name, type: servers.type })
+    .from(servers)
+    .orderBy(...serverOrderBy())
+    .execute();
+
   // Query all filter options in parallel
   const [
     platformsResult,
@@ -67,6 +75,7 @@ export async function queryFilterOptions(params: {
     citiesResult,
     usersResult,
     serversResult,
+    profiles,
   ] = await Promise.all([
     // Platforms
     db.execute(sql`
@@ -150,10 +159,23 @@ export async function queryFilterOptions(params: {
       LEFT JOIN users u ON u.id = su.user_id
     `),
     // Servers (for rules builder)
-    db
-      .select({ id: servers.id, name: servers.name, type: servers.type })
-      .from(servers)
-      .orderBy(...serverOrderBy()),
+    serverList,
+    // The cheapest read here, so waiting on it adds no time to the slowest. The rules builder
+    // targets no profile, so it reads none.
+    serverList.then((rows) =>
+      !includeAllCountries &&
+      someServerHasProfiles(
+        rows.filter((row) => !resolvedIds || resolvedIds.includes(row.id)).map((row) => row.type)
+      )
+        ? profileOptions(
+            db,
+            and(
+              resolvedIds && inArray(serverProfiles.serverId, resolvedIds),
+              scopeSessionsRaw(scope, sql`${serverProfiles.serverUserId}`)
+            )
+          )
+        : []
+    ),
   ]);
 
   // Transform users result
@@ -232,6 +254,7 @@ export async function queryFilterOptions(params: {
     countries: countriesResult.rows as unknown as HistoryFilterOptions['countries'],
     cities: citiesResult.rows as unknown as HistoryFilterOptions['cities'],
     users: usersData,
+    profiles,
     servers: serversData,
   };
 

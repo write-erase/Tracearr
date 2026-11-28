@@ -204,6 +204,8 @@ export function mapMediaSession(session: MediaSession, serverType: ServerType): 
     username: session.user.username,
     userThumb: session.user.thumb ?? '',
     profileName: session.user.profileName ?? null,
+    profileExternalId: session.user.profileId ?? null,
+    profileId: null,
     mediaTitle: session.media.title,
     mediaType,
     // Enhanced media metadata
@@ -316,6 +318,7 @@ export function mapSessionRow(
     geoAsnNumber: s.geoAsnNumber,
     geoAsnOrganization: s.geoAsnOrganization,
     isLocal: isLocalSession(s),
+    profileId: s.profileId,
     profileName: s.profileName,
     playerName: s.playerName,
     deviceId: s.deviceId,
