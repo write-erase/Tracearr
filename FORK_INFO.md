@@ -1,5 +1,24 @@
 # Tracearr Fork Information
 
+## November 28, 2026 — Upstream main through 494051d1d (3.3.0 release notes)
+
+Merges Connor's `main` from `82a0cd1c` (3.3.0-beta.4, merged in #78) through `494051d1d`: six
+commits, none of them Tracearr's own code.
+
+- 3.3.0 notes for the stable release: a headline, four highlights (profiles, the imported Plex
+  history repair, Silo, fewer disk writes) and a few more change lines. There is no `v3.3.0` tag
+  yet; the newest is still `v3.3.0-beta.4`.
+- better-auth 1.7.25 → 1.7.27 (server and web), @types/react 19.3.0 → 19.3.1, and the lockfile
+  refreshed with them. The merged lockfile is Connor's, unchanged.
+- Updated GeoLite2 City and ASN databases.
+- A change to the renovate workflow, which this fork removed; it stays removed. That was the only
+  conflict.
+
+Also in this PR: the E2E seed's refresh of `library_stats_daily` (this fork's, from #64) failed
+one CI shard with "could not refresh continuous aggregate ... due to a concurrent refresh", when
+another refresh of it was already running. It now waits half a second and tries again, up to 20
+times, and still fails on any other error.
+
 ## November 27, 2026 — Dispatcharr and Channels DVR shown in the mobile app again
 
 Connor's app no longer stops working on a server type it doesn't have in its tables (Mobile-App
