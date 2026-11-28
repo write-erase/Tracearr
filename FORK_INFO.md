@@ -1,5 +1,13 @@
 # Tracearr Fork Information
 
+## November 28, 2026 — Upstream v3.3.0 (68e71568)
+
+Merges Connor's `main` from `494051d1d` (merged in #79) through `68e71568`, his `v3.3.0` release:
+four commits, none of them Tracearr's own code. The 3.3.0 release notes are dated the 28th,
+@types/react goes from 19.3.1 to 19.3.3, and the lockfile is refreshed with it (Connor's,
+unchanged). His helm chart sync to 3.3.0 is the only conflict; this fork removed the chart, and it
+stays removed.
+
 ## November 28, 2026 — Channels DVR card: Streaming Now
 
 The Channels DVR card gets a Streaming Now list above Recording Now, like the Dispatcharr card's.
