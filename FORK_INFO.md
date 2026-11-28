@@ -14,6 +14,11 @@ commits, none of them Tracearr's own code.
 - A change to the renovate workflow, which this fork removed; it stays removed. That was the only
   conflict.
 
+Also in this PR: the E2E seed's refresh of `library_stats_daily` (this fork's, from #64) failed
+one CI shard with "could not refresh continuous aggregate ... due to a concurrent refresh", when
+another refresh of it was already running. It now waits half a second and tries again, up to 20
+times, and still fails on any other error.
+
 ## November 27, 2026 — Dispatcharr and Channels DVR shown in the mobile app again
 
 Connor's app no longer stops working on a server type it doesn't have in its tables (Mobile-App
