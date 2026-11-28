@@ -1,5 +1,24 @@
 # Tracearr Fork Information
 
+## November 28, 2026 — Release v3.3.0-r1
+
+On upstream 3.3.0 (`68e71568`), Connor's release. It carries every entry from November 26 to 28
+below that came after r3:
+
+- Upstream 3.3.0 (#78, #79, #81): profiles, the imported Plex history repair, Silo as a fifth
+  upstream server type, fewer disk writes, and server colours from each logo. Dispatcharr and
+  Channels DVR keep theirs, and their error codes are now `EXT_901` and `EXT_902`.
+- Channels DVR card: Streaming Now, one row per shared stream with a chip for each client, and
+  "· 1 shared" on the tuner pill (#80)
+- Dispatcharr and Channels DVR shown in the mobile app again, now that Connor's app no longer stops
+  on server types it doesn't know (#78)
+- The E2E seed waits out a concurrent refresh of `library_stats_daily` (#79), and a FORK_INFO
+  correction (#77)
+
+Migrations 0133–0137 run on start, so back up before updating; going back to r3 needs that backup.
+Everything here was seen on a running server with Plex, Dispatcharr and Channels DVR; the mobile app
+was checked on iPhone only, and Silo is untested here. The README's pinned example is `3.3.0-r1`.
+
 ## November 28, 2026 — Upstream v3.3.0 (68e71568)
 
 Merges Connor's `main` from `494051d1d` (merged in #79) through `68e71568`, his `v3.3.0` release:
