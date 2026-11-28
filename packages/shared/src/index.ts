@@ -303,6 +303,7 @@ export type {
   ChannelsDvrDiskUsage,
   ChannelsDvrRecordingIssue,
   ChannelsDvrRecentEntry,
+  ChannelsDvrStreamEntry,
   ChannelsDvrScheduleResponse,
   DispatcharrSourceStatus,
   DispatcharrProviderUsage,

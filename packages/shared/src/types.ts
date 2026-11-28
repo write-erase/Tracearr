@@ -3456,6 +3456,28 @@ export interface ChannelsDvrRecentEntry {
   issuesCleared: boolean;
 }
 
+/**
+ * A live channel streaming on a Channels DVR server now (fork). Channels shares one stream from
+ * the channel's source between every client watching it, so this is one tuner, or one provider
+ * connection for an M3U source, however many are connected.
+ */
+export interface ChannelsDvrStreamEntry {
+  serverId: string;
+  serverName: string;
+  channelNumber: string;
+  channelTitle: string | null;
+  /** The channel's guide logo on the Channels DVR server, for the image proxy */
+  thumbPath: string | null;
+  /** The tuner source's name in Channels; null when no client's activity names it */
+  sourceName: string | null;
+  /** When the first client still watching started, from Tracearr's session; null when unknown */
+  startedAt: string | null;
+  /** A recording on the same channel is sharing the stream */
+  recording: boolean;
+  /** Who is connected: each client's device name, else its IP address */
+  viewers: string[];
+}
+
 /** GET /sessions/recordings */
 export interface ChannelsDvrScheduleResponse {
   /** Recordings in progress */
@@ -3465,6 +3487,8 @@ export interface ChannelsDvrScheduleResponse {
   disks: ChannelsDvrDiskUsage[];
   /** Recordings finished in the last day, newest first across servers */
   recent: ChannelsDvrRecentEntry[];
+  /** Live channels streaming now, with the clients sharing each (fork) */
+  streams: ChannelsDvrStreamEntry[];
 }
 
 /**

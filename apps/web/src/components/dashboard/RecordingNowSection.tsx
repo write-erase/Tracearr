@@ -11,6 +11,7 @@ import {
   HardDrive,
   SkipForward,
   Square,
+  Tv,
   Undo2,
   X,
 } from 'lucide-react';
@@ -19,6 +20,7 @@ import type {
   ChannelsDvrRecentEntry,
   ChannelsDvrRecordingEntry,
   ChannelsDvrRecordingIssue,
+  ChannelsDvrStreamEntry,
   ChannelsDvrTunerUsage,
   ChannelsDvrUpcomingEntry,
   Server,
@@ -59,6 +61,8 @@ interface RecordingNowSectionProps {
   disks?: ChannelsDvrDiskUsage[];
   /** Recordings finished in the last day, newest first */
   recent?: ChannelsDvrRecentEntry[];
+  /** Live channels streaming now, with the clients sharing each (fork) */
+  streams?: ChannelsDvrStreamEntry[];
   /** Each Channels DVR server's installed version against the newest on the track it follows */
   versions?: ChannelsDvrVersion[];
   /** Server id -> the address to open the Channels DVR web UI at */
@@ -234,6 +238,97 @@ function RecordingCard({
 const UPCOMING_SHOWN = 5;
 const RECENT_SHOWN = 5;
 
+/**
+ * One live channel streaming now (fork): its logo and name, "Source · 2 viewers · 35 min", and a
+ * chip per client sharing it, as on the Dispatcharr card. A channel with no name is titled by its
+ * number. A recording on the same
+ * channel shares the stream too, and is tagged.
+ */
+function StreamRow({
+  stream,
+  now,
+  showServer,
+  halfWidth,
+}: {
+  stream: ChannelsDvrStreamEntry;
+  now: number;
+  showServer: boolean;
+  /** Beside the Dispatcharr card: the line wraps rather than be cut off */
+  halfWidth: boolean;
+}) {
+  const { t } = useTranslation('pages');
+  const formatMinutes = useFormatMinutes();
+  const channel = t('dashboard.recording.channel', {
+    defaultValue: 'Channel {{number}}',
+    number: stream.channelNumber,
+  });
+  const started = stream.startedAt ? new Date(stream.startedAt).getTime() : NaN;
+  const detail = [
+    showServer ? stream.serverName : null,
+    stream.sourceName,
+    t('dashboard.recording.viewers', {
+      defaultValue_one: '{{count}} viewer',
+      defaultValue_other: '{{count}} viewers',
+      count: stream.viewers.length,
+    }),
+    Number.isFinite(started) ? formatMinutes(Math.max(0, (now - started) / 1000)) : null,
+  ]
+    .filter(Boolean)
+    .join(' · ');
+  const title = stream.channelTitle ?? channel;
+  return (
+    <li className="flex items-center gap-3 px-3 py-2" data-testid="channels-stream">
+      <div className="bg-muted flex h-8 w-12 shrink-0 items-center justify-center overflow-hidden rounded">
+        {stream.thumbPath ? (
+          <img
+            src={imageProxyUrl(stream.serverId, stream.thumbPath, 96, 64)}
+            alt=""
+            className="h-full w-full object-contain"
+            loading="lazy"
+          />
+        ) : (
+          <Tv className="text-muted-foreground h-4 w-4" aria-hidden="true" />
+        )}
+      </div>
+      <div className="min-w-0 flex-1">
+        <p className="flex min-w-0 items-center gap-2 text-sm font-medium">
+          <span className="truncate" title={title}>
+            {title}
+          </span>
+          {stream.recording && (
+            <span
+              className="shrink-0 rounded-full bg-red-500/15 px-2 py-0.5 text-[11px] font-medium text-red-600 dark:text-red-400"
+              data-testid="channels-stream-recording"
+            >
+              {t('dashboard.recording.badge', { defaultValue: 'Recording' })}
+            </span>
+          )}
+        </p>
+        {/* Half width, chips for several viewers leave the line little room, so it wraps there */}
+        <p
+          className={cn('text-muted-foreground text-xs', !halfWidth && 'truncate')}
+          data-testid="channels-stream-detail"
+        >
+          {detail}
+        </p>
+      </div>
+      {stream.viewers.length > 0 && (
+        <div className="flex max-w-[50%] shrink-0 flex-wrap justify-end gap-1">
+          {stream.viewers.map((viewer, index) => (
+            <span
+              key={`${index}:${viewer}`}
+              className="bg-muted text-muted-foreground rounded-full px-2 py-0.5 text-[11px] font-medium"
+              data-testid="channels-stream-viewer"
+            >
+              {viewer}
+            </span>
+          ))}
+        </div>
+      )}
+    </li>
+  );
+}
+
 function isSameDay(a: Date, b: Date): boolean {
   return (
     a.getFullYear() === b.getFullYear() &&
@@ -279,10 +374,19 @@ export function useFormatMinutes(): (seconds: number) => string {
 }
 
 /** "3 of 5 tuners in use", amber when every tuner is busy. */
-function TunerPill({ usage, showServer }: { usage: ChannelsDvrTunerUsage; showServer: boolean }) {
+function TunerPill({
+  usage,
+  showServer,
+  shared = 0,
+}: {
+  usage: ChannelsDvrTunerUsage;
+  showServer: boolean;
+  /** Channels streaming to more than one client, or to a client while recording (fork) */
+  shared?: number;
+}) {
   const { t } = useTranslation('pages');
   const full = usage.inUse >= usage.total;
-  const label = showServer
+  const inUse = showServer
     ? t('dashboard.recording.tunersOnServer', {
         defaultValue: '{{server}}: {{inUse}} of {{total}} tuners in use',
         server: usage.serverName,
@@ -294,6 +398,11 @@ function TunerPill({ usage, showServer }: { usage: ChannelsDvrTunerUsage; showSe
         inUse: usage.inUse,
         total: usage.total,
       });
+  // "· 1 shared" says why two viewers can hold one tuner (fork)
+  const label =
+    shared > 0
+      ? `${inUse} · ${t('dashboard.recording.tunersShared', { defaultValue: '{{count}} shared', count: shared })}`
+      : inUse;
   return (
     <span
       className={
@@ -301,9 +410,16 @@ function TunerPill({ usage, showServer }: { usage: ChannelsDvrTunerUsage; showSe
           ? 'rounded-full bg-amber-500/15 px-2 py-0.5 text-xs font-medium text-amber-600 dark:text-amber-400'
           : 'bg-muted text-muted-foreground rounded-full px-2 py-0.5 text-xs font-medium'
       }
-      title={t('dashboard.recording.tunersHint', {
-        defaultValue: 'One tuner per channel being watched live or recorded',
-      })}
+      title={
+        shared > 0
+          ? t('dashboard.recording.tunersSharedHint', {
+              defaultValue:
+                'One tuner per channel being watched live or recorded. Everyone on the same channel, and a recording of it, share one tuner',
+            })
+          : t('dashboard.recording.tunersHint', {
+              defaultValue: 'One tuner per channel being watched live or recorded',
+            })
+      }
       data-testid="tuner-usage"
     >
       {label}
@@ -925,6 +1041,7 @@ export function RecordingNowSection({
   tuners = [],
   disks = [],
   recent = [],
+  streams = [],
   versions = [],
   linkBases = {},
   showServer = false,
@@ -949,7 +1066,18 @@ export function RecordingNowSection({
             <MediaServerIcon type="channels_dvr" className="h-4 w-4 rounded-sm" alt="" />
             {title ?? t('dashboard.recording.panelTitle', { defaultValue: 'Channels DVR' })}
             {tuners.map((usage) => (
-              <TunerPill key={usage.serverId} usage={usage} showServer={showServer} />
+              <TunerPill
+                key={usage.serverId}
+                usage={usage}
+                showServer={showServer}
+                shared={
+                  streams.filter(
+                    (stream) =>
+                      stream.serverId === usage.serverId &&
+                      stream.viewers.length + (stream.recording ? 1 : 0) > 1
+                  ).length
+                }
+              />
             ))}
             {disks.map((usage) => (
               <DiskPill key={usage.serverId} usage={usage} showServer={showServer} />
@@ -966,6 +1094,39 @@ export function RecordingNowSection({
         </CardHeader>
         <CardContent>
           <h4 className="mb-2 flex items-center gap-2 text-sm font-semibold">
+            <span
+              className={
+                streams.length > 0
+                  ? 'h-2 w-2 rounded-full bg-emerald-500'
+                  : 'bg-muted-foreground/40 h-2 w-2 rounded-full'
+              }
+              aria-hidden="true"
+            />
+            {t('dashboard.recording.streamingNow', { defaultValue: 'Streaming Now' })}
+            {streams.length > 0 && (
+              <span className="bg-muted text-foreground rounded-full px-2 py-0.5 text-xs font-medium">
+                {streams.length}
+              </span>
+            )}
+          </h4>
+          {streams.length > 0 ? (
+            <ul className="divide-y rounded-xl border">
+              {streams.map((stream) => (
+                <StreamRow
+                  key={`${stream.serverId}:${stream.channelNumber}`}
+                  stream={stream}
+                  now={now}
+                  showServer={showServer}
+                  halfWidth={halfWidth}
+                />
+              ))}
+            </ul>
+          ) : (
+            <p className="text-muted-foreground text-sm" data-testid="channels-streaming-idle">
+              {t('dashboard.recording.nothingStreaming', { defaultValue: 'Nothing streaming.' })}
+            </p>
+          )}
+          <h4 className="mt-5 mb-2 flex items-center gap-2 text-sm font-semibold">
             <span
               className={
                 recordings.length > 0
